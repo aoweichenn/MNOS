@@ -1,7 +1,9 @@
-#include <iostream>
 #include <limits>
-#include <stdexcept>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include <cpu/support/cpu_test_helpers.hpp>
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
@@ -13,15 +15,14 @@
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
-#include <support/test_assert.hpp>
-#include <cpu/support/cpu_test_helpers.hpp>
 
 namespace cpu = mnos::cpu;
-namespace test = mnos::test;
 namespace cpu_support = mnos::test::cpu_support;
 
 namespace
 {
+using ::testing::Eq;
+
 constexpr cpu::SQWORD64 TEST_PROGRAM_INITIAL_VALUE = cpu::SQWORD64{1};
 constexpr cpu::SQWORD64 TEST_LINEAR_ADD_VALUE = cpu::SQWORD64{2};
 constexpr cpu::SQWORD64 TEST_LINEAR_SUB_VALUE = cpu::SQWORD64{1};
@@ -37,10 +38,8 @@ constexpr cpu::SQWORD64 TEST_SUB_BORROW_RIGHT_VALUE = cpu::SQWORD64{1};
 constexpr std::size_t TEST_PROGRAM_RESERVE_COUNT = 8;
 constexpr std::size_t TEST_LINEAR_PROGRAM_STEP_COUNT = 4;
 constexpr std::size_t TEST_BRANCH_PROGRAM_STEP_COUNT = 5;
-constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
 constexpr cpu::SQWORD64 TEST_BRANCH_TARGET = cpu::SQWORD64{4};
 constexpr cpu::SQWORD64 TEST_JUMP_END_TARGET = cpu::SQWORD64{5};
-constexpr cpu::SQWORD64 TEST_LOOP_TARGET = cpu::SQWORD64{0};
 constexpr cpu::RIP64 TEST_FIRST_RIP = cpu::RIP64{0};
 constexpr cpu::RIP64 TEST_BRANCH_PROGRAM_FINAL_RIP = cpu::RIP64{6};
 
@@ -59,8 +58,9 @@ constexpr std::size_t TEST_MEMORY_MOV_PROGRAM_STEP_COUNT = 5;
 constexpr std::size_t TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT = 6;
 constexpr std::size_t TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT = 4;
 constexpr cpu::SQWORD64 TEST_MEMORY_BRANCH_TARGET = cpu::SQWORD64{5};
+}
 
-void test_executor_linear_program()
+TEST(ExecutorProgramTest, RunsLinearProgramAndRecordsTrace)
 {
     cpu::Program program;
     program.reserve(TEST_LINEAR_PROGRAM_STEP_COUNT);
@@ -75,24 +75,22 @@ void test_executor_linear_program()
     trace.reserve(TEST_LINEAR_PROGRAM_STEP_COUNT);
     const std::size_t executed_steps = executor.run(state, program, cpu::EXECUTOR_DEFAULT_MAX_STEPS, &trace);
 
-    test::check(executed_steps == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program executed step count mismatch");
-    test::check(executor.cycle_count() == TEST_LINEAR_PROGRAM_STEP_COUNT, "executor cycle count mismatch");
-    test::check(state.is_halted(), "linear program should halt");
-    test::check(state.rip() == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program final RIP mismatch");
-    test::check(state.registers().read(cpu::RegisterId::RAX) == TEST_LINEAR_EXPECTED_RAX,
-                "linear program RAX mismatch");
-    test::check(trace.size() == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program trace size mismatch");
-    test::check(trace.at(0).rip_before == TEST_FIRST_RIP, "linear trace first RIP mismatch");
-    test::check(trace.at(0).opcode == cpu::Opcode::MOV, "linear trace first opcode mismatch");
-    test::check(trace.at(TEST_LINEAR_PROGRAM_STEP_COUNT - std::size_t{1}).halted_after,
-                "linear trace halt mismatch");
+    EXPECT_THAT(executed_steps, Eq(TEST_LINEAR_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(executor.cycle_count(), Eq(TEST_LINEAR_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(state.rip(), Eq(TEST_LINEAR_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(TEST_LINEAR_EXPECTED_RAX));
+    EXPECT_THAT(trace.size(), Eq(TEST_LINEAR_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(trace.at(0).rip_before, Eq(TEST_FIRST_RIP));
+    EXPECT_THAT(trace.at(0).opcode, Eq(cpu::Opcode::MOV));
+    EXPECT_TRUE(trace.at(TEST_LINEAR_PROGRAM_STEP_COUNT - std::size_t{1}).halted_after);
 
     executor.reset();
-    test::check(executor.cycle_count() == cpu::UQWORD64{0}, "executor reset mismatch");
-    test::check(executor.step(state, program) == cpu::StepResult::HALTED, "step on halted state mismatch");
+    EXPECT_THAT(executor.cycle_count(), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(executor.step(state, program), Eq(cpu::StepResult::HALTED));
 }
 
-void test_executor_branch_program()
+TEST(ExecutorProgramTest, RunsConditionalBranchProgram)
 {
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -107,14 +105,13 @@ void test_executor_branch_program()
     cpu::Executor executor;
     const std::size_t executed_steps = executor.run(state, program);
 
-    test::check(executed_steps == TEST_BRANCH_PROGRAM_STEP_COUNT, "branch program executed step count mismatch");
-    test::check(state.registers().read(cpu::RegisterId::RBX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
-                "branch program RBX mismatch");
-    test::check(state.flags().read(cpu::FlagId::ZF), "branch program ZF mismatch");
-    test::check(state.rip() == TEST_BRANCH_PROGRAM_FINAL_RIP, "branch program final RIP mismatch");
+    EXPECT_THAT(executed_steps, Eq(TEST_BRANCH_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
+    EXPECT_THAT(state.rip(), Eq(TEST_BRANCH_PROGRAM_FINAL_RIP));
 }
 
-void test_executor_jne_fallthrough()
+TEST(ExecutorProgramTest, LetsJneFallThroughWhenZeroFlagIsSet)
 {
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -128,13 +125,11 @@ void test_executor_jne_fallthrough()
     cpu::Executor executor;
     static_cast<void>(executor.run(state, program));
 
-    test::check(state.registers().read(cpu::RegisterId::RBX) ==
-                    static_cast<cpu::UQWORD64>(TEST_FALLTHROUGH_BRANCH_VALUE),
-                "JNE fallthrough RBX mismatch");
-    test::check(state.flags().read(cpu::FlagId::ZF), "JNE fallthrough ZF mismatch");
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_FALLTHROUGH_BRANCH_VALUE)));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
 }
 
-void test_executor_unconditional_jump()
+TEST(ExecutorProgramTest, RunsUnconditionalJumpProgram)
 {
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -149,11 +144,10 @@ void test_executor_unconditional_jump()
     cpu::Executor executor;
     static_cast<void>(executor.run(state, program));
 
-    test::check(state.registers().read(cpu::RegisterId::RAX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
-                "JMP program RAX mismatch");
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
 }
 
-void test_executor_arithmetic_flags()
+TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
 {
     cpu::Program carry_program;
     carry_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -164,9 +158,9 @@ void test_executor_arithmetic_flags()
     cpu::CpuState carry_state;
     cpu::Executor executor;
     static_cast<void>(executor.run(carry_state, carry_program));
-    test::check(carry_state.registers().read(cpu::RegisterId::RAX) == cpu::UQWORD64{0}, "ADD carry result mismatch");
-    test::check(carry_state.flags().read(cpu::FlagId::CF), "ADD carry CF mismatch");
-    test::check(carry_state.flags().read(cpu::FlagId::ZF), "ADD carry ZF mismatch");
+    EXPECT_THAT(carry_state.registers().read(cpu::RegisterId::RAX), Eq(cpu::UQWORD64{0}));
+    EXPECT_TRUE(carry_state.flags().read(cpu::FlagId::CF));
+    EXPECT_TRUE(carry_state.flags().read(cpu::FlagId::ZF));
 
     cpu::Program overflow_program;
     overflow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -177,8 +171,8 @@ void test_executor_arithmetic_flags()
     cpu::CpuState overflow_state;
     executor.reset();
     static_cast<void>(executor.run(overflow_state, overflow_program));
-    test::check(overflow_state.flags().read(cpu::FlagId::OF), "ADD overflow OF mismatch");
-    test::check(overflow_state.flags().read(cpu::FlagId::SF), "ADD overflow SF mismatch");
+    EXPECT_TRUE(overflow_state.flags().read(cpu::FlagId::OF));
+    EXPECT_TRUE(overflow_state.flags().read(cpu::FlagId::SF));
 
     cpu::Program borrow_program;
     borrow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
@@ -189,20 +183,18 @@ void test_executor_arithmetic_flags()
     cpu::CpuState borrow_state;
     executor.reset();
     static_cast<void>(executor.run(borrow_state, borrow_program));
-    test::check(borrow_state.flags().read(cpu::FlagId::CF), "SUB borrow CF mismatch");
-    test::check(borrow_state.flags().read(cpu::FlagId::SF), "SUB borrow SF mismatch");
+    EXPECT_TRUE(borrow_state.flags().read(cpu::FlagId::CF));
+    EXPECT_TRUE(borrow_state.flags().read(cpu::FlagId::SF));
 }
 
-void test_executor_memory_mov_program()
+TEST(ExecutorProgramTest, MovesValuesThroughMemory)
 {
     cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};
 
     cpu::Program program;
     program.reserve(TEST_MEMORY_MOV_PROGRAM_STEP_COUNT);
-    program.push_back(cpu_support::make_mov_imm(
-        cpu::RegisterId::RBP,
-        static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_MEMORY_EXECUTOR_VALUE));
     program.push_back(cpu::Instruction::make_mov(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
@@ -216,16 +208,12 @@ void test_executor_memory_mov_program()
     cpu::Executor executor;
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
-    test::check(executed_steps == TEST_MEMORY_MOV_PROGRAM_STEP_COUNT, "memory MOV step count mismatch");
-    test::check(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS) ==
-                    static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE),
-                "memory MOV stored value mismatch");
-    test::check(state.registers().read(cpu::RegisterId::RBX) ==
-                    static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE),
-                "memory MOV loaded register mismatch");
+    EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_MOV_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE)));
 }
 
-void test_executor_memory_arithmetic_program()
+TEST(ExecutorProgramTest, RunsArithmeticAgainstMemoryOperands)
 {
     cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};
@@ -233,9 +221,7 @@ void test_executor_memory_arithmetic_program()
 
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
-    program.push_back(cpu_support::make_mov_imm(
-        cpu::RegisterId::RBP,
-        static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
     program.push_back(cpu::Instruction::make_add(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
         cpu::Operand::imm(TEST_MEMORY_ADD_INCREMENT)));
@@ -251,17 +237,13 @@ void test_executor_memory_arithmetic_program()
     cpu::Executor executor;
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
-    test::check(executed_steps == TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT,
-                "memory arithmetic step count mismatch");
-    test::check(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS) ==
-                    static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_EXPECTED_VALUE),
-                "memory arithmetic stored value mismatch");
-    test::check(state.flags().read(cpu::FlagId::ZF), "memory arithmetic CMP should set ZF");
-    test::check(state.registers().read(cpu::RegisterId::RAX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
-                "memory arithmetic branch result mismatch");
+    EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
 }
 
-void test_executor_memory_negative_displacement()
+TEST(ExecutorProgramTest, SupportsNegativeMemoryDisplacement)
 {
     cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};
@@ -279,24 +261,6 @@ void test_executor_memory_negative_displacement()
     cpu::Executor executor;
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
-    test::check(executed_steps == TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT,
-                "memory negative displacement step count mismatch");
-    test::check(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS) == static_cast<cpu::UDWORD32>(TEST_MEMORY_ADD_EXPECTED_VALUE),
-                "memory negative displacement stored value mismatch");
-}
-}
-
-int main()
-{
-    test_executor_linear_program();
-    test_executor_branch_program();
-    test_executor_jne_fallthrough();
-    test_executor_unconditional_jump();
-    test_executor_arithmetic_flags();
-    test_executor_memory_mov_program();
-    test_executor_memory_arithmetic_program();
-    test_executor_memory_negative_displacement();
-
-    std::cout << "mnos_cpu_executor_integration_tests passed\n";
-    return 0;
+    EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT));
+    EXPECT_THAT(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS), Eq(static_cast<cpu::UDWORD32>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
 }

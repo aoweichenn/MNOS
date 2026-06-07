@@ -1,6 +1,6 @@
 # MNOS 架构说明
 
-MNOS 当前阶段的定位是：先构建一个可测试、可扩展的 x86-64 CPU 模拟核心，然后在 CPU core 之上继续发展 OS/kernel 相关模块。当前仓库还没有真正的 OS 代码，所以这次重构没有凭空创建空功能，而是先把 CPU、模拟器入口、测试、通用工具的边界搭好。
+MNOS 当前阶段的定位是：先构建一个可测试、可扩展的 x86-64 CPU 模拟核心，再在 CPU core 之上逐步发展类 Linux 的 OS/kernel。现在 CPU 已经具备最小执行循环和物理内存总线，OS 也进入 Stage 0：kernel boot skeleton、硬件 facade、地址/分页基础模型、线程 CPU 上下文模型。
 
 ## 当前目录
 
@@ -14,10 +14,17 @@ include/mnos/
     instruction/        指令 opcode、operand、instruction
     memory/             物理内存和 CPU memory bus
     execution/          CPU 状态、程序容器、执行器、执行 trace
+  os/                   OS/kernel 的公开 API
+    platform/           Machine facade，组合物理内存和 memory bus
+    kernel/             BootContext、Kernel boot skeleton
+    mm/                 physical/virtual address 强类型、4KiB page 工具
+    sched/              ThreadId、ThreadState、ThreadContext
 
 src/
   cpu/                  CPU core 的实现，目录结构镜像 include/mnos/cpu
+  os/                   OS/kernel 的实现，目录结构镜像 include/mnos/os
   emulator/             宿主机上的模拟器入口程序
+  benchmarks/           Google Benchmark 性能基线
 
 tests/
   support/              通用测试断言、确定性 PRNG 等
@@ -27,23 +34,30 @@ tests/
     integration/        跨模块执行链路测试
     chaos/              固定 seed 的长流程状态扰动测试
     fuzz/               固定 seed 的输入组合和边界 fuzz 测试
+  os/
+    unit/               OS 单模块单元测试
+    integration/        kernel + thread context + CPU executor 集成测试
+    chaos/              固定 seed 的线程上下文状态扰动测试
+    fuzz/               固定 seed 的地址/分页边界 fuzz 测试
 
 docs/
   architecture/         项目结构和设计说明
   questions/            C++ 学习问题整理
 ```
 
-未来真正添加 OS 代码时，建议按下面的边界扩展，而不是把 CPU 模拟器和 OS 逻辑混在一起：
+未来继续添加 OS 代码时，沿着下面的边界扩展，而不是把 CPU 模拟器和 OS 逻辑混在一起：
 
 ```text
 include/mnos/os/
+  platform/             emulated machine、core topology、timer、interrupt controller
   kernel/               kernel object、boot flow、panic/assert
-  mm/                   physical/virtual memory、page table、allocator
-  sched/                task/thread/process scheduler
+  mm/                   physical/virtual memory、page table、allocator、MMU adapter
+  sched/                task/thread/process scheduler、run queue、context switch
   fs/                   file system abstraction
   syscall/              syscall ABI and dispatcher
 
 src/os/
+  platform/
   kernel/
   mm/
   sched/
@@ -56,9 +70,43 @@ src/os/
 ```text
 mnos_emulator -> mnos_os -> mnos_cpu
 tests/*       -> 被测目标
+benchmarks/*  -> mnos_os/mnos_cpu
 ```
 
 CPU core 不应该反向依赖 OS。CPU 负责寄存器、指令、flags、内存访问接口和执行语义；OS 负责进程、内存管理、文件系统、系统调用、调度等更高层语义。这样后面既可以用同一个 CPU core 跑 OS 测试，也可以单独测试 CPU 指令行为。
+
+## 当前 OS Stage 0
+
+这一步新增了真正的 OS 入口边界：
+
+```text
+include/mnos/os/platform/
+  machine.hpp           组合 PhysicalMemory + MemoryBus，表示当前模拟硬件
+
+include/mnos/os/kernel/
+  boot_context.hpp      boot 阶段的硬件资源视图和启动参数
+  kernel.hpp            kernel boot 状态机，目前只建立启动不变量
+
+include/mnos/os/mm/
+  address.hpp           PhysicalAddress / VirtualAddress 强类型
+  page.hpp              4KiB page alignment、page number、page count
+
+include/mnos/os/sched/
+  thread_id.hpp         ThreadId 强类型
+  thread_state.hpp      READY/RUNNING/BLOCKED/DEAD 状态表
+  thread_context.hpp    保存一个线程的 CpuState 和 kernel stack 范围
+```
+
+这一阶段还不是完整 OS，也没有直接上进程/线程调度器。原因是：调度器的本质是“在多个可运行上下文之间选择一个，把 CPU 状态切过去”。所以在实现 run queue、进程地址空间、多核之前，需要先把 `ThreadContext = CpuState + kernel stack + state` 这个硬件/OS 交界概念建好。
+
+现在 `mnos_emulator` 会先创建 `platform::Machine`，再通过 `BootContext` 启动 `Kernel`，最后使用 boot context 暴露的 `MemoryBus` 跑 CPU demo：
+
+```text
+Machine -> BootContext -> Kernel::boot()
+BootContext::memory_bus() -> Executor::run(...)
+```
+
+这个依赖方向保证了后面加 MMU、cache、interrupt、scheduler 时，CPU 执行器不需要反向知道 OS。
 
 ## 当前 CPU 执行层
 
@@ -146,15 +194,17 @@ Executor -> MemoryBus -> MMU/PageTable -> PhysicalMemory
 
 ## CMake 目标
 
-当前 CMake 有三个主要目标：
+当前 CMake 有这些主要目标：
 
 ```text
 mnos_cpu        静态库，CPU 模拟核心
+mnos_os         静态库，OS/kernel Stage 0
 mnos_emulator   可执行程序，宿主机模拟器入口
-*_unit_tests    CPU core 单模块测试
+*_unit_tests    CPU/OS 单模块测试
 *_integration_tests
 *_chaos_tests
 *_fuzz_tests
+mnos_benchmarks Google Benchmark 性能基线
 ```
 
 这样拆分的好处：
@@ -162,12 +212,13 @@ mnos_emulator   可执行程序，宿主机模拟器入口
 1. CPU core 可以被 emulator、OS、测试复用。
 2. include path 使用 `target_include_directories` 绑定在目标上，避免全局污染。
 3. warning、coverage、C++ 标准都通过目标作用域配置，不会意外影响无关目标。
-4. 未来添加 `mnos_os` 时，只需要让 OS 目标链接 `mnos_cpu`，不用把所有文件塞进一个 executable。
+4. OS 目标链接 `mnos_cpu`，CPU 不反向依赖 OS。
 5. 测试目标按 unit、integration、chaos、fuzz 分层，coverage 目标会运行全部测试目标。
+6. benchmark 独立于 `ctest`，避免普通测试被性能测量拖慢。
 
 ## 测试结构
 
-当前测试按目的拆分，而不是把所有断言堆在一个文件里：
+当前测试全部使用 GoogleTest/GoogleMock，按目的拆分，而不是把所有断言堆在一个文件里：
 
 ```text
 tests/cpu/unit/
@@ -186,6 +237,20 @@ tests/cpu/chaos/
 
 tests/cpu/fuzz/
   memory_executor_fuzz_test.cpp   固定 seed 的内存/执行器输入组合 fuzz
+
+tests/os/unit/
+  address_page_test.cpp           地址强类型和 page 工具
+  kernel_boot_context_test.cpp    Machine、BootContext、Kernel
+  thread_context_test.cpp         ThreadId、ThreadState、ThreadContext
+
+tests/os/integration/
+  kernel_boot_integration_test.cpp kernel boot 后跑 ThreadContext + CPU executor
+
+tests/os/chaos/
+  thread_context_chaos_test.cpp   固定 seed 的线程上下文状态扰动
+
+tests/os/fuzz/
+  address_page_fuzz_test.cpp      固定 seed 的地址/分页边界 fuzz
 ```
 
 这里的 chaos 和 fuzz 都是 deterministic 的：使用固定 seed，不依赖系统随机源。这样失败时可以稳定复现，同时仍然能覆盖大量组合状态。chaos 更偏“长流程状态演进”，fuzz 更偏“输入组合、边界和非法形状”。

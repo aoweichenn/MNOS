@@ -1089,6 +1089,160 @@ thread B stack: [0x2000, 0x3000)
 
 调度器切换线程时，不只是恢复寄存器，也会让 `RSP/RBP` 指向对应线程的栈。这样你会真正看到：线程切换不是抽象魔法，而是 CPU 上下文和内存地址一起切换。
 
+## 9. OS Stage 0 现在到底做了什么？为什么还不是完整 OS？
+
+OS Stage 0 做的是“能支撑后续 OS 的底层对象”，不是直接写完线程、进程、调度器。
+
+当前新增的核心概念是：
+
+```text
+Machine       当前模拟硬件：物理内存 + memory bus
+BootContext   kernel 启动时看到的硬件资源和启动参数
+Kernel        最小启动状态机
+PhysicalAddress / VirtualAddress
+Page 工具     4KiB 对齐、页号、页内偏移、页数量
+ThreadContext 线程 CPU 上下文 + kernel stack + 状态
+```
+
+### 为什么要先做 Machine？
+
+真实机器不是只有 CPU。CPU 访问内存时，中间有 bus、cache、MMU、内存控制器等层次。当前项目还没做这么复杂，但已经先把方向固定成：
+
+```text
+Executor -> MemoryBus -> PhysicalMemory
+```
+
+`Machine` 把 `PhysicalMemory` 和 `MemoryBus` 组合起来：
+
+```cpp
+platform::Machine machine(16 * 4096);
+```
+
+这样 kernel 启动时不需要自己拼硬件对象，而是通过 `BootContext` 拿到硬件资源：
+
+```cpp
+kernel::BootContext boot_context{machine};
+kernel::Kernel os_kernel{boot_context};
+os_kernel.boot();
+```
+
+这是一种 facade 思想：对外提供一个稳定入口，对内隐藏组合细节。
+
+### 为什么要区分物理地址和虚拟地址？
+
+初学者最容易把地址理解成“一个数字”。在没开分页时，这个理解勉强可以；但 OS 一旦有虚拟内存，就必须区分：
+
+```text
+VirtualAddress  CPU 指令看到的地址
+PhysicalAddress 真实物理内存中的地址
+```
+
+同样是 `0x1000`，它可能表示完全不同的东西：
+
+```cpp
+mm::VirtualAddress va{0x1000};
+mm::PhysicalAddress pa{0x1000};
+```
+
+这两个对象底层都是 64 位整数，但类型不同。后续如果你写：
+
+```cpp
+translate(mm::VirtualAddress address);
+read_physical(mm::PhysicalAddress address);
+```
+
+编译器就能帮你阻止“把虚拟地址直接当物理地址读”的错误。
+
+### 为什么 page 是 4096？
+
+x86-64 上常见基础页大小是 4KiB：
+
+```text
+4096 = 2^12
+```
+
+所以一个地址的低 12 位就是页内偏移：
+
+```text
+address = 0x2345
+page    = 0x2
+offset  = 0x345
+```
+
+代码里的位运算：
+
+```cpp
+offset = address & 0xFFF;
+page   = address >> 12;
+```
+
+本质上就是在模拟硬件分页会使用的地址拆分规则。当前还没实现 page table，但这些基础函数是 page table、allocator、MMU 的前置条件。
+
+### ThreadContext 为什么不是完整线程？
+
+`ThreadContext` 当前保存：
+
+```text
+ThreadId
+ThreadState
+CpuState
+kernel stack bottom/top
+```
+
+它不是完整线程，因为完整线程还需要：
+
+```text
+所属进程
+调度优先级
+等待对象
+时间片
+线程入口函数
+用户栈/内核栈
+TLS
+信号/取消状态
+```
+
+但 `ThreadContext` 已经抓住了线程最底层的一点：线程切换最终要保存和恢复 CPU 状态。
+
+例如：
+
+```cpp
+sched::ThreadContext thread{
+    sched::ThreadId::first_kernel_thread(),
+    mm::VirtualAddress{0x8000}
+};
+```
+
+构造后，`RSP` 会指向这个线程的 kernel stack top。因为 x86-64 栈向低地址增长，所以初始栈指针放在高地址一端。
+
+### 下一步为什么应该做页分配器，而不是马上做多核线程？
+
+创建线程需要栈：
+
+```text
+thread -> kernel stack
+```
+
+创建进程需要地址空间：
+
+```text
+process -> page table -> physical pages
+```
+
+锁、信号量、生产者消费者最终也要依赖调度器和等待队列。调度器又会依赖线程对象和内存分配。
+
+所以更稳的路线是：
+
+```text
+Stage 1: PhysicalPageAllocator / BootAllocator
+Stage 2: 最小 run queue + cooperative scheduler
+Stage 3: blocking/wakeup + semaphore/mutex
+Stage 4: process/address-space/page-table
+Stage 5: multicore/cache/atomic/interrupt
+```
+
+这样每一步都能在硬件层面看到“为什么 OS 这样设计”，而不是只背概念。
+
 ## 总结
 
 几个核心判断：
@@ -1101,3 +1255,4 @@ thread B stack: [0x2000, 0x3000)
 6. `static` 的含义取决于位置：链接、生命周期、类成员归属分别是不同概念。
 7. CPU 单核执行循环是线程/进程/多核调度的底层基础，不是和 OS 目标相反的方向。
 8. PhysicalMemory/MemoryBus 把 CPU 指令执行和底层字节内存连接起来，是后续栈、线程、进程、锁和缓存模型的基础。
+9. OS Stage 0 建立了 kernel boot、地址/页和 ThreadContext 的边界；下一阶段更适合做页分配器，再进入 scheduler。

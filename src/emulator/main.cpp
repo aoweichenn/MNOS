@@ -7,16 +7,19 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
-#include <mnos/cpu/memory/memory_bus.hpp>
-#include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/os/kernel/boot_context.hpp>
+#include <mnos/os/kernel/kernel.hpp>
+#include <mnos/os/platform/machine.hpp>
 
 namespace cpu = mnos::cpu;
+namespace kernel = mnos::os::kernel;
+namespace platform = mnos::os::platform;
 
 namespace
 {
 constexpr std::size_t EMULATOR_BOOTSTRAP_PROGRAM_INSTRUCTION_COUNT = 6;
-constexpr std::size_t EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES = 256;
+constexpr std::size_t EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES = 16384;
 constexpr cpu::SQWORD64 EMULATOR_BOOTSTRAP_INITIAL_RAX = cpu::SQWORD64{1};
 constexpr cpu::SQWORD64 EMULATOR_BOOTSTRAP_RAX_INCREMENT = cpu::SQWORD64{41};
 constexpr cpu::SQWORD64 EMULATOR_BOOTSTRAP_MEMORY_BASE = cpu::SQWORD64{64};
@@ -27,6 +30,11 @@ constexpr cpu::ADDRESS64 EMULATOR_BOOTSTRAP_STORED_ADDRESS =
 
 int main()
 {
+    platform::Machine machine(EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES);
+    kernel::BootContext boot_context{machine};
+    kernel::Kernel os_kernel{boot_context};
+    os_kernel.boot();
+
     cpu::Program program;
     program.reserve(EMULATOR_BOOTSTRAP_PROGRAM_INSTRUCTION_COUNT);
     program.push_back(cpu::Instruction::make_mov(
@@ -53,16 +61,15 @@ int main()
     program.push_back(cpu::Instruction::make_halt());
 
     cpu::CpuState state;
-    cpu::PhysicalMemory physical_memory(EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES);
-    cpu::MemoryBus memory_bus{physical_memory};
     cpu::Executor executor;
-    const std::size_t executed_steps = executor.run(state, program, memory_bus);
+    const std::size_t executed_steps = executor.run(state, program, boot_context.memory_bus());
 
-    std::cout << "MNOS emulator bootstrap: " << cpu::opcode_to_assembly_name(cpu::Opcode::HALT)
+    std::cout << "MNOS emulator bootstrap: kernel=" << (os_kernel.is_booted() ? "booted" : "not-booted")
+              << ", " << cpu::opcode_to_assembly_name(cpu::Opcode::HALT)
               << ", RAX=" << state.registers().read(cpu::RegisterId::RAX)
               << ", RBX=" << state.registers().read(cpu::RegisterId::RBX)
               << ", MEM[" << EMULATOR_BOOTSTRAP_STORED_ADDRESS
-              << "]=" << physical_memory.read_qword(EMULATOR_BOOTSTRAP_STORED_ADDRESS)
+              << "]=" << machine.physical_memory().read_qword(EMULATOR_BOOTSTRAP_STORED_ADDRESS)
               << ", steps=" << executed_steps
               << ", cycles=" << executor.cycle_count() << '\n';
     return 0;

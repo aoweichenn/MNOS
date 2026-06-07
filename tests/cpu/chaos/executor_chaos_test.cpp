@@ -1,7 +1,10 @@
 #include <array>
-#include <iostream>
 #include <stdexcept>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include <cpu/support/cpu_test_helpers.hpp>
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
@@ -13,8 +16,6 @@
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <support/deterministic_prng.hpp>
-#include <support/test_assert.hpp>
-#include <cpu/support/cpu_test_helpers.hpp>
 
 namespace cpu = mnos::cpu;
 namespace test = mnos::test;
@@ -22,6 +23,8 @@ namespace cpu_support = mnos::test::cpu_support;
 
 namespace
 {
+using ::testing::Eq;
+
 constexpr std::uint64_t CHAOS_SEED = 0xC001CAFEULL;
 constexpr std::size_t CHAOS_OPERATION_COUNT = 96;
 constexpr std::size_t CHAOS_PROGRAM_EXTRA_INSTRUCTIONS = 3;
@@ -61,8 +64,9 @@ inline constexpr std::uint64_t CHAOS_OPERATION_KIND_COUNT = static_cast<std::uin
 {
     return static_cast<cpu::SQWORD64>(slot * cpu::DATA_SIZE_QWORD_BYTES);
 }
+}
 
-void test_executor_deterministic_chaos_program()
+TEST(ExecutorChaosTest, RunsDeterministicLongProgramAgainstModel)
 {
     test::DeterministicPrng prng{CHAOS_SEED};
     cpu::Program program;
@@ -133,24 +137,15 @@ void test_executor_deterministic_chaos_program()
 
     const std::size_t executed_steps = executor.run(state, program, memory_bus, program.size(), &trace);
 
-    test::check(executed_steps == program.size(), "chaos program step count mismatch");
-    test::check(trace.size() == program.size(), "chaos trace size mismatch");
-    test::check(state.is_halted(), "chaos program should halt");
-    test::check(state.registers().read(cpu::RegisterId::RAX) == expected_rax, "chaos RAX mismatch");
-    test::check(state.registers().read(cpu::RegisterId::RBX) == expected_rbx, "chaos RBX mismatch");
+    EXPECT_THAT(executed_steps, Eq(program.size()));
+    EXPECT_THAT(trace.size(), Eq(program.size()));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(expected_rax));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(expected_rbx));
 
     for (std::size_t slot = 0; slot < CHAOS_MEMORY_SLOT_COUNT; ++slot)
     {
         const cpu::ADDRESS64 address = CHAOS_MEMORY_BASE_ADDRESS + static_cast<cpu::ADDRESS64>(slot_displacement(slot));
-        test::check(memory.read_qword(address) == expected_memory[slot], "chaos memory slot mismatch");
+        EXPECT_THAT(memory.read_qword(address), Eq(expected_memory[slot]));
     }
-}
-}
-
-int main()
-{
-    test_executor_deterministic_chaos_program();
-
-    std::cout << "mnos_cpu_executor_chaos_tests passed\n";
-    return 0;
 }

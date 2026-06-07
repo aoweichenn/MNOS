@@ -1,7 +1,10 @@
 #include <array>
-#include <iostream>
 #include <stdexcept>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include <cpu/support/cpu_test_helpers.hpp>
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
@@ -12,8 +15,6 @@
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <support/deterministic_prng.hpp>
-#include <support/test_assert.hpp>
-#include <cpu/support/cpu_test_helpers.hpp>
 
 namespace cpu = mnos::cpu;
 namespace test = mnos::test;
@@ -21,6 +22,8 @@ namespace cpu_support = mnos::test::cpu_support;
 
 namespace
 {
+using ::testing::Eq;
+
 constexpr std::uint64_t FUZZ_SEED = 0xF00D1234ULL;
 constexpr std::size_t FUZZ_MEMORY_SIZE_BYTES = 256;
 constexpr std::size_t FUZZ_MEMORY_CASE_COUNT = 192;
@@ -73,15 +76,14 @@ void write_model(
     }
 }
 
-[[nodiscard]] cpu::ADDRESS64 fuzz_valid_address(
-    test::DeterministicPrng& prng,
-    const std::size_t byte_count) noexcept
+[[nodiscard]] cpu::ADDRESS64 fuzz_valid_address(test::DeterministicPrng& prng, const std::size_t byte_count) noexcept
 {
     const std::size_t address_limit = FUZZ_MEMORY_SIZE_BYTES - byte_count;
     return static_cast<cpu::ADDRESS64>(prng.next_bounded(address_limit + std::size_t{1}));
 }
+}
 
-void test_memory_bus_fuzz_against_model()
+TEST(MemoryExecutorFuzzTest, MemoryBusMatchesByteModel)
 {
     test::DeterministicPrng prng{FUZZ_SEED};
     cpu::PhysicalMemory memory(FUZZ_MEMORY_SIZE_BYTES);
@@ -98,12 +100,11 @@ void test_memory_bus_fuzz_against_model()
         memory_bus.write(address, data_size, value);
         write_model(model, address, byte_count, value);
 
-        test::check(memory_bus.read(address, data_size) == read_model(model, address, byte_count),
-                    "fuzz memory bus model mismatch");
+        EXPECT_THAT(memory_bus.read(address, data_size), Eq(read_model(model, address, byte_count)));
     }
 }
 
-void test_memory_bus_fuzz_rejects_out_of_range()
+TEST(MemoryExecutorFuzzTest, MemoryBusRejectsOutOfRangeReads)
 {
     test::DeterministicPrng prng{FUZZ_SEED ^ std::uint64_t{0xBAD5EEDULL}};
     cpu::PhysicalMemory memory(FUZZ_MEMORY_SIZE_BYTES);
@@ -114,15 +115,11 @@ void test_memory_bus_fuzz_rejects_out_of_range()
         const cpu::DataSize data_size = fuzz_data_size(prng);
         const cpu::ADDRESS64 address =
             static_cast<cpu::ADDRESS64>(FUZZ_MEMORY_SIZE_BYTES + prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES));
-        test::check_throws<std::out_of_range>(
-            [&memory_bus, address, data_size]() {
-                static_cast<void>(memory_bus.read(address, data_size));
-            },
-            "fuzz memory bus out-of-range read");
+        EXPECT_THROW(static_cast<void>(memory_bus.read(address, data_size)), std::out_of_range);
     }
 }
 
-void test_executor_fuzz_valid_memory_roundtrips()
+TEST(MemoryExecutorFuzzTest, ExecutorRoundTripsValidMemoryShapes)
 {
     test::DeterministicPrng prng{FUZZ_SEED ^ std::uint64_t{0x13579BDFULL}};
 
@@ -151,12 +148,11 @@ void test_executor_fuzz_valid_memory_roundtrips()
         cpu::Executor executor;
         static_cast<void>(executor.run(state, program, memory_bus));
 
-        test::check(state.registers().read(cpu::RegisterId::RBX) == static_cast<cpu::UQWORD64>(value),
-                    "fuzz executor roundtrip register mismatch");
+        EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(value)));
     }
 }
 
-void test_executor_fuzz_rejects_invalid_shapes()
+TEST(MemoryExecutorFuzzTest, ExecutorRejectsInvalidMemoryShapes)
 {
     test::DeterministicPrng prng{FUZZ_SEED ^ std::uint64_t{0x2468ACE0ULL}};
 
@@ -178,22 +174,6 @@ void test_executor_fuzz_rejects_invalid_shapes()
                 cpu_support::make_mem(cpu::RegisterId::RBP, right_displacement, cpu::DataSize::QWORD)),
         };
 
-        test::check_throws<std::logic_error>(
-            [&executor, &state, &program, &memory_bus]() {
-                static_cast<void>(executor.step(state, program, memory_bus));
-            },
-            "fuzz executor memory-to-memory rejection");
+        EXPECT_THROW(static_cast<void>(executor.step(state, program, memory_bus)), std::logic_error);
     }
-}
-}
-
-int main()
-{
-    test_memory_bus_fuzz_against_model();
-    test_memory_bus_fuzz_rejects_out_of_range();
-    test_executor_fuzz_valid_memory_roundtrips();
-    test_executor_fuzz_rejects_invalid_shapes();
-
-    std::cout << "mnos_cpu_memory_executor_fuzz_tests passed\n";
-    return 0;
 }
