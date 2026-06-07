@@ -68,14 +68,14 @@ TEST(ProgramTest, ProvidesStandardContainerAndRipAccess)
 
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     EXPECT_FALSE(program.empty());
     EXPECT_THAT(program.size(), Eq(TEST_TWO_INSTRUCTION_COUNT));
     EXPECT_TRUE(program.contains_rip(TEST_FIRST_RIP));
     EXPECT_FALSE(program.contains_rip(TEST_TWO_INSTRUCTION_END_RIP));
     EXPECT_THAT(program.at(0).opcode(), Eq(cpu::Opcode::MOV));
-    EXPECT_THAT(program.instruction_at(TEST_SECOND_RIP).opcode(), Eq(cpu::Opcode::HALT));
+    EXPECT_THAT(program.instruction_at(TEST_SECOND_RIP).opcode(), Eq(cpu::Opcode::HLT));
     EXPECT_THAT(program.instructions().size(), Eq(program.size()));
     EXPECT_THAT(program.begin()->opcode(), Eq(cpu::Opcode::MOV));
 
@@ -89,15 +89,15 @@ TEST(ProgramTest, ProvidesStandardContainerAndRipAccess)
     EXPECT_TRUE(program.empty());
 
     const cpu::Program initialized_program{
-        cpu::Instruction::make_halt(),
+        cpu::Instruction::make_hlt(),
     };
     EXPECT_THAT(initialized_program.size(), Eq(TEST_SINGLE_ENTRY_COUNT));
 
     std::vector<cpu::Instruction> raw_instructions;
-    raw_instructions.push_back(cpu::Instruction::make_halt());
+    raw_instructions.push_back(cpu::Instruction::make_hlt());
     const cpu::Program vector_program{std::move(raw_instructions)};
     EXPECT_THAT(vector_program.size(), Eq(TEST_SINGLE_ENTRY_COUNT));
-    EXPECT_THAT(vector_program.begin()->opcode(), Eq(cpu::Opcode::HALT));
+    EXPECT_THAT(vector_program.begin()->opcode(), Eq(cpu::Opcode::HLT));
 }
 
 TEST(ExecutionTraceTest, ProvidesStandardContainerForTraceEntries)

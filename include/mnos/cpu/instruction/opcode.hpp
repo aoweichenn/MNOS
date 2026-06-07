@@ -15,7 +15,7 @@ enum class Opcode : std::uint8_t
     JMP,
     JE,
     JNE,
-    HALT,
+    HLT,
     COUNT
 };
 

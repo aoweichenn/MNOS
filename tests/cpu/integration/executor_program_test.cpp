@@ -67,7 +67,7 @@ TEST(ExecutorProgramTest, RunsLinearProgramAndRecordsTrace)
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
     program.push_back(cpu_support::make_add_imm(cpu::RegisterId::RAX, TEST_LINEAR_ADD_VALUE));
     program.push_back(cpu_support::make_sub_imm(cpu::RegisterId::RAX, TEST_LINEAR_SUB_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -99,7 +99,7 @@ TEST(ExecutorProgramTest, RunsConditionalBranchProgram)
     program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JE, TEST_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_EXECUTOR_EXPECTED_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -119,7 +119,7 @@ TEST(ExecutorProgramTest, LetsJneFallThroughWhenZeroFlagIsSet)
     program.push_back(cpu_support::make_cmp_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
     program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JNE, TEST_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_FALLTHROUGH_BRANCH_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -138,7 +138,7 @@ TEST(ExecutorProgramTest, RunsUnconditionalJumpProgram)
     program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JMP, TEST_JUMP_END_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -153,7 +153,7 @@ TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
     carry_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     carry_program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_LEFT_VALUE));
     carry_program.push_back(cpu_support::make_add_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_RIGHT_VALUE));
-    carry_program.push_back(cpu::Instruction::make_halt());
+    carry_program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState carry_state;
     cpu::Executor executor;
@@ -166,7 +166,7 @@ TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
     overflow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     overflow_program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SIGNED_QWORD_MAX));
     overflow_program.push_back(cpu_support::make_add_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_RIGHT_VALUE));
-    overflow_program.push_back(cpu::Instruction::make_halt());
+    overflow_program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState overflow_state;
     executor.reset();
@@ -178,7 +178,7 @@ TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
     borrow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     borrow_program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SUB_BORROW_LEFT_VALUE));
     borrow_program.push_back(cpu_support::make_sub_imm(cpu::RegisterId::RAX, TEST_SUB_BORROW_RIGHT_VALUE));
-    borrow_program.push_back(cpu::Instruction::make_halt());
+    borrow_program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState borrow_state;
     executor.reset();
@@ -202,7 +202,7 @@ TEST(ExecutorProgramTest, MovesValuesThroughMemory)
     program.push_back(cpu::Instruction::make_mov(
         cpu::Operand::reg(cpu::RegisterId::RBX),
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD)));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -231,7 +231,7 @@ TEST(ExecutorProgramTest, RunsArithmeticAgainstMemoryOperands)
     program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JE, TEST_MEMORY_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;
@@ -255,7 +255,7 @@ TEST(ExecutorProgramTest, SupportsNegativeMemoryDisplacement)
     program.push_back(cpu::Instruction::make_mov(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_NEGATIVE_DISPLACEMENT, cpu::DataSize::DWORD),
         cpu::Operand::reg(cpu::RegisterId::RAX)));
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::CpuState state;
     cpu::Executor executor;

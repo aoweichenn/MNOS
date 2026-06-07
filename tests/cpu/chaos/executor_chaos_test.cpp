@@ -126,7 +126,7 @@ TEST(ExecutorChaosTest, RunsDeterministicLongProgramAgainstModel)
         }
     }
 
-    program.push_back(cpu::Instruction::make_halt());
+    program.push_back(cpu::Instruction::make_hlt());
 
     cpu::PhysicalMemory memory(CHAOS_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};

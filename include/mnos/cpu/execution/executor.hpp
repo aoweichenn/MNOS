@@ -71,7 +71,7 @@ private:
     void execute_jmp(CpuState& state, const Program& program, MemoryBus* memory_bus, const Instruction& instruction);
     void execute_je(CpuState& state, const Program& program, MemoryBus* memory_bus, const Instruction& instruction);
     void execute_jne(CpuState& state, const Program& program, MemoryBus* memory_bus, const Instruction& instruction);
-    void execute_halt(CpuState& state) const noexcept;
+    void execute_hlt(CpuState& state) const noexcept;
 
     [[nodiscard]] UQWORD64 read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
     void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, UQWORD64 value) const;

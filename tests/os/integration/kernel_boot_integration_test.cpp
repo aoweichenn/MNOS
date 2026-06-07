@@ -55,7 +55,7 @@ TEST(KernelBootIntegrationTest, BootedKernelRunsAThreadContextThroughCpuExecutor
         cpu::Instruction::make_mov(
             cpu::Operand::reg(cpu::RegisterId::RBX),
             cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
-        cpu::Instruction::make_halt(),
+        cpu::Instruction::make_hlt(),
     };
 
     cpu::Executor executor;

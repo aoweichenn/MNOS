@@ -36,7 +36,7 @@ constexpr std::array<OpcodeCase, cpu::OPCODE_INSTRUCTION_KIND_COUNT> OPCODE_CASE
     OpcodeCase{cpu::Opcode::MOV, 0, "MOV"},   OpcodeCase{cpu::Opcode::ADD, 1, "ADD"},
     OpcodeCase{cpu::Opcode::SUB, 2, "SUB"},   OpcodeCase{cpu::Opcode::CMP, 3, "CMP"},
     OpcodeCase{cpu::Opcode::JMP, 4, "JMP"},   OpcodeCase{cpu::Opcode::JE, 5, "JE"},
-    OpcodeCase{cpu::Opcode::JNE, 6, "JNE"},   OpcodeCase{cpu::Opcode::HALT, 7, "HALT"}};
+    OpcodeCase{cpu::Opcode::JNE, 6, "JNE"},   OpcodeCase{cpu::Opcode::HLT, 7, "HLT"}};
 }
 
 TEST(OpcodeTest, CatalogMapsOpcodesToIndicesAndNames)
@@ -101,8 +101,8 @@ TEST(OperandTest, ModelsNoneRegisterImmediateAndMemoryPayloads)
 
 TEST(InstructionTest, FactoryFunctionsCreateExpectedShapes)
 {
-    const cpu::Instruction halt = cpu::Instruction::make_halt();
-    EXPECT_THAT(halt.opcode(), Eq(cpu::Opcode::HALT));
+    const cpu::Instruction halt = cpu::Instruction::make_hlt();
+    EXPECT_THAT(halt.opcode(), Eq(cpu::Opcode::HLT));
     EXPECT_TRUE(halt.first_operand().is_none());
     EXPECT_TRUE(halt.second_operand().is_none());
 

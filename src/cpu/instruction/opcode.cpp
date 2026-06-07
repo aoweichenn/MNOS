@@ -36,7 +36,7 @@ private:
             "JMP",
             "JE",
             "JNE",
-            "HALT"},
+            "HLT"},
         OPCODE_ASSEMBLY_NAME_INVALID_TEXT);
 };
 }

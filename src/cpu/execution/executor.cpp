@@ -187,8 +187,8 @@ void Executor::execute_instruction(
     case Opcode::JNE:
         this->execute_jne(state, program, memory_bus, instruction);
         return;
-    case Opcode::HALT:
-        this->execute_halt(state);
+    case Opcode::HLT:
+        this->execute_hlt(state);
         return;
     case Opcode::COUNT:
         throw std::logic_error{EXECUTOR_INVALID_OPCODE_MESSAGE};
@@ -275,7 +275,7 @@ void Executor::execute_jne(
     state.advance_rip();
 }
 
-void Executor::execute_halt(CpuState& state) const noexcept
+void Executor::execute_hlt(CpuState& state) const noexcept
 {
     state.advance_rip();
     state.halt();

@@ -1,297 +1,109 @@
 # OS Stage 0 学习说明
 
-这一阶段不是“直接开始写线程和进程”，而是先建立 OS 和 CPU 之间最关键的边界：
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。
 
 ```text
-硬件资源        Machine
-启动输入        BootContext
-内核状态        Kernel
-地址模型        PhysicalAddress / VirtualAddress
-分页基础        4KiB page 工具
-线程执行上下文  ThreadContext = CpuState + kernel stack + ThreadState
+Machine       模拟机器入口
+BootContext   kernel 启动资源视图
+Kernel        启动状态机
+Address/Page  物理/虚拟地址和 page 工具
+ThreadContext CPU 状态 + kernel stack + 线程状态
 ```
 
-## 1. 为什么现在不直接做进程和调度器？
+## 为什么不直接做进程？
 
-线程、进程、多核听起来是 OS 的重点，但真正落到硬件上时，它们必须依赖几个底层事实：
+进程和线程最终都要落到硬件状态：
 
 ```text
-1. CPU 当前寄存器是什么？
-2. 当前 RIP 指向哪条指令？
-3. 当前 RFLAGS 是什么？
-4. 当前栈指针 RSP 指向哪里？
-5. 这段内存访问最终落到哪个物理地址？
-6. 这个上下文是 READY、RUNNING、BLOCKED 还是 DEAD？
+当前 RIP 是多少？
+RAX/RBX/.../RSP 是什么？
+RFLAGS 是什么？
+RSP 指向哪个 kernel stack？
+一次内存访问落到哪个物理地址？
+异常/中断/系统调用如何进入 kernel？
 ```
 
-如果没有 `CpuState`，调度器就没有东西可保存。如果没有 `ThreadContext`，线程只是一个名字。如果没有 `BootContext` 和 `Machine`，kernel 不知道自己能使用多少物理内存、通过哪条 bus 访问硬件。
+如果没有 `CpuState`，scheduler 没有东西可保存。如果没有 `ThreadContext`，线程只是一个 ID。如果没有 `Machine` 和 `BootContext`，kernel 不知道自己能访问哪些硬件资源。
 
-所以 Stage 0 的目标是把后续线程/进程所需的“硬件支点”建出来。
+## Machine 和 BootContext
 
-## 2. Machine 是什么？
-
-`platform::Machine` 是一个 facade，也就是把多个底层对象组合成一个更高层入口：
-
-```cpp
-class Machine final
-{
-public:
-    explicit Machine(std::size_t physical_memory_size_bytes);
-
-    cpu::PhysicalMemory& physical_memory() noexcept;
-    cpu::MemoryBus& memory_bus() noexcept;
-
-private:
-    cpu::PhysicalMemory physical_memory_;
-    cpu::MemoryBus memory_bus_;
-};
-```
-
-这里成员顺序很重要：
-
-```text
-physical_memory_ 必须先构造
-memory_bus_      才能保存指向 physical_memory_ 的引用/指针
-```
-
-这对应真实机器里的关系：
-
-```text
-CPU -> memory bus -> physical memory
-```
-
-以后加入 cache 或 MMU 时，这个链路可以扩展成：
-
-```text
-CPU -> bus -> cache -> MMU/page table -> physical memory
-```
-
-CPU executor 仍然只需要知道 bus，不需要知道 OS 的全部内部细节。
-
-## 3. BootContext 是什么？
-
-`BootContext` 表示 kernel 启动时拿到的硬件资源视图：
-
-```cpp
-platform::Machine machine(64 * 4096);
-kernel::BootContext context{machine, 4};
-```
-
-它当前保存：
-
-```text
-Machine&                 当前模拟硬件
-bootstrap_processor_count 启动时看到的处理器数量
-physical_memory_size      物理内存大小
-physical_page_count       完整物理页数量
-```
-
-它不拥有 `Machine`。这是一种明确的生命周期设计：
-
-```text
-Machine 生命周期更长
-BootContext 只是启动阶段的视图
-Kernel 通过 BootContext 读硬件信息
-```
-
-如果 `BootContext` 自己拥有所有硬件资源，后续测试、emulator、多核拓扑就很难灵活组合。
-
-## 4. Kernel 现在做什么？
-
-当前 `Kernel` 是一个极小的启动状态机：
-
-```cpp
-kernel::Kernel os_kernel{context};
-os_kernel.boot();
-```
-
-它只保证两个不变量：
-
-```text
-1. kernel 不能重复 boot
-2. 至少有一个完整 4KiB 物理页才允许 boot
-```
-
-这看起来很小，但它的意义是把“启动状态”从散落的 bool 和裸函数里抽出来。后面可以继续加入：
-
-```text
-panic handler
-boot allocator
-GDT/IDT 模型
-interrupt controller
-timer
-init thread
-```
-
-而不需要推翻 `Kernel::boot()` 这个入口。
-
-## 5. 为什么要区分 PhysicalAddress 和 VirtualAddress？
-
-真实 OS 里，物理地址和虚拟地址不是一回事：
-
-```text
-PhysicalAddress: 真实物理内存上的地址
-VirtualAddress : 某个地址空间中 CPU 指令看到的地址
-```
-
-在没有 MMU 前，二者可能数值相等。但一旦进入分页：
-
-```text
-VirtualAddress 0x400000
-    -> page table
-PhysicalAddress 0x12345000
-```
-
-如果代码里全部用 `std::uint64_t`，初学者很容易把物理地址和虚拟地址混用，而且编译器无法帮你发现。
-
-现在使用强类型：
-
-```cpp
-mm::PhysicalAddress pa{0x1000};
-mm::VirtualAddress va{0x1000};
-```
-
-这两个类型的底层都是 64 位整数，但类型不同。这样后续函数可以明确表达自己需要哪种地址：
-
-```cpp
-PageFrame frame_from_physical(mm::PhysicalAddress address);
-PageTableEntry translate(mm::VirtualAddress address);
-```
-
-这属于现代 C++ 里常见的 strong typedef 思想：用类型系统阻止错误组合。
-
-## 6. page 工具为什么是位运算？
-
-x86-64 常见页大小是 4KiB：
-
-```text
-4KiB = 4096 = 2^12
-```
-
-所以一个地址可以拆成：
-
-```text
-高位: page number
-低 12 位: page offset
-```
-
-例如：
-
-```text
-address = 0x2345
-page    = 0x2
-offset  = 0x345
-```
-
-代码中：
-
-```cpp
-page_number = address >> 12;
-offset      = address & 0xFFF;
-align_down  = address & ~0xFFF;
-```
-
-这不是炫技，而是硬件分页机制本来就是这样工作的。页大小是 2 的幂时，除法和取模可以变成位移和掩码。
-
-Stage 0 里 page 工具已经提供：
-
-```text
-is_page_aligned
-align_down
-align_up
-page_number
-offset_in_page
-page_count_for_bytes
-```
-
-`align_up` 和 `page_count_for_bytes` 还做了 overflow 检查，因为地址接近 `uint64_t` 最大值时，简单的 `value + 4095` 可能溢出。
-
-## 7. ThreadContext 为什么现在就有 kernel stack？
-
-真实内核线程不是只有一个 ID。它至少要能保存：
-
-```text
-CpuState    寄存器、RIP、RFLAGS、halted
-ThreadId    线程身份
-ThreadState READY/RUNNING/BLOCKED/DEAD
-kernel stack 栈范围
-```
-
-当前 `ThreadContext` 构造时会把 CPU 的 `RSP` 初始化到 kernel stack top：
-
-```text
-stack bottom 低地址
-stack top    高地址，一般作为初始 RSP
-```
-
-x86-64 栈通常向低地址增长，所以初始 RSP 放在 top，而不是 bottom。
-
-示例：
-
-```cpp
-sched::ThreadContext thread{
-    sched::ThreadId::first_kernel_thread(),
-    mm::VirtualAddress{0x8000}
-};
-
-auto rsp = thread.cpu_state().registers().read(cpu::RegisterId::RSP);
-```
-
-`reset_cpu_state()` 会清空寄存器和 flags，但保留这个线程的 kernel stack 约束，并重新设置 RSP。这样以后做 context switch 时，每个线程都有自己的 CPU 保存区和栈。
-
-## 8. 这一阶段引入了哪些现代 C++ 思想？
-
-强类型值对象：
-
-```text
-PhysicalAddress / VirtualAddress / ThreadId
-```
-
-这些类型很小，按值传递，没有堆分配，但能显著减少裸整数混用。
-
-Facade：
+`Machine` 是硬件 facade：
 
 ```text
 Machine = PhysicalMemory + MemoryBus
 ```
 
-外部只需要通过 `Machine` 访问硬件组合，不需要知道成员构造细节。
-
-表驱动枚举：
+`BootContext` 是 kernel 启动时的资源视图：
 
 ```text
-ThreadState -> "READY" / "RUNNING" / ...
+Machine&
+PhysicalMemory&
+MemoryBus&
+physical_memory_size_bytes
+physical_page_count
+bootstrap_processor_count
 ```
 
-沿用 CPU 里的 `EnumMap` 思路，减少重复 switch。
+它不拥有 `Machine`，这让测试、emulator、多核拓扑和设备模型可以复用同一个硬件对象。
 
-RAII 和对象不变量：
+## ThreadContext
+
+`ThreadContext` 表示一个内核线程的 CPU 保存区：
 
 ```text
-ThreadContext 构造成功后，一定有合法 ThreadId、页对齐 stack、合法 RSP。
-BootContext 构造成功后，一定有非空 memory、至少一个 processor。
+ThreadId
+ThreadState
+CpuState
+kernel stack bottom/top
 ```
 
-异常只出现在构造/状态设置这类边界；正常查询函数尽量是 `noexcept`。
-
-## 9. 下一步应该做什么？
-
-现在还不应该直接做“完整进程”。更合理的下一阶段是 OS Stage 1：
+构造成功后保证：
 
 ```text
-1. PhysicalPageAllocator
-2. KernelHeap 或 BootAllocator
-3. PageFrame 强类型
-4. 简单地址空间模型
-5. 基于 ThreadContext 的最小 run queue
+ThreadId 合法
+kernel stack bottom 页对齐
+kernel stack size 是非零页倍数
+RSP 初始化为 kernel_stack_top
 ```
 
-原因是线程/进程调度一定会用到内存分配：
+x86-64 栈通常向低地址增长，所以初始 `RSP` 放在 stack top。
+
+## 和 x86-64 CPU Stage 0 的关系
+
+当前 `CpuState` 包含：
 
 ```text
-创建线程 -> 分配 kernel stack
-创建进程 -> 分配地址空间/page table
-阻塞/唤醒 -> 操作调度队列
+RegisterBank
+Rflags
+RIP
+halted
 ```
 
-没有页分配器就强行做线程，只能写很多临时栈地址和裸数组，后面会返工。
+`RFLAGS` 当前建模了 `CF/ZF/SF/OF`。`ADD/SUB/CMP` 会更新这些状态位，`JE/JNE` 读取 `ZF`。这比 RV 的显式寄存器比较更复杂，但更贴近 x86-64 现实。
+
+`HLT` 当前作为 Stage 0 停止点。后续系统调用和中断阶段会引入：
+
+```text
+SYSCALL/SYSRET
+IDT/GDT/TSS
+timer interrupt
+page fault
+trapframe
+```
+
+## 下一步
+
+合理顺序：
+
+```text
+1. x86-64 byte fetch/decode
+2. REX/ModRM/SIB/immediate/displacement
+3. RIP-relative addressing
+4. CALL/RET/PUSH/POP
+5. exception/syscall/interrupt
+6. paging/MMU/TLB
+7. trapframe + context switch
+8. syscall ABI + scheduler
+```
+
+这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

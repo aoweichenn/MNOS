@@ -139,7 +139,7 @@ TEST(MemoryExecutorFuzzTest, ExecutorRoundTripsValidMemoryShapes)
             cpu::Instruction::make_mov(
                 cpu::Operand::reg(cpu::RegisterId::RBX),
                 cpu_support::make_mem(cpu::RegisterId::RBP, displacement, cpu::DataSize::QWORD)),
-            cpu::Instruction::make_halt(),
+            cpu::Instruction::make_hlt(),
         };
 
         cpu::PhysicalMemory memory(FUZZ_MEMORY_SIZE_BYTES);

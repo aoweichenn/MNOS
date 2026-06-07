@@ -53,7 +53,7 @@ namespace cpu = mnos::cpu;
     case cpu::Opcode::ADD:
     case cpu::Opcode::SUB:
     case cpu::Opcode::CMP:
-    case cpu::Opcode::HALT:
+    case cpu::Opcode::HLT:
     case cpu::Opcode::COUNT:
         throw std::logic_error{"test helper requires a jump opcode"};
     }

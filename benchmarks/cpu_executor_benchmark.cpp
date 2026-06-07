@@ -31,7 +31,7 @@ constexpr cpu::SQWORD64 BENCHMARK_MEMORY_DISPLACEMENT = cpu::SQWORD64{32};
         cpu_support::make_mov_imm(cpu::RegisterId::RAX, BENCHMARK_INITIAL_VALUE),
         cpu_support::make_add_imm(cpu::RegisterId::RAX, BENCHMARK_INCREMENT_VALUE),
         cpu_support::make_sub_imm(cpu::RegisterId::RAX, BENCHMARK_INITIAL_VALUE),
-        cpu::Instruction::make_halt(),
+        cpu::Instruction::make_hlt(),
     };
 }
 
@@ -46,7 +46,7 @@ constexpr cpu::SQWORD64 BENCHMARK_MEMORY_DISPLACEMENT = cpu::SQWORD64{32};
         cpu::Instruction::make_mov(
             cpu::Operand::reg(cpu::RegisterId::RBX),
             cpu_support::make_mem(cpu::RegisterId::RBP, BENCHMARK_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
-        cpu::Instruction::make_halt(),
+        cpu::Instruction::make_hlt(),
     };
 }
 

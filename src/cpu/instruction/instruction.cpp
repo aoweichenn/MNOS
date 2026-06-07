@@ -9,9 +9,9 @@ Instruction::Instruction(const Opcode opcode, Operand first_operand, Operand sec
 {
 }
 
-Instruction Instruction::make_halt() noexcept
+Instruction Instruction::make_hlt() noexcept
 {
-    return Instruction{Opcode::HALT, Operand::none(), Operand::none()};
+    return Instruction{Opcode::HLT, Operand::none(), Operand::none()};
 }
 
 Instruction Instruction::make_mov(Operand destination, Operand source) noexcept

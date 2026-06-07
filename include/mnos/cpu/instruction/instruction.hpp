@@ -8,7 +8,7 @@ namespace mnos::cpu
 class Instruction
 {
 public:
-    [[nodiscard]] static Instruction make_halt() noexcept;
+    [[nodiscard]] static Instruction make_hlt() noexcept;
     [[nodiscard]] static Instruction make_mov(Operand destination, Operand source) noexcept;
     [[nodiscard]] static Instruction make_add(Operand destination, Operand source) noexcept;
     [[nodiscard]] static Instruction make_sub(Operand destination, Operand source) noexcept;
@@ -24,7 +24,7 @@ public:
 private:
     Instruction(Opcode opcode, Operand first_operand, Operand second_operand) noexcept;
 
-    Opcode opcode_ = Opcode::HALT;
+    Opcode opcode_ = Opcode::HLT;
     Operand first_operand_ = Operand::none();
     Operand second_operand_ = Operand::none();
 };

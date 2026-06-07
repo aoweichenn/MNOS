@@ -5,34 +5,54 @@ project(MNOS VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MNOS_ENABLE_COVERAGE "Enable GCC/Clang coverage instrumentation." OFF)
+option(MNOS_USE_SYSTEM_GTEST "Use an installed GTest package instead of the vendored FetchContent copy." OFF)
+option(MNOS_USE_SYSTEM_BENCHMARK "Use an installed Google Benchmark package instead of the vendored FetchContent copy." OFF)
 
 enable_testing()
 
 include(FetchContent)
 
-find_package(GTest CONFIG QUIET)
-if(NOT GTest_FOUND)
-    find_package(GTest QUIET)
+if(MNOS_USE_SYSTEM_GTEST)
+    find_package(GTest CONFIG QUIET)
+    if(NOT GTest_FOUND)
+        find_package(GTest QUIET)
+    endif()
 endif()
-if(NOT GTest_FOUND)
+if(NOT MNOS_USE_SYSTEM_GTEST OR NOT GTest_FOUND)
+    set(BUILD_GMOCK ON CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.zip
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(googletest)
 endif()
 
-find_package(benchmark CONFIG QUIET)
-if(NOT benchmark_FOUND)
+if(MNOS_USE_SYSTEM_BENCHMARK)
+    find_package(benchmark CONFIG QUIET)
+endif()
+if(NOT MNOS_USE_SYSTEM_BENCHMARK OR NOT benchmark_FOUND)
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         googlebenchmark
         URL https://github.com/google/benchmark/archive/refs/tags/v1.9.4.zip
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(googlebenchmark)
 endif()
+
+foreach(MNOS_BENCHMARK_DEPENDENCY_TARGET benchmark benchmark_main)
+    if(TARGET ${MNOS_BENCHMARK_DEPENDENCY_TARGET})
+        target_compile_options(
+            ${MNOS_BENCHMARK_DEPENDENCY_TARGET}
+            PRIVATE
+                $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wno-c2y-extensions>
+        )
+    endif()
+endforeach()
 
 include(GoogleTest)
 
@@ -137,6 +157,11 @@ add_executable(mnos_benchmarks ${MNOS_BENCHMARK_SOURCES})
 target_link_libraries(mnos_benchmarks PRIVATE mnos_os benchmark::benchmark_main)
 target_include_directories(mnos_benchmarks PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 mnos_apply_project_options(mnos_benchmarks)
+target_compile_options(
+    mnos_benchmarks
+    PRIVATE
+        $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wno-c2y-extensions>
+)
 
 add_custom_target(
     mnos_benchmark_smoke
@@ -191,7 +216,7 @@ macro(mnos_add_os_test target_name source_file)
 endmacro()
 
 mnos_add_cpu_test(mnos_cpu_common_unit_tests tests/cpu/unit/common_data_size_test.cpp)
-mnos_add_cpu_test(mnos_cpu_register_flags_unit_tests tests/cpu/unit/register_flags_test.cpp)
+mnos_add_cpu_test(mnos_cpu_register_unit_tests tests/cpu/unit/register_flags_test.cpp)
 mnos_add_cpu_test(mnos_cpu_instruction_unit_tests tests/cpu/unit/instruction_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
