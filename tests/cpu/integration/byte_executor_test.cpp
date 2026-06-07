@@ -1,3 +1,5 @@
+#include <stdexcept>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -25,6 +27,9 @@ constexpr cpu::Qword TEST_SKIPPED_VALUE = cpu::Qword{13};
 constexpr std::size_t TEST_MAIN_PROGRAM_STEP_COUNT = 8;
 constexpr std::size_t TEST_RIP_RELATIVE_PROGRAM_STEP_COUNT = 2;
 constexpr std::size_t TEST_INDEXED_PROGRAM_STEP_COUNT = 4;
+constexpr std::size_t TEST_BRANCH_PROGRAM_STEP_COUNT = 5;
+constexpr std::size_t TEST_SINGLE_HLT_STEP_COUNT = 1;
+constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
 }
 
 TEST(ByteExecutorTest, RunsDecodedByteProgramThroughMemoryAndBranching)
@@ -93,6 +98,61 @@ TEST(ByteExecutorTest, ExecutesSibIndexedLoad)
 
     EXPECT_THAT(executed_steps, Eq(TEST_INDEXED_PROGRAM_STEP_COUNT));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(TEST_SKIPPED_VALUE));
+}
+
+TEST(ByteExecutorTest, RunsByteImageWithoutMemoryBus)
+{
+    cpu::ExecutableImage image{0xF4}; // HLT
+    cpu::CpuState state;
+    cpu::Executor executor;
+
+    const std::size_t executed_steps = executor.run(state, image);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_SINGLE_HLT_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(state.rip(), Eq(image.end_rip()));
+}
+
+TEST(ByteExecutorTest, SupportsImageStepWithMemoryBusAndHaltedState)
+{
+    cpu::ExecutableImage image{0xF4}; // HLT
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    cpu::CpuState state;
+    cpu::Executor executor;
+
+    EXPECT_THAT(executor.step(state, image, memory_bus), Eq(cpu::StepResult::HALTED));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(executor.step(state, image, memory_bus), Eq(cpu::StepResult::HALTED));
+}
+
+TEST(ByteExecutorTest, ExecutesJeFallthroughAndJneTaken)
+{
+    cpu::ExecutableImage image{
+        0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 1
+        0x48, 0x81, 0xF8, 0x02, 0x00, 0x00, 0x00,                   // CMP RAX, 2
+        0x74, 0x0A,                                                 // JE +10
+        0x75, 0x0A,                                                 // JNE +10
+        0x48, 0xBB, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 13
+        0xF4};                                                      // HLT
+    cpu::CpuState state;
+    cpu::Executor executor;
+
+    const std::size_t executed_steps = executor.run(state, image);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_BRANCH_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(cpu::Qword{0}));
+}
+
+TEST(ByteExecutorTest, EnforcesMaxStepLimitForByteImage)
+{
+    cpu::ExecutableImage image{0xEB, 0xFE}; // JMP -2
+    cpu::CpuState state;
+    cpu::Executor executor;
+
+    EXPECT_THROW(static_cast<void>(executor.run(state, image, TEST_LOOP_MAX_STEPS)), std::runtime_error);
 }
 
 TEST(ByteExecutorTest, RejectsDecodedJumpOutsideImage)
