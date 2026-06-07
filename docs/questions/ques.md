@@ -766,6 +766,187 @@ class 内 static 成员函数：没有 this，不依赖对象。
 
 不要把这些混成一句“static 就是静态变量”。这会误导你。
 
+## 7. CPU 模拟器为什么先做单核执行循环？
+
+因为 OS 里的线程、进程、锁、信号量、多核调度，最后都会落到一个更底层的问题：
+
+```text
+某个 CPU core 现在正在执行哪条指令？
+这条指令读写了哪些寄存器、flags、内存？
+执行完以后 RIP 指向哪里？
+什么时候停机、陷入内核、切换上下文？
+```
+
+如果没有这个底层执行循环，线程/进程只能是“数据结构模拟”，不能真正把“硬件如何推动 OS 行为”串起来。
+
+### 最小 CPU 执行循环是什么？
+
+当前项目里的核心模型可以简化成：
+
+```cpp
+while (!state.is_halted())
+{
+    const auto rip = state.rip();
+    const Instruction& instruction = program.instruction_at(rip);
+    executor.execute(instruction, state);
+}
+```
+
+真实代码没有把 `execute` 暴露成 public，而是用：
+
+```cpp
+executor.step(state, program);
+executor.run(state, program);
+```
+
+原因是 `step` 可以精确表达“一次 CPU 周期级的行为”，后面做调试器、单步执行、timer interrupt、调度抢占时都需要这个粒度。
+
+### RIP 是什么？为什么 HALT 后还会 advance？
+
+RIP 是 instruction pointer。真实 x86-64 里 RIP 保存下一条要取的指令地址。当前阶段还没有字节级内存和机器码长度，所以先把它简化成“指令数组下标”：
+
+```text
+RIP = 0 -> program[0]
+RIP = 1 -> program[1]
+RIP = 2 -> program[2]
+```
+
+普通指令执行完：
+
+```cpp
+state.advance_rip();
+```
+
+跳转指令执行完：
+
+```cpp
+state.set_rip(target);
+```
+
+`HALT` 当前实现先让 RIP 指向下一条位置，再标记 halted：
+
+```cpp
+state.advance_rip();
+state.halt();
+```
+
+这样 trace 里能看到“HALT 这条指令已经被执行，RIP 已经移动到逻辑上的下一条”。这对调试和后续异常/中断模型都更容易解释。
+
+### ADD/SUB/CMP 为什么要更新 flags？
+
+CPU 不只是算结果。很多控制流依赖 flags。
+
+例如：
+
+```asm
+cmp rax, 1
+je  target
+```
+
+`CMP` 本质上做一次减法：
+
+```text
+result = rax - 1
+```
+
+但它不把 result 写回 `rax`，只更新 flags：
+
+```text
+ZF = result 是否为 0
+SF = result 最高位是否为 1
+CF = 无符号减法是否发生借位
+OF = 有符号减法是否发生溢出
+```
+
+然后 `JE` 读取 `ZF`：
+
+```cpp
+if (state.flags().read(FlagId::ZF))
+{
+    jump_to(target);
+}
+```
+
+这就是硬件层面的“条件判断”：高级语言里的 `if (a == b)`，编译后通常会变成 `cmp + 条件跳转` 这一类模式。
+
+### 为什么执行器不用继承和虚函数？
+
+可以把每条指令写成一个类：
+
+```cpp
+class InstructionExecutor
+{
+public:
+    virtual void execute(CpuState& state) = 0;
+};
+```
+
+但 CPU 执行是热路径。每条指令都走虚函数，会引入间接跳转，也更难让编译器优化分支。当前项目使用：
+
+```cpp
+switch (instruction.opcode())
+{
+case Opcode::MOV:
+    execute_mov(...);
+    return;
+case Opcode::ADD:
+    execute_add(...);
+    return;
+}
+```
+
+这更接近解释器常见的直接分发方式：简单、快、缓存友好，也方便后面继续演进到 decode table 或 computed goto 这类更高级技巧。
+
+### 为什么 trace 是可选指针？
+
+执行 trace 很适合学习和调试：
+
+```text
+cycle=1 rip=0 opcode=MOV  rip_after=1
+cycle=2 rip=1 opcode=ADD  rip_after=2
+cycle=3 rip=2 opcode=HALT rip_after=3 halted=true
+```
+
+但正常跑程序时，每条指令都记录 trace 会产生额外内存写入和 vector 增长。当前接口是：
+
+```cpp
+executor.run(state, program, max_steps, &trace);  // 需要调试时记录
+executor.run(state, program);                     // 热路径不记录
+```
+
+这是一种很实用的解耦：调试能力存在，但不强迫所有执行都付出成本。
+
+### 它和后面的线程/进程有什么关系？
+
+线程上下文切换，本质是保存当前 CPU 状态，再恢复另一个线程的 CPU 状态：
+
+```cpp
+struct ThreadContext
+{
+    CpuState cpu_state;
+};
+```
+
+调度器后面做的事情可以理解成：
+
+```text
+1. 当前线程运行若干 step。
+2. timer interrupt 或主动 yield 触发调度。
+3. 保存当前 CpuState。
+4. 从 ready queue 选择下一个线程。
+5. 恢复下一个线程的 CpuState。
+6. 继续执行 step。
+```
+
+进程会比线程多一层地址空间：
+
+```text
+Thread = CPU 上下文 + 栈 + 调度状态
+Process = 一个或多个 Thread + 虚拟地址空间 + 资源表
+```
+
+所以当前这一步不是偏离 OS，而是在给 OS 的线程/进程模型打硬件基础。
+
 ## 总结
 
 几个核心判断：
@@ -776,3 +957,4 @@ class 内 static 成员函数：没有 this，不依赖对象。
 4. `inline` 现代意义主要是 ODR/linkage，不是强制内联优化。
 5. `static_cast` 是编译器检查的显式转换；有没有运行时成本取决于转换本身。
 6. `static` 的含义取决于位置：链接、生命周期、类成员归属分别是不同概念。
+7. CPU 单核执行循环是线程/进程/多核调度的底层基础，不是和 OS 目标相反的方向。

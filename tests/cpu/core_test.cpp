@@ -1,11 +1,17 @@
 #include <array>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <mnos/cpu/common/data_size.hpp>
+#include <mnos/cpu/execution/cpu_state.hpp>
+#include <mnos/cpu/execution/executor.hpp>
+#include <mnos/cpu/execution/program.hpp>
+#include <mnos/cpu/execution/trace.hpp>
 #include <mnos/cpu/flags/id.hpp>
 #include <mnos/cpu/flags/rflags.hpp>
 #include <mnos/cpu/instruction/instruction.hpp>
@@ -28,10 +34,37 @@ constexpr cpu::UQWORD64 TEST_REGISTER_VALUE = cpu::UQWORD64{0x1234ABCDULL};
 constexpr cpu::UQWORD64 TEST_SECOND_REGISTER_VALUE = cpu::UQWORD64{0xFEDCBA98ULL};
 constexpr cpu::SQWORD64 TEST_IMMEDIATE_VALUE = cpu::SQWORD64{-42};
 constexpr cpu::SQWORD64 TEST_MEMORY_DISPLACEMENT = cpu::SQWORD64{16};
+constexpr cpu::RIP64 TEST_FIRST_RIP = cpu::RIP64{0};
+constexpr cpu::RIP64 TEST_SECOND_RIP = cpu::RIP64{1};
+constexpr cpu::RIP64 TEST_TWO_INSTRUCTION_END_RIP = cpu::RIP64{2};
+constexpr cpu::SQWORD64 TEST_BRANCH_TARGET = cpu::SQWORD64{4};
+constexpr cpu::SQWORD64 TEST_JUMP_END_TARGET = cpu::SQWORD64{5};
+constexpr cpu::SQWORD64 TEST_LOOP_TARGET = cpu::SQWORD64{0};
 constexpr cpu::UQWORD64 TEST_ONE_BIT = cpu::UQWORD64{1};
 constexpr cpu::UQWORD64 TEST_QWORD_SIGN_MASK =
     TEST_ONE_BIT << (cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
 constexpr cpu::UQWORD64 TEST_CF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_CF_BIT_INDEX;
+constexpr cpu::SQWORD64 TEST_PROGRAM_INITIAL_VALUE = cpu::SQWORD64{1};
+constexpr cpu::SQWORD64 TEST_LINEAR_ADD_VALUE = cpu::SQWORD64{2};
+constexpr cpu::SQWORD64 TEST_LINEAR_SUB_VALUE = cpu::SQWORD64{1};
+constexpr cpu::UQWORD64 TEST_LINEAR_EXPECTED_RAX = cpu::UQWORD64{2};
+constexpr cpu::SQWORD64 TEST_EXECUTOR_EXPECTED_VALUE = cpu::SQWORD64{42};
+constexpr cpu::SQWORD64 TEST_SKIPPED_BRANCH_VALUE = cpu::SQWORD64{13};
+constexpr cpu::SQWORD64 TEST_FALLTHROUGH_BRANCH_VALUE = cpu::SQWORD64{7};
+constexpr cpu::SQWORD64 TEST_SIGNED_QWORD_MAX = std::numeric_limits<cpu::SQWORD64>::max();
+constexpr cpu::SQWORD64 TEST_ADD_CARRY_LEFT_VALUE = cpu::SQWORD64{-1};
+constexpr cpu::SQWORD64 TEST_ADD_CARRY_RIGHT_VALUE = cpu::SQWORD64{1};
+constexpr cpu::SQWORD64 TEST_SUB_BORROW_LEFT_VALUE = cpu::SQWORD64{0};
+constexpr cpu::SQWORD64 TEST_SUB_BORROW_RIGHT_VALUE = cpu::SQWORD64{1};
+constexpr std::size_t TEST_PROGRAM_RESERVE_COUNT = 8;
+constexpr std::size_t TEST_SINGLE_INSTRUCTION_COUNT = 1;
+constexpr std::size_t TEST_TWO_INSTRUCTION_COUNT = 2;
+constexpr std::size_t TEST_LINEAR_PROGRAM_STEP_COUNT = 4;
+constexpr std::size_t TEST_BRANCH_PROGRAM_STEP_COUNT = 5;
+constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
+constexpr cpu::RIP64 TEST_BRANCH_PROGRAM_FINAL_RIP = cpu::RIP64{6};
+constexpr cpu::UQWORD64 TEST_TRACE_FIRST_CYCLE = cpu::UQWORD64{1};
+constexpr bool TEST_TRACE_NOT_HALTED = false;
 
 void check(const bool condition, const std::string_view message)
 {
@@ -58,6 +91,47 @@ void check_throws(Callable&& callable, const std::string_view message)
     }
 
     throw std::runtime_error{"expected exception was not thrown: " + std::string{message}};
+}
+
+[[nodiscard]] cpu::Instruction make_mov_imm(const cpu::RegisterId destination, const cpu::SQWORD64 value)
+{
+    return cpu::Instruction::make_mov(cpu::Operand::reg(destination), cpu::Operand::imm(value));
+}
+
+[[nodiscard]] cpu::Instruction make_add_imm(const cpu::RegisterId destination, const cpu::SQWORD64 value)
+{
+    return cpu::Instruction::make_add(cpu::Operand::reg(destination), cpu::Operand::imm(value));
+}
+
+[[nodiscard]] cpu::Instruction make_sub_imm(const cpu::RegisterId destination, const cpu::SQWORD64 value)
+{
+    return cpu::Instruction::make_sub(cpu::Operand::reg(destination), cpu::Operand::imm(value));
+}
+
+[[nodiscard]] cpu::Instruction make_cmp_imm(const cpu::RegisterId left, const cpu::SQWORD64 right)
+{
+    return cpu::Instruction::make_cmp(cpu::Operand::reg(left), cpu::Operand::imm(right));
+}
+
+[[nodiscard]] cpu::Instruction make_jump_imm(const cpu::Opcode opcode, const cpu::SQWORD64 target)
+{
+    switch (opcode)
+    {
+    case cpu::Opcode::JMP:
+        return cpu::Instruction::make_jmp(cpu::Operand::imm(target));
+    case cpu::Opcode::JE:
+        return cpu::Instruction::make_je(cpu::Operand::imm(target));
+    case cpu::Opcode::JNE:
+        return cpu::Instruction::make_jne(cpu::Operand::imm(target));
+    case cpu::Opcode::MOV:
+    case cpu::Opcode::ADD:
+    case cpu::Opcode::SUB:
+    case cpu::Opcode::CMP:
+    case cpu::Opcode::HALT:
+    case cpu::Opcode::COUNT:
+        throw std::logic_error{"test helper requires a jump opcode"};
+    }
+    throw std::logic_error{"test helper received unknown opcode"};
 }
 
 void test_data_size()
@@ -349,6 +423,280 @@ void test_instructions()
     const cpu::Instruction jump_not_equal = cpu::Instruction::make_jne(cpu::Operand::imm(TEST_MEMORY_DISPLACEMENT));
     check(jump_not_equal.opcode() == cpu::Opcode::JNE, "JNE opcode mismatch");
 }
+
+void test_cpu_state()
+{
+    cpu::CpuState state;
+    const cpu::CpuState& const_state = state;
+    check(state.rip() == cpu::CPU_STATE_INITIAL_RIP, "cpu state initial RIP mismatch");
+    check(!state.is_halted(), "cpu state should not start halted");
+    state.registers().write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
+    state.flags().write(cpu::FlagId::ZF, true);
+    state.advance_rip();
+    state.halt();
+    check(const_state.registers().read(cpu::RegisterId::RAX) == TEST_REGISTER_VALUE, "const registers view mismatch");
+    check(const_state.flags().read(cpu::FlagId::ZF), "const flags view mismatch");
+    check(state.rip() == cpu::CPU_STATE_NEXT_INSTRUCTION_OFFSET, "cpu state advance RIP mismatch");
+    check(state.is_halted(), "cpu state halt mismatch");
+    state.resume();
+    check(!state.is_halted(), "cpu state resume mismatch");
+    state.reset();
+    check(state.rip() == cpu::CPU_STATE_INITIAL_RIP, "cpu state reset RIP mismatch");
+    check(state.registers().read(cpu::RegisterId::RAX) == cpu::UQWORD64{0}, "cpu state reset registers mismatch");
+    check(!state.flags().read(cpu::FlagId::ZF), "cpu state reset flags mismatch");
+}
+
+void test_program_container()
+{
+    cpu::Program program;
+    check(program.empty(), "program should start empty");
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+    check(!program.empty(), "program should not be empty after push");
+    check(program.size() == TEST_TWO_INSTRUCTION_COUNT, "program size mismatch");
+    check(program.contains_rip(TEST_FIRST_RIP), "program should contain RIP 0");
+    check(!program.contains_rip(TEST_TWO_INSTRUCTION_END_RIP), "program should reject end RIP");
+    check(program.at(0).opcode() == cpu::Opcode::MOV, "program at mismatch");
+    check(program.instruction_at(TEST_SECOND_RIP).opcode() == cpu::Opcode::HALT, "program instruction_at mismatch");
+    check(program.instructions().size() == program.size(), "program span size mismatch");
+    check(program.begin()->opcode() == cpu::Opcode::MOV, "program begin mismatch");
+    auto program_iterator = program.begin();
+    ++program_iterator;
+    ++program_iterator;
+    check(program_iterator == program.end(), "program end mismatch");
+    check_throws<std::out_of_range>(
+        [&program]() {
+            static_cast<void>(program.instruction_at(TEST_TWO_INSTRUCTION_END_RIP));
+        },
+        "program invalid RIP");
+    program.clear();
+    check(program.empty(), "program clear mismatch");
+
+    const cpu::Program initialized_program{
+        cpu::Instruction::make_halt(),
+    };
+    check(initialized_program.size() == TEST_SINGLE_INSTRUCTION_COUNT, "initializer-list program size mismatch");
+
+    std::vector<cpu::Instruction> raw_instructions;
+    raw_instructions.push_back(cpu::Instruction::make_halt());
+    const cpu::Program vector_program{std::move(raw_instructions)};
+    check(vector_program.size() == TEST_SINGLE_INSTRUCTION_COUNT, "vector program size mismatch");
+    check(vector_program.begin()->opcode() == cpu::Opcode::HALT, "vector program opcode mismatch");
+}
+
+void test_execution_trace_container()
+{
+    cpu::ExecutionTrace trace;
+    check(trace.empty(), "trace should start empty");
+    trace.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    trace.push_back(cpu::ExecutionTraceEntry{
+        TEST_TRACE_FIRST_CYCLE,
+        TEST_FIRST_RIP,
+        TEST_SECOND_RIP,
+        cpu::Opcode::MOV,
+        TEST_TRACE_NOT_HALTED});
+    check(!trace.empty(), "trace should not be empty after push");
+    check(trace.size() == TEST_SINGLE_INSTRUCTION_COUNT, "trace size mismatch");
+    check(trace.at(0).opcode == cpu::Opcode::MOV, "trace at mismatch");
+    check(trace.entries().front().rip_after == TEST_SECOND_RIP, "trace span mismatch");
+    check(trace.begin()->cycle == TEST_TRACE_FIRST_CYCLE, "trace begin mismatch");
+    auto trace_iterator = trace.begin();
+    ++trace_iterator;
+    check(trace_iterator == trace.end(), "trace end mismatch");
+    trace.clear();
+    check(trace.empty(), "trace clear mismatch");
+}
+
+void test_executor_linear_program()
+{
+    cpu::Program program;
+    program.reserve(TEST_LINEAR_PROGRAM_STEP_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(make_add_imm(cpu::RegisterId::RAX, TEST_LINEAR_ADD_VALUE));
+    program.push_back(make_sub_imm(cpu::RegisterId::RAX, TEST_LINEAR_SUB_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    cpu::ExecutionTrace trace;
+    trace.reserve(TEST_LINEAR_PROGRAM_STEP_COUNT);
+    const std::size_t executed_steps = executor.run(state, program, cpu::EXECUTOR_DEFAULT_MAX_STEPS, &trace);
+
+    check(executed_steps == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program executed step count mismatch");
+    check(executor.cycle_count() == TEST_LINEAR_PROGRAM_STEP_COUNT, "executor cycle count mismatch");
+    check(state.is_halted(), "linear program should halt");
+    check(state.rip() == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program final RIP mismatch");
+    check(state.registers().read(cpu::RegisterId::RAX) == TEST_LINEAR_EXPECTED_RAX, "linear program RAX mismatch");
+    check(trace.size() == TEST_LINEAR_PROGRAM_STEP_COUNT, "linear program trace size mismatch");
+    check(trace.at(0).rip_before == TEST_FIRST_RIP, "linear trace first RIP mismatch");
+    check(trace.at(0).opcode == cpu::Opcode::MOV, "linear trace first opcode mismatch");
+    check(trace.at(TEST_LINEAR_PROGRAM_STEP_COUNT - std::size_t{1}).halted_after, "linear trace halt mismatch");
+
+    executor.reset();
+    check(executor.cycle_count() == cpu::UQWORD64{0}, "executor reset mismatch");
+    check(executor.step(state, program) == cpu::StepResult::HALTED, "step on halted state mismatch");
+}
+
+void test_executor_branch_program()
+{
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(make_cmp_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(make_jump_imm(cpu::Opcode::JE, TEST_BRANCH_TARGET));
+    program.push_back(make_mov_imm(cpu::RegisterId::RBX, TEST_SKIPPED_BRANCH_VALUE));
+    program.push_back(make_mov_imm(cpu::RegisterId::RBX, TEST_EXECUTOR_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    const std::size_t executed_steps = executor.run(state, program);
+
+    check(executed_steps == TEST_BRANCH_PROGRAM_STEP_COUNT, "branch program executed step count mismatch");
+    check(state.registers().read(cpu::RegisterId::RBX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
+          "branch program RBX mismatch");
+    check(state.flags().read(cpu::FlagId::ZF), "branch program ZF mismatch");
+    check(state.rip() == TEST_BRANCH_PROGRAM_FINAL_RIP, "branch program final RIP mismatch");
+}
+
+void test_executor_jne_fallthrough()
+{
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(make_cmp_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
+    program.push_back(make_jump_imm(cpu::Opcode::JNE, TEST_BRANCH_TARGET));
+    program.push_back(make_mov_imm(cpu::RegisterId::RBX, TEST_FALLTHROUGH_BRANCH_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    static_cast<void>(executor.run(state, program));
+
+    check(state.registers().read(cpu::RegisterId::RBX) == static_cast<cpu::UQWORD64>(TEST_FALLTHROUGH_BRANCH_VALUE),
+          "JNE fallthrough RBX mismatch");
+    check(state.flags().read(cpu::FlagId::ZF), "JNE fallthrough ZF mismatch");
+}
+
+void test_executor_unconditional_jump()
+{
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(make_jump_imm(cpu::Opcode::JMP, TEST_BRANCH_TARGET));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
+    program.push_back(make_jump_imm(cpu::Opcode::JMP, TEST_JUMP_END_TARGET));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    static_cast<void>(executor.run(state, program));
+
+    check(state.registers().read(cpu::RegisterId::RAX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
+          "JMP program RAX mismatch");
+}
+
+void test_executor_arithmetic_flags()
+{
+    cpu::Program carry_program;
+    carry_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    carry_program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_LEFT_VALUE));
+    carry_program.push_back(make_add_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_RIGHT_VALUE));
+    carry_program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState carry_state;
+    cpu::Executor executor;
+    static_cast<void>(executor.run(carry_state, carry_program));
+    check(carry_state.registers().read(cpu::RegisterId::RAX) == cpu::UQWORD64{0}, "ADD carry result mismatch");
+    check(carry_state.flags().read(cpu::FlagId::CF), "ADD carry CF mismatch");
+    check(carry_state.flags().read(cpu::FlagId::ZF), "ADD carry ZF mismatch");
+
+    cpu::Program overflow_program;
+    overflow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    overflow_program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_SIGNED_QWORD_MAX));
+    overflow_program.push_back(make_add_imm(cpu::RegisterId::RAX, TEST_ADD_CARRY_RIGHT_VALUE));
+    overflow_program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState overflow_state;
+    executor.reset();
+    static_cast<void>(executor.run(overflow_state, overflow_program));
+    check(overflow_state.flags().read(cpu::FlagId::OF), "ADD overflow OF mismatch");
+    check(overflow_state.flags().read(cpu::FlagId::SF), "ADD overflow SF mismatch");
+
+    cpu::Program borrow_program;
+    borrow_program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    borrow_program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_SUB_BORROW_LEFT_VALUE));
+    borrow_program.push_back(make_sub_imm(cpu::RegisterId::RAX, TEST_SUB_BORROW_RIGHT_VALUE));
+    borrow_program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState borrow_state;
+    executor.reset();
+    static_cast<void>(executor.run(borrow_state, borrow_program));
+    check(borrow_state.flags().read(cpu::FlagId::CF), "SUB borrow CF mismatch");
+    check(borrow_state.flags().read(cpu::FlagId::SF), "SUB borrow SF mismatch");
+}
+
+void test_executor_error_paths()
+{
+    cpu::Program invalid_jump_program{
+        make_jump_imm(cpu::Opcode::JMP, TEST_MEMORY_DISPLACEMENT),
+    };
+    cpu::CpuState invalid_jump_state;
+    cpu::Executor executor;
+    check_throws<std::out_of_range>(
+        [&executor, &invalid_jump_state, &invalid_jump_program]() {
+            static_cast<void>(executor.step(invalid_jump_state, invalid_jump_program));
+        },
+        "invalid jump target");
+
+    cpu::Program memory_source_program{
+        cpu::Instruction::make_mov(
+            cpu::Operand::reg(cpu::RegisterId::RAX),
+            cpu::Operand::mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
+    };
+    cpu::CpuState memory_source_state;
+    executor.reset();
+    check_throws<std::logic_error>(
+        [&executor, &memory_source_state, &memory_source_program]() {
+            static_cast<void>(executor.step(memory_source_state, memory_source_program));
+        },
+        "unsupported memory operand");
+
+    cpu::Program non_register_destination_program{
+        cpu::Instruction::make_mov(cpu::Operand::imm(TEST_IMMEDIATE_VALUE), cpu::Operand::imm(TEST_IMMEDIATE_VALUE)),
+    };
+    cpu::CpuState non_register_destination_state;
+    executor.reset();
+    check_throws<std::logic_error>(
+        [&executor, &non_register_destination_state, &non_register_destination_program]() {
+            static_cast<void>(executor.step(non_register_destination_state, non_register_destination_program));
+        },
+        "non-register destination");
+
+    cpu::Program none_operand_program{
+        cpu::Instruction::make_add(cpu::Operand::none(), cpu::Operand::imm(TEST_PROGRAM_INITIAL_VALUE)),
+    };
+    cpu::CpuState none_operand_state;
+    executor.reset();
+    check_throws<std::logic_error>(
+        [&executor, &none_operand_state, &none_operand_program]() {
+            static_cast<void>(executor.step(none_operand_state, none_operand_program));
+        },
+        "none operand read");
+
+    cpu::Program loop_program{
+        make_jump_imm(cpu::Opcode::JMP, TEST_LOOP_TARGET),
+    };
+    cpu::CpuState loop_state;
+    executor.reset();
+    check_throws<std::runtime_error>(
+        [&executor, &loop_state, &loop_program]() {
+            static_cast<void>(executor.run(loop_state, loop_program, TEST_LOOP_MAX_STEPS));
+        },
+        "executor max steps");
+}
 }
 
 int main()
@@ -359,6 +707,15 @@ int main()
     test_opcodes();
     test_operands();
     test_instructions();
+    test_cpu_state();
+    test_program_container();
+    test_execution_trace_container();
+    test_executor_linear_program();
+    test_executor_branch_program();
+    test_executor_jne_fallthrough();
+    test_executor_unconditional_jump();
+    test_executor_arithmetic_flags();
+    test_executor_error_paths();
 
     std::cout << "mnos_cpu tests passed\n";
     return 0;

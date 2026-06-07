@@ -12,9 +12,10 @@ include/mnos/
     register/           通用寄存器编号和寄存器组
     flags/              RFLAGS 状态位
     instruction/        指令 opcode、operand、instruction
+    execution/          CPU 状态、程序容器、执行器、执行 trace
 
 src/
-  cpu/                  CPU core 的实现
+  cpu/                  CPU core 的实现，目录结构镜像 include/mnos/cpu
   emulator/             宿主机上的模拟器入口程序
 
 tests/
@@ -51,6 +52,48 @@ tests/*       -> 被测目标
 ```
 
 CPU core 不应该反向依赖 OS。CPU 负责寄存器、指令、flags、内存访问接口和执行语义；OS 负责进程、内存管理、文件系统、系统调用、调度等更高层语义。这样后面既可以用同一个 CPU core 跑 OS 测试，也可以单独测试 CPU 指令行为。
+
+## 当前 CPU 执行层
+
+这一步已经把 CPU core 从“能描述简单指令”推进到“能执行一段指令流”。新增模块在：
+
+```text
+include/mnos/cpu/execution/
+  cpu_state.hpp         CPU 可变状态：通用寄存器、RFLAGS、RIP、halted
+  program.hpp           连续指令容器，RIP 作为指令下标
+  trace.hpp             可选执行轨迹，记录 cycle、RIP 前后、opcode、停机状态
+  executor.hpp          单核取指-译码-执行循环
+
+src/cpu/execution/
+  cpu_state.cpp
+  program.cpp
+  trace.cpp
+  executor.cpp
+```
+
+当前执行器支持：
+
+```text
+MOV    写寄存器
+ADD    写寄存器，并更新 ZF/SF/CF/OF
+SUB    写寄存器，并更新 ZF/SF/CF/OF
+CMP    只更新 ZF/SF/CF/OF，不写回寄存器
+JMP    无条件跳转
+JE     ZF=1 时跳转
+JNE    ZF=0 时跳转
+HALT   停机
+```
+
+这里先做单核执行循环，而不是直接上线程/进程，是因为线程和进程最终都要落到“某个 core 在某个时刻执行某个上下文”。没有 `CpuState + Executor`，后续 scheduler 只能停留在概念层；有了它，后面就可以把 thread/process 建模成“保存和恢复 CPU 上下文 + 调度队列 + 内存地址空间 + 同步对象”。
+
+当前执行器的性能边界：
+
+1. `Executor::step` 热路径使用 `switch (Opcode)`，没有虚函数分发。
+2. `ExecutionTrace*` 是可选指针，不传 trace 时不产生 trace 存储开销。
+3. `Program` 使用连续 `std::vector<Instruction>`，取指是下标访问，缓存局部性好。
+4. flags 更新由局部 helper 集中处理，避免 ADD/SUB/CMP 到处重复写溢出/借位逻辑。
+
+内存操作数现在会抛出明确错误，这是有意保留的边界：下一阶段应该先加入 `MemoryBus`，再让 `MOV [RBP + offset], RAX` 这种语义接入内存系统。这样 CPU executor 不会直接依赖 OS 的页表、物理页或虚拟地址空间。
 
 ## CMake 目标
 
@@ -149,29 +192,50 @@ auto ins = mnos::cpu::Instruction::make_mov(mnos::cpu::Operand::reg(...), mnos::
 
 这就是错误边界设计：哪些 API 是查询，哪些 API 是严格访问，哪些 API 是构造校验，要有一致语义。
 
+### 5. 标准库风格容器接口
+
+`Program` 和 `ExecutionTrace` 都提供了标准库风格接口：
+
+```cpp
+program.empty();
+program.size();
+program.begin();
+program.end();
+program.instructions(); // std::span<const Instruction>
+```
+
+这不是形式主义。它的好处是调用者能用熟悉的 C++ 容器语义理解复杂 CPU 概念：
+
+1. `Program` 是一段连续 instruction stream。
+2. `RIP` 当前阶段映射为指令下标。
+3. `ExecutionTrace` 是执行事件的顺序日志。
+4. `std::span` 返回只读视图，不复制 vector，也不暴露修改权限。
+
+这类接口后面可以自然接入标准算法、调试 dump、测试断言和性能统计。
+
 ## 未来扩展建议
 
-### CPU executor
+### Memory bus
 
 后续可以添加：
 
 ```text
 include/mnos/cpu/execution/
-  cpu.hpp
   memory_bus.hpp
-  executor.hpp
+  memory.hpp
 
 src/cpu/execution/
-  cpu.cpp
-  executor.cpp
+  memory_bus.cpp
+  memory.cpp
 ```
 
 建议接口大致分层：
 
 1. `RegisterBank` 管寄存器。
 2. `Rflags` 管 flags。
-3. `MemoryBus` 抽象内存读写，CPU 不直接知道 OS 的物理页或虚拟页。
-4. `Executor` 根据 `Instruction` 修改 CPU state。
+3. `CpuState` 聚合寄存器、flags、RIP、halted。
+4. `MemoryBus` 抽象内存读写，CPU 不直接知道 OS 的物理页或虚拟页。
+5. `Executor` 根据 `Instruction` 修改 CPU state，并通过 `MemoryBus` 访问内存。
 
 ### OS/kernel
 
@@ -189,5 +253,6 @@ include/mnos/os/mm/address.hpp
 2. page size、flag bits、权限位全部用命名常量或 `enum class`。
 3. 页表遍历用显式循环/栈，不使用递归。
 4. syscall ABI 放在 syscall 模块，不要散落在 CPU executor 里。
+5. 线程/进程的上下文切换应该保存 `CpuState`，而不是让 scheduler 直接修改 executor 内部实现细节。
 
 这样后面你学习 OS 时，CPU 指令语义、内存系统、OS 抽象会是互相连接但不互相污染的结构。
