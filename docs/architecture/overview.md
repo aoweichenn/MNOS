@@ -20,7 +20,13 @@ src/
   emulator/             宿主机上的模拟器入口程序
 
 tests/
-  cpu/                  CPU core 单元测试
+  support/              通用测试断言、确定性 PRNG 等
+  cpu/
+    support/            CPU 测试指令构造 helper
+    unit/               单模块单元测试
+    integration/        跨模块执行链路测试
+    chaos/              固定 seed 的长流程状态扰动测试
+    fuzz/               固定 seed 的输入组合和边界 fuzz 测试
 
 docs/
   architecture/         项目结构和设计说明
@@ -145,7 +151,10 @@ Executor -> MemoryBus -> MMU/PageTable -> PhysicalMemory
 ```text
 mnos_cpu        静态库，CPU 模拟核心
 mnos_emulator   可执行程序，宿主机模拟器入口
-mnos_cpu_tests  CPU core 测试程序
+*_unit_tests    CPU core 单模块测试
+*_integration_tests
+*_chaos_tests
+*_fuzz_tests
 ```
 
 这样拆分的好处：
@@ -154,6 +163,32 @@ mnos_cpu_tests  CPU core 测试程序
 2. include path 使用 `target_include_directories` 绑定在目标上，避免全局污染。
 3. warning、coverage、C++ 标准都通过目标作用域配置，不会意外影响无关目标。
 4. 未来添加 `mnos_os` 时，只需要让 OS 目标链接 `mnos_cpu`，不用把所有文件塞进一个 executable。
+5. 测试目标按 unit、integration、chaos、fuzz 分层，coverage 目标会运行全部测试目标。
+
+## 测试结构
+
+当前测试按目的拆分，而不是把所有断言堆在一个文件里：
+
+```text
+tests/cpu/unit/
+  common_data_size_test.cpp       DataSize 映射和错误路径
+  register_flags_test.cpp         RegisterBank、RegisterId、Rflags、FlagId
+  instruction_test.cpp            Opcode、Operand、Instruction
+  execution_state_test.cpp        CpuState、Program、ExecutionTrace
+  memory_test.cpp                 PhysicalMemory、MemoryBus
+
+tests/cpu/integration/
+  executor_program_test.cpp       正常指令程序、跳转、flags、内存读写
+  executor_error_test.cpp         executor 错误路径和非法组合
+
+tests/cpu/chaos/
+  executor_chaos_test.cpp         固定 seed 的长指令流状态扰动
+
+tests/cpu/fuzz/
+  memory_executor_fuzz_test.cpp   固定 seed 的内存/执行器输入组合 fuzz
+```
+
+这里的 chaos 和 fuzz 都是 deterministic 的：使用固定 seed，不依赖系统随机源。这样失败时可以稳定复现，同时仍然能覆盖大量组合状态。chaos 更偏“长流程状态演进”，fuzz 更偏“输入组合、边界和非法形状”。
 
 ## 当前代码中的现代 C++ 思想
 

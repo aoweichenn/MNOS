@@ -63,11 +63,36 @@ add_executable(mnos_emulator src/emulator/main.cpp)
 target_link_libraries(mnos_emulator PRIVATE mnos_cpu)
 mnos_apply_project_options(mnos_emulator)
 
-add_executable(mnos_cpu_tests tests/cpu/core_test.cpp)
-target_link_libraries(mnos_cpu_tests PRIVATE mnos_cpu)
-mnos_apply_project_options(mnos_cpu_tests)
+set(MNOS_CPU_TEST_TARGETS)
+set(MNOS_CPU_COVERAGE_TEST_GCDA_FILES)
 
-add_test(NAME mnos_cpu_tests COMMAND mnos_cpu_tests)
+function(mnos_add_cpu_test target_name source_file)
+    add_executable(${target_name} ${source_file})
+    target_link_libraries(${target_name} PRIVATE mnos_cpu)
+    target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+    mnos_apply_project_options(${target_name})
+    add_test(NAME ${target_name} COMMAND ${target_name})
+
+    list(APPEND MNOS_CPU_TEST_TARGETS ${target_name})
+    set(MNOS_CPU_TEST_TARGETS "${MNOS_CPU_TEST_TARGETS}" PARENT_SCOPE)
+
+    list(
+        APPEND
+        MNOS_CPU_COVERAGE_TEST_GCDA_FILES
+            ${CMAKE_BINARY_DIR}/CMakeFiles/${target_name}.dir/${source_file}.gcda
+    )
+    set(MNOS_CPU_COVERAGE_TEST_GCDA_FILES "${MNOS_CPU_COVERAGE_TEST_GCDA_FILES}" PARENT_SCOPE)
+endfunction()
+
+mnos_add_cpu_test(mnos_cpu_common_unit_tests tests/cpu/unit/common_data_size_test.cpp)
+mnos_add_cpu_test(mnos_cpu_register_flags_unit_tests tests/cpu/unit/register_flags_test.cpp)
+mnos_add_cpu_test(mnos_cpu_instruction_unit_tests tests/cpu/unit/instruction_test.cpp)
+mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
+mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
+mnos_add_cpu_test(mnos_cpu_executor_integration_tests tests/cpu/integration/executor_program_test.cpp)
+mnos_add_cpu_test(mnos_cpu_executor_error_integration_tests tests/cpu/integration/executor_error_test.cpp)
+mnos_add_cpu_test(mnos_cpu_executor_chaos_tests tests/cpu/chaos/executor_chaos_test.cpp)
+mnos_add_cpu_test(mnos_cpu_memory_executor_fuzz_tests tests/cpu/fuzz/memory_executor_fuzz_test.cpp)
 
 if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_program(MNOS_GCOV_EXECUTABLE gcov)
@@ -107,19 +132,24 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/program.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/trace.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/executor.cpp.gcda
-                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu_tests.dir/tests/cpu/core_test.cpp.gcda
+                ${MNOS_CPU_COVERAGE_TEST_GCDA_FILES}
         )
+
+        set(MNOS_CPU_COVERAGE_TEST_COMMANDS)
+        foreach(MNOS_CPU_TEST_TARGET IN LISTS MNOS_CPU_TEST_TARGETS)
+            list(APPEND MNOS_CPU_COVERAGE_TEST_COMMANDS COMMAND $<TARGET_FILE:${MNOS_CPU_TEST_TARGET}>)
+        endforeach()
 
         add_custom_target(
             mnos_cpu_coverage
             COMMAND ${CMAKE_COMMAND} -E rm -f ${MNOS_CPU_COVERAGE_GCDA_FILES}
-            COMMAND $<TARGET_FILE:mnos_cpu_tests>
+            ${MNOS_CPU_COVERAGE_TEST_COMMANDS}
             COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/coverage/gcov
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/coverage/gcov
             COMMAND ${CMAKE_COMMAND} -E chdir
                     ${CMAKE_BINARY_DIR}/coverage/gcov
                     ${MNOS_GCOV_EXECUTABLE} -b -c -r -s ${PROJECT_SOURCE_DIR} ${MNOS_CPU_COVERAGE_GCNO_FILES}
-            DEPENDS mnos_cpu_tests
+            DEPENDS ${MNOS_CPU_TEST_TARGETS}
             COMMENT "Writing mnos_cpu gcov reports to ${CMAKE_BINARY_DIR}/coverage/gcov"
         )
     else()
