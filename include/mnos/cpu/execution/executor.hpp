@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/decode/decoder.hpp>
@@ -12,6 +13,7 @@
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/mmu.hpp>
+#include <mnos/cpu/perf/performance_model.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 
 namespace mnos::cpu
@@ -35,6 +37,11 @@ public:
     [[nodiscard]] bool has_trap_controller() const noexcept;
     [[nodiscard]] memory::MemoryManagementUnit& mmu() noexcept;
     [[nodiscard]] const memory::MemoryManagementUnit& mmu() const noexcept;
+    void enable_stage8_performance_model(perf::Stage8PerformanceConfig config = perf::Stage8PerformanceConfig{});
+    void disable_stage8_performance_model() noexcept;
+    [[nodiscard]] bool has_stage8_performance_model() const noexcept;
+    [[nodiscard]] perf::Stage8PerformanceModel& stage8_performance_model();
+    [[nodiscard]] const perf::Stage8PerformanceModel& stage8_performance_model() const;
 
     [[nodiscard]] StepResult step(CpuState& state, const Program& program, ExecutionTrace* trace = nullptr);
     [[nodiscard]] StepResult step(
@@ -259,12 +266,20 @@ private:
         MemoryBus* memory_bus,
         InstructionPointer start_rip,
         InstructionPointer next_rip);
+    void record_stage8_instruction_fetch(InstructionPointer start_rip, InstructionPointer next_rip);
+    void record_stage8_retired_instruction(
+        const Instruction& instruction,
+        InstructionPointer fallthrough_rip,
+        InstructionPointer actual_rip) noexcept;
+    void record_stage8_exception_flush() noexcept;
+    [[nodiscard]] bool is_control_flow_opcode(Opcode opcode) const noexcept;
     void handle_page_fault(CpuState& state, const memory::PageFault& fault) const;
     void set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept;
     void jump_to(CpuState& state, const ExecutionContext& context, InstructionPointer target) const;
 
     Decoder decoder_;
     memory::MemoryManagementUnit mmu_;
+    std::optional<perf::Stage8PerformanceModel> stage8_performance_model_;
     system::TrapController* trap_controller_ = nullptr;
     CycleCount cycle_count_ = CycleCount{0};
 };

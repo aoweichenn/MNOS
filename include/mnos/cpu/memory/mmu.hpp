@@ -10,6 +10,11 @@
 #include <mnos/cpu/memory/tlb.hpp>
 #include <mnos/cpu/system/privilege.hpp>
 
+namespace mnos::cpu::perf
+{
+class Stage8PerformanceModel;
+}
+
 namespace mnos::cpu::memory
 {
 class MemoryManagementUnit final
@@ -17,6 +22,9 @@ class MemoryManagementUnit final
 public:
     [[nodiscard]] TranslationLookasideBuffer& tlb() noexcept;
     [[nodiscard]] const TranslationLookasideBuffer& tlb() const noexcept;
+    void attach_stage8_performance_model(mnos::cpu::perf::Stage8PerformanceModel& performance_model) noexcept;
+    void detach_stage8_performance_model() noexcept;
+    [[nodiscard]] bool has_stage8_performance_model() const noexcept;
     void flush_tlb() noexcept;
     void flush_tlb_context(ProcessContextId context_id) noexcept;
     void invalidate_page(Address64 linear_address) noexcept;
@@ -66,8 +74,13 @@ private:
         Address64 linear_address,
         MemoryAccessKind access_kind) const;
     void mark_cached_translation_dirty(MemoryBus& memory_bus, PageTranslation& translation) const;
+    void record_data_read(Address64 physical_address, std::size_t byte_count);
+    void record_data_write(Address64 physical_address, std::size_t byte_count);
+    void record_tlb_hit() noexcept;
+    void record_tlb_miss() noexcept;
 
     PageTableWalker page_table_walker_;
     TranslationLookasideBuffer tlb_;
+    mnos::cpu::perf::Stage8PerformanceModel* stage8_performance_model_ = nullptr;
 };
 }

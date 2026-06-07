@@ -5,6 +5,7 @@
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
+#include <mnos/cpu/perf/performance_model.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
@@ -40,10 +41,14 @@ int main()
 
     cpu::CpuState state;
     cpu::Executor executor;
+    executor.enable_stage8_performance_model();
     const std::size_t executed_steps = executor.run(state, bootstrap_image, boot_context.memory_bus());
+    const cpu::perf::PerformanceCounters& performance_counters =
+        executor.stage8_performance_model().counters();
 
     std::cout << "MNOS emulator bootstrap: kernel=" << (os_kernel.is_booted() ? "booted" : "not-booted")
               << ", stage7=" << (os_kernel.has_stage7_services() ? "ready" : "not-ready")
+              << ", stage8=" << (executor.has_stage8_performance_model() ? "ready" : "not-ready")
               << ", cores=" << os_kernel.bootstrap_processor_count()
               << ", " << cpu::opcode_to_assembly_name(cpu::Opcode::HLT)
               << ", RAX=" << state.registers().read(cpu::RegisterId::RAX)
@@ -51,6 +56,9 @@ int main()
               << ", MEM[" << EMULATOR_BOOTSTRAP_STORED_ADDRESS
               << "]=" << machine.physical_memory().read_qword(EMULATOR_BOOTSTRAP_STORED_ADDRESS)
               << ", steps=" << executed_steps
-              << ", cycles=" << executor.cycle_count() << '\n';
+              << ", cycles=" << executor.cycle_count()
+              << ", perf_cycles=" << performance_counters.cycles()
+              << ", l1i_misses=" << performance_counters.l1i_misses()
+              << ", l1d_misses=" << performance_counters.l1d_misses() << '\n';
     return 0;
 }

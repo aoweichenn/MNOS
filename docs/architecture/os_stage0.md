@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
@@ -130,16 +130,26 @@ TLB shootdown      request/take/apply/ack 控制器，配合 tlb-shootdown IPI
 Scheduler handoff  记录 source core、target core、thread id，并发送 reschedule IPI
 ```
 
+Stage 8 已经完成第一版性能硬件底座：
+
+```text
+SetAssociativeCache     L1I/L1D cache，line/set/associativity/LRU/dirty eviction
+InOrderPipeline         retire、branch redirect flush、exception flush 的确定性周期模型
+PerformanceCounters     cycles、retired、cache hit/miss、TLB hit/miss、branch、flush、stall
+Stage8PerformanceModel  Executor/MMU 可选性能 facade，未启用时不改变原语义
+Benchmark               Stage8 performance model 已进入 benchmark smoke
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. cache/pipeline/perf counter
-2. per-core run queue、真实 SMP scheduler 和负载迁移
-3. 用户态 loader、内核/用户地址布局、COW fork
-4. signal/event/futex 风格等待语义
-5. fs/block device/network
+1. per-core run queue、真实 SMP scheduler 和负载迁移
+2. 用户态 loader、内核/用户地址布局、COW fork
+3. signal/event/futex 风格等待语义
+4. fs/block device/network
+5. cache coherence / branch predictor / uop cache / SIMD
 6. HPC/SIMD/AI 路线
 ```
 

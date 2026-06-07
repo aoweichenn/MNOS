@@ -104,6 +104,7 @@ set(
         src/cpu/instruction/instruction.cpp
         src/cpu/memory/physical_memory.cpp
         src/cpu/memory/memory_bus.cpp
+        src/cpu/memory/cache.cpp
         src/cpu/memory/memory_model.cpp
         src/cpu/memory/paging.cpp
         src/cpu/memory/tlb.cpp
@@ -118,10 +119,12 @@ set(
         src/cpu/system/descriptor_tables.cpp
         src/cpu/system/trap_frame.cpp
         src/cpu/system/trap_controller.cpp
+        src/cpu/execution/pipeline.cpp
         src/cpu/execution/cpu_state.cpp
         src/cpu/execution/program.cpp
         src/cpu/execution/trace.cpp
         src/cpu/execution/executor.cpp
+        src/cpu/perf/performance_model.cpp
 )
 
 add_library(mnos_cpu STATIC ${MNOS_CPU_SOURCES})
@@ -247,14 +250,19 @@ mnos_add_cpu_test(mnos_cpu_system_unit_tests tests/cpu/unit/system_test.cpp)
 mnos_add_cpu_test(mnos_cpu_decoder_unit_tests tests/cpu/unit/decoder_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
+mnos_add_cpu_test(mnos_cpu_cache_unit_tests tests/cpu/unit/cache_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_model_unit_tests tests/cpu/unit/memory_model_test.cpp)
 mnos_add_cpu_test(mnos_cpu_paging_unit_tests tests/cpu/unit/paging_test.cpp)
+mnos_add_cpu_test(mnos_cpu_pipeline_unit_tests tests/cpu/unit/pipeline_test.cpp)
+mnos_add_cpu_test(mnos_cpu_performance_unit_tests tests/cpu/unit/performance_model_test.cpp)
 mnos_add_cpu_test(mnos_cpu_apic_unit_tests tests/cpu/unit/apic_test.cpp)
 mnos_add_cpu_test(mnos_cpu_tlb_shootdown_unit_tests tests/cpu/unit/tlb_shootdown_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_integration_tests tests/cpu/integration/executor_program_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_error_integration_tests tests/cpu/integration/executor_error_test.cpp)
 mnos_add_cpu_test(mnos_cpu_byte_executor_integration_tests tests/cpu/integration/byte_executor_test.cpp)
+mnos_add_cpu_test(mnos_cpu_stage8_integration_tests tests/cpu/integration/stage8_performance_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_chaos_tests tests/cpu/chaos/executor_chaos_test.cpp)
+mnos_add_cpu_test(mnos_cpu_stage8_chaos_tests tests/cpu/chaos/stage8_cache_chaos_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_executor_fuzz_tests tests/cpu/fuzz/memory_executor_fuzz_test.cpp)
 
 mnos_add_os_test(mnos_os_address_page_unit_tests tests/os/unit/address_page_test.cpp)

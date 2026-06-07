@@ -1,6 +1,6 @@
 # C++ 与 MNOS 学习问题合集
 
-这份文档把 C++ 语言规则和当前 x86-64 Stage 0..7 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT/TrapFrame/CoreTopology/LOCK/APIC/INVLPG` 等当前主线术语。
+这份文档把 C++ 语言规则和当前 x86-64 Stage 0..8 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT/TrapFrame/CoreTopology/LOCK/APIC/INVLPG/Cache/Pipeline/PerfCounter` 等当前主线术语。
 
 ## 1. 编译期常量和运行时常量
 
@@ -65,11 +65,11 @@ immediate
 memory(base/index/scale/displacement/absolute + data size)
 ```
 
-`Operand` 使用 `std::variant`，是为了把合法 payload 绑定到类型上，而不是用一堆松散字段。Stage 6 的 `CMPXCHG/XADD` 和 Stage 7 的 `INVLPG` 仍复用同一套 `Operand`，避免原子和 TLB 指令另建一套重复表示。
+`Operand` 使用 `std::variant`，是为了把合法 payload 绑定到类型上，而不是用一堆松散字段。Stage 6 的 `CMPXCHG/XADD` 和 Stage 7 的 `INVLPG` 仍复用同一套 `Operand`，Stage 8 的 cache/pipeline/perf hook 也观察同一套执行路径，避免原子、TLB 和性能模型各自另建重复表示。
 
 ## 5. RIP 和 Program
 
-真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址；Stage 2 在同一套语义上加入栈、条件码和更多整数指令；Stage 3 加入 `INT/SYSCALL/SYSRET/IRET` 和 trapframe；Stage 6 加入 `LOCK CMPXCHG/XADD` 和 `MFENCE`；Stage 7 加入 `INVLPG`、APIC timer/IPI 和 TLB shootdown。
+真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址；Stage 2 在同一套语义上加入栈、条件码和更多整数指令；Stage 3 加入 `INT/SYSCALL/SYSRET/IRET` 和 trapframe；Stage 4 加入 paging/MMU/TLB/page fault；Stage 5 加入第一版 OS 进程、地址空间、调度和 syscall ABI；Stage 6 加入 `LOCK CMPXCHG/XADD` 和 `MFENCE`；Stage 7 加入 `INVLPG`、APIC timer/IPI 和 TLB shootdown；Stage 8 加入可选 instruction fetch cache、pipeline retire 和 perf counter 统计。
 
 当前 byte image 路径是：
 
@@ -163,7 +163,22 @@ LocalApicTimer tick
 
 IOAPIC 负责外部 IRQ 路由，IPI 负责核心之间的通知。当前项目把这些做成确定性教学模型，后续才能自然扩展到 per-core run queue、负载迁移和真实设备中断。
 
-## 11. DataSize
+## 11. cache、pipeline 和 perf counter 为什么重要？
+
+同一段代码在现代 CPU 上快慢差异很大，原因经常不是“指令条数”本身，而是 cache miss、TLB miss、branch redirect、pipeline stall、dirty eviction 等硬件事件。
+
+Stage 8 当前建模：
+
+```text
+L1I/L1D cache       组相联、cache line、LRU victim
+write policy       write-back / write-through
+pipeline           retire cycle、branch redirect flush、exception flush
+perf counter       cycles、retired、cache hit/miss、TLB hit/miss、branch、stall
+```
+
+`Stage8PerformanceModel` 是显式启用的可选 facade。未启用时 Executor/MMU 行为不变；启用后，Executor 记录 instruction fetch、retire 和 branch redirect，MMU 记录 TLB hit/miss 和 D-cache 读写。这让学习者能把算法性能和硬件现象连起来，而不是只看抽象 Big-O。
+
+## 12. DataSize
 
 x86-64 常用数据宽度：
 
@@ -174,9 +189,9 @@ DWORD  32 bit
 QWORD  64 bit
 ```
 
-当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；Stage 2 已加入 r/m8、r/m16、r/m32 source 宽度和 `MOVSX/MOVZX/MOVSXD`。后续 MMU/page fault 阶段会把这些访问接入地址转换和异常流。
+当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；Stage 2 已加入 r/m8、r/m16、r/m32 source 宽度和 `MOVSX/MOVZX/MOVSXD`。Stage 4 已把这些访问接入 MMU 地址转换和 page fault 异常流，Stage 8 再在 MMU 读写路径上记录 D-cache 与 TLB 性能事件。
 
-## 12. 为什么热路径不用复杂模式？
+## 13. 为什么热路径不用复杂模式？
 
 `Executor` 是性能热点。每条指令都走虚函数和堆对象，会让后续性能研究失真。
 
@@ -188,11 +203,12 @@ switch (Opcode)
 Operand variant 表达形态
 MemoryBus facade 隔离内存系统
 ExecutionTrace 可选
+Stage8PerformanceModel 可选
 ```
 
 Strategy、Adapter、Builder 等模式应该放在 ISA decoder、设备、平台配置、调度策略这些变化边界上，而不是塞进每条指令执行。
 
-## 13. 下一阶段学习重点
+## 14. 下一阶段学习重点
 
 ```text
 x86-64 instruction byte encoding
@@ -204,5 +220,6 @@ IDT/GDT/TSS/trapframe
 LOCK/atomic and x86 TSO
 timer/APIC/IPI/INVLPG/TLB shootdown
 cache/pipeline/perf counter
+per-core run queue / SMP scheduler
 SSE/AVX performance path
 ```

@@ -24,6 +24,8 @@ constexpr const char* EXECUTOR_INVALID_CONDITION_CODE_MESSAGE = "executor receiv
 constexpr const char* EXECUTOR_INVALID_DATA_SIZE_MESSAGE = "executor data size is invalid";
 constexpr const char* EXECUTOR_TRAP_CONTROLLER_REQUIRED_MESSAGE =
     "executor trap instruction requires an attached trap controller";
+constexpr const char* EXECUTOR_STAGE8_PERFORMANCE_MODEL_REQUIRED_MESSAGE =
+    "executor stage8 performance model is not enabled";
 constexpr const char* EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE =
     "executor INT instruction requires an 8-bit vector immediate";
 constexpr const char* EXECUTOR_PAGING_MEMORY_BUS_REQUIRED_MESSAGE =
@@ -159,6 +161,10 @@ CycleCount Executor::cycle_count() const noexcept
 void Executor::reset() noexcept
 {
     this->cycle_count_ = CycleCount{0};
+    if (this->stage8_performance_model_.has_value())
+    {
+        this->stage8_performance_model_.value().reset();
+    }
 }
 
 void Executor::attach_trap_controller(system::TrapController& trap_controller) noexcept
@@ -184,6 +190,41 @@ memory::MemoryManagementUnit& Executor::mmu() noexcept
 const memory::MemoryManagementUnit& Executor::mmu() const noexcept
 {
     return this->mmu_;
+}
+
+void Executor::enable_stage8_performance_model(perf::Stage8PerformanceConfig config)
+{
+    this->stage8_performance_model_.emplace(config);
+    this->mmu_.attach_stage8_performance_model(this->stage8_performance_model_.value());
+}
+
+void Executor::disable_stage8_performance_model() noexcept
+{
+    this->mmu_.detach_stage8_performance_model();
+    this->stage8_performance_model_.reset();
+}
+
+bool Executor::has_stage8_performance_model() const noexcept
+{
+    return this->stage8_performance_model_.has_value();
+}
+
+perf::Stage8PerformanceModel& Executor::stage8_performance_model()
+{
+    if (!this->stage8_performance_model_.has_value())
+    {
+        throw std::logic_error{EXECUTOR_STAGE8_PERFORMANCE_MODEL_REQUIRED_MESSAGE};
+    }
+    return this->stage8_performance_model_.value();
+}
+
+const perf::Stage8PerformanceModel& Executor::stage8_performance_model() const
+{
+    if (!this->stage8_performance_model_.has_value())
+    {
+        throw std::logic_error{EXECUTOR_STAGE8_PERFORMANCE_MODEL_REQUIRED_MESSAGE};
+    }
+    return this->stage8_performance_model_.value();
 }
 
 StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrace* const trace)
@@ -272,10 +313,13 @@ StepResult Executor::step_with_memory(
     try
     {
         this->check_instruction_fetch(state, memory_bus, rip_before, context.next_rip);
+        this->record_stage8_instruction_fetch(rip_before, context.next_rip);
         this->execute_instruction(state, memory_bus, instruction, context);
+        this->record_stage8_retired_instruction(instruction, context.next_rip, state.rip());
     }
     catch (const memory::PageFault& fault)
     {
+        this->record_stage8_exception_flush();
         this->handle_page_fault(state, fault);
     }
     ++this->cycle_count_;
@@ -315,10 +359,16 @@ StepResult Executor::step_image_with_memory(
     try
     {
         this->check_instruction_fetch(state, memory_bus, decoded_instruction.start_rip, decoded_instruction.next_rip);
+        this->record_stage8_instruction_fetch(decoded_instruction.start_rip, decoded_instruction.next_rip);
         this->execute_instruction(state, memory_bus, decoded_instruction.instruction, context);
+        this->record_stage8_retired_instruction(
+            decoded_instruction.instruction,
+            context.next_rip,
+            state.rip());
     }
     catch (const memory::PageFault& fault)
     {
+        this->record_stage8_exception_flush();
         this->handle_page_fault(state, fault);
     }
     ++this->cycle_count_;
@@ -1174,6 +1224,85 @@ void Executor::check_instruction_fetch(
         start_rip,
         instruction_byte_count,
         memory::MemoryAccessKind::EXECUTE);
+}
+
+void Executor::record_stage8_instruction_fetch(
+    const InstructionPointer start_rip,
+    const InstructionPointer next_rip)
+{
+    if (!this->stage8_performance_model_.has_value())
+    {
+        return;
+    }
+
+    const std::size_t byte_count = static_cast<std::size_t>(next_rip - start_rip);
+    this->stage8_performance_model_.value().record_instruction_fetch(start_rip, byte_count);
+}
+
+void Executor::record_stage8_retired_instruction(
+    const Instruction& instruction,
+    const InstructionPointer fallthrough_rip,
+    const InstructionPointer actual_rip) noexcept
+{
+    if (!this->stage8_performance_model_.has_value())
+    {
+        return;
+    }
+
+    const bool control_flow_instruction = this->is_control_flow_opcode(instruction.opcode());
+    const bool redirected = control_flow_instruction && actual_rip != fallthrough_rip;
+    this->stage8_performance_model_.value().record_retired_instruction(control_flow_instruction, redirected);
+}
+
+void Executor::record_stage8_exception_flush() noexcept
+{
+    if (this->stage8_performance_model_.has_value())
+    {
+        this->stage8_performance_model_.value().record_exception_flush();
+    }
+}
+
+bool Executor::is_control_flow_opcode(const Opcode opcode) const noexcept
+{
+    switch (opcode)
+    {
+    case Opcode::CALL:
+    case Opcode::RET:
+    case Opcode::JMP:
+    case Opcode::JE:
+    case Opcode::JNE:
+    case Opcode::JCC:
+    case Opcode::INT:
+    case Opcode::SYSCALL:
+    case Opcode::SYSRET:
+    case Opcode::IRET:
+        return true;
+    case Opcode::MOV:
+    case Opcode::MOVSX:
+    case Opcode::MOVZX:
+    case Opcode::LEA:
+    case Opcode::ADD:
+    case Opcode::SUB:
+    case Opcode::CMP:
+    case Opcode::INC:
+    case Opcode::DEC:
+    case Opcode::AND:
+    case Opcode::OR:
+    case Opcode::XOR:
+    case Opcode::TEST:
+    case Opcode::CMPXCHG:
+    case Opcode::XADD:
+    case Opcode::MFENCE:
+    case Opcode::INVLPG:
+    case Opcode::PUSH:
+    case Opcode::POP:
+    case Opcode::SETCC:
+    case Opcode::CMOVCC:
+    case Opcode::HLT:
+    case Opcode::COUNT:
+        return false;
+    }
+    return false;
 }
 
 void Executor::handle_page_fault(CpuState& state, const memory::PageFault& fault) const

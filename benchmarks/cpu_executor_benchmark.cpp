@@ -17,6 +17,7 @@
 #include <mnos/cpu/memory/page_table_builder.hpp>
 #include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
+#include <mnos/cpu/perf/performance_model.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/core_topology.hpp>
 #include <mnos/cpu/system/privilege.hpp>
@@ -25,6 +26,7 @@
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
 namespace cpu_memory = mnos::cpu::memory;
+namespace cpu_perf = mnos::cpu::perf;
 namespace cpu_system = mnos::cpu::system;
 
 namespace
@@ -39,6 +41,7 @@ constexpr std::size_t BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
 constexpr std::size_t BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT = 6;
 constexpr std::size_t BENCHMARK_STAGE4_PAGED_PROGRAM_INSTRUCTION_COUNT = 5;
 constexpr std::size_t BENCHMARK_STAGE6_ATOMIC_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
+constexpr std::size_t BENCHMARK_STAGE8_PERFORMANCE_PROGRAM_INSTRUCTION_COUNT = BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT;
 constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
 constexpr cpu::Address64 BENCHMARK_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
 constexpr cpu::Qword BENCHMARK_STAGE3_KERNEL_STACK_TOP = cpu::Qword{384};
@@ -52,6 +55,19 @@ constexpr cpu::SignedQword BENCHMARK_STAGE4_LINEAR_DATA_VALUE =
 constexpr cpu::Qword BENCHMARK_STAGE6_ATOMIC_INITIAL_VALUE = cpu::Qword{10};
 constexpr cpu::Address64 BENCHMARK_STAGE6_ATOMIC_ADDRESS = cpu::Address64{128};
 constexpr std::uint32_t BENCHMARK_STAGE6_CORE_COUNT = std::uint32_t{2};
+
+[[nodiscard]] cpu_perf::Stage8PerformanceConfig make_stage8_benchmark_config()
+{
+    return cpu_perf::Stage8PerformanceConfig{
+        cpu_memory::CacheGeometry{64, 64, 4},
+        cpu_memory::CacheGeometry{64, 64, 8},
+        cpu_memory::CacheWritePolicy::WRITE_BACK,
+        cpu::execution::PipelineConfig{},
+        cpu_perf::PERF_DEFAULT_CACHE_HIT_CYCLES,
+        cpu_perf::PERF_DEFAULT_CACHE_MISS_PENALTY_CYCLES,
+        cpu_perf::PERF_DEFAULT_CACHE_DIRTY_EVICTION_PENALTY_CYCLES,
+        cpu_perf::PERF_DEFAULT_TLB_MISS_PENALTY_CYCLES};
+}
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -295,6 +311,26 @@ static void BM_CPUExecutorStage6AtomicByteImageProgram(benchmark::State& state)
     set_instruction_items_processed(state, BENCHMARK_STAGE6_ATOMIC_BYTE_IMAGE_INSTRUCTION_COUNT);
 }
 
+static void BM_CPUExecutorStage8PerformanceModel(benchmark::State& state)
+{
+    const cpu::ExecutableImage image = make_memory_image();
+    const cpu_perf::Stage8PerformanceConfig config = make_stage8_benchmark_config();
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::CpuState cpu_state;
+        cpu::PhysicalMemory memory(BENCHMARK_MEMORY_SIZE_BYTES);
+        cpu::MemoryBus memory_bus{memory};
+        cpu::Executor executor;
+        executor.enable_stage8_performance_model(config);
+        benchmark::DoNotOptimize(executor.run(cpu_state, image, memory_bus));
+        benchmark::DoNotOptimize(executor.stage8_performance_model().counters().cycles());
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_STAGE8_PERFORMANCE_PROGRAM_INSTRUCTION_COUNT);
+}
+
 static void BM_X86TsoMemoryModelStoreFence(benchmark::State& state)
 {
     for (auto unused_iteration : state)
@@ -323,4 +359,5 @@ BENCHMARK(BM_CPUExecutorStage2ByteImageProgram);
 BENCHMARK(BM_CPUExecutorStage3SyscallByteImageProgram);
 BENCHMARK(BM_CPUExecutorStage4PagedMemoryProgram);
 BENCHMARK(BM_CPUExecutorStage6AtomicByteImageProgram);
+BENCHMARK(BM_CPUExecutorStage8PerformanceModel);
 BENCHMARK(BM_X86TsoMemoryModelStoreFence);

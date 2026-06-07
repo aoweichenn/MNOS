@@ -2,6 +2,7 @@
 #include <array>
 
 #include <mnos/cpu/memory/mmu.hpp>
+#include <mnos/cpu/perf/performance_model.hpp>
 
 namespace
 {
@@ -62,6 +63,22 @@ const TranslationLookasideBuffer& MemoryManagementUnit::tlb() const noexcept
     return this->tlb_;
 }
 
+void MemoryManagementUnit::attach_stage8_performance_model(
+    mnos::cpu::perf::Stage8PerformanceModel& performance_model) noexcept
+{
+    this->stage8_performance_model_ = &performance_model;
+}
+
+void MemoryManagementUnit::detach_stage8_performance_model() noexcept
+{
+    this->stage8_performance_model_ = nullptr;
+}
+
+bool MemoryManagementUnit::has_stage8_performance_model() const noexcept
+{
+    return this->stage8_performance_model_ != nullptr;
+}
+
 void MemoryManagementUnit::flush_tlb() noexcept
 {
     this->tlb_.clear();
@@ -109,9 +126,10 @@ Qword MemoryManagementUnit::read(
     const std::size_t byte_count = data_size_to_bytes(data_size);
     if (!paging_state.is_enabled() || is_access_within_4k_page(linear_address, byte_count))
     {
-        return memory_bus.read(
-            this->translate(memory_bus, paging_state, privilege_level, linear_address, MemoryAccessKind::READ),
-            data_size);
+        const Address64 physical_address =
+            this->translate(memory_bus, paging_state, privilege_level, linear_address, MemoryAccessKind::READ);
+        this->record_data_read(physical_address, byte_count);
+        return memory_bus.read(physical_address, data_size);
     }
 
     Qword value = Qword{0};
@@ -120,6 +138,7 @@ Qword MemoryManagementUnit::read(
         const Address64 byte_linear_address = linear_address + static_cast<Address64>(byte_index);
         const Address64 byte_physical_address =
             this->translate_enabled(memory_bus, paging_state, privilege_level, byte_linear_address, MemoryAccessKind::READ);
+        this->record_data_read(byte_physical_address, DATA_SIZE_BYTE_BYTES);
         value |= memory_bus.read(byte_physical_address, DataSize::BYTE) << (byte_index * DATA_SIZE_BYTE_BITS);
     }
     return value;
@@ -136,10 +155,10 @@ void MemoryManagementUnit::write(
     const std::size_t byte_count = data_size_to_bytes(data_size);
     if (!paging_state.is_enabled() || is_access_within_4k_page(linear_address, byte_count))
     {
-        memory_bus.write(
-            this->translate(memory_bus, paging_state, privilege_level, linear_address, MemoryAccessKind::WRITE),
-            data_size,
-            value);
+        const Address64 physical_address =
+            this->translate(memory_bus, paging_state, privilege_level, linear_address, MemoryAccessKind::WRITE);
+        this->record_data_write(physical_address, byte_count);
+        memory_bus.write(physical_address, data_size, value);
         return;
     }
 
@@ -157,6 +176,7 @@ void MemoryManagementUnit::write(
     for (std::size_t byte_index = 0; byte_index < byte_count; ++byte_index)
     {
         const Byte byte_value = static_cast<Byte>((value >> (byte_index * DATA_SIZE_BYTE_BITS)) & MMU_BYTE_MASK);
+        this->record_data_write(physical_addresses[byte_index], DATA_SIZE_BYTE_BYTES);
         memory_bus.write(physical_addresses[byte_index], DataSize::BYTE, byte_value);
     }
 }
@@ -197,6 +217,7 @@ Address64 MemoryManagementUnit::translate_enabled(
     if (PageTranslation* const cached_translation =
             this->tlb_.lookup(linear_address, paging_state.generation(), paging_state.process_context_id()))
     {
+        this->record_tlb_hit();
         this->ensure_cached_access_allowed(
             paging_state,
             *cached_translation,
@@ -210,6 +231,7 @@ Address64 MemoryManagementUnit::translate_enabled(
         return cached_translation->translate(linear_address);
     }
 
+    this->record_tlb_miss();
     PageTranslation translation = this->page_table_walker_.translate(
         memory_bus,
         paging_state,
@@ -257,5 +279,41 @@ void MemoryManagementUnit::mark_cached_translation_dirty(
         memory_bus.write(translation.leaf_entry_address(), DataSize::QWORD, updated_entry.raw_bits());
     }
     translation.set_dirty(true);
+}
+
+void MemoryManagementUnit::record_data_read(
+    const Address64 physical_address,
+    const std::size_t byte_count)
+{
+    if (this->stage8_performance_model_ != nullptr)
+    {
+        this->stage8_performance_model_->record_data_read(physical_address, byte_count);
+    }
+}
+
+void MemoryManagementUnit::record_data_write(
+    const Address64 physical_address,
+    const std::size_t byte_count)
+{
+    if (this->stage8_performance_model_ != nullptr)
+    {
+        this->stage8_performance_model_->record_data_write(physical_address, byte_count);
+    }
+}
+
+void MemoryManagementUnit::record_tlb_hit() noexcept
+{
+    if (this->stage8_performance_model_ != nullptr)
+    {
+        this->stage8_performance_model_->record_tlb_hit();
+    }
+}
+
+void MemoryManagementUnit::record_tlb_miss() noexcept
+{
+    if (this->stage8_performance_model_ != nullptr)
+    {
+        this->stage8_performance_model_->record_tlb_miss();
+    }
 }
 }
