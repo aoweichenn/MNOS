@@ -12,6 +12,7 @@ include/mnos/
     register/           通用寄存器编号和寄存器组
     flags/              RFLAGS 状态位
     instruction/        指令 opcode、operand、instruction
+    memory/             物理内存和 CPU memory bus
     execution/          CPU 状态、程序容器、执行器、执行 trace
 
 src/
@@ -74,10 +75,10 @@ src/cpu/execution/
 当前执行器支持：
 
 ```text
-MOV    写寄存器
-ADD    写寄存器，并更新 ZF/SF/CF/OF
-SUB    写寄存器，并更新 ZF/SF/CF/OF
-CMP    只更新 ZF/SF/CF/OF，不写回寄存器
+MOV    写寄存器或内存
+ADD    写寄存器或内存，并更新 ZF/SF/CF/OF
+SUB    写寄存器或内存，并更新 ZF/SF/CF/OF
+CMP    只更新 ZF/SF/CF/OF，不写回寄存器或内存
 JMP    无条件跳转
 JE     ZF=1 时跳转
 JNE    ZF=0 时跳转
@@ -91,9 +92,51 @@ HALT   停机
 1. `Executor::step` 热路径使用 `switch (Opcode)`，没有虚函数分发。
 2. `ExecutionTrace*` 是可选指针，不传 trace 时不产生 trace 存储开销。
 3. `Program` 使用连续 `std::vector<Instruction>`，取指是下标访问，缓存局部性好。
-4. flags 更新由局部 helper 集中处理，避免 ADD/SUB/CMP 到处重复写溢出/借位逻辑。
+4. 无内存程序仍然可以调用不带 `MemoryBus` 的 executor API，保持轻量路径。
+5. flags 更新由局部 helper 集中处理，避免 ADD/SUB/CMP 到处重复写溢出/借位逻辑。
 
-内存操作数现在会抛出明确错误，这是有意保留的边界：下一阶段应该先加入 `MemoryBus`，再让 `MOV [RBP + offset], RAX` 这种语义接入内存系统。这样 CPU executor 不会直接依赖 OS 的页表、物理页或虚拟地址空间。
+内存操作数通过 `MemoryBus` 进入内存系统。执行器不直接持有 `PhysicalMemory`，这样后面可以在 bus 上继续加入 cache、MMIO、页表翻译或访问统计，而不用推翻指令执行语义。
+
+## 当前 CPU 内存层
+
+这一步加入了 CPU 内存边界：
+
+```text
+include/mnos/cpu/memory/
+  physical_memory.hpp   连续物理字节存储，小端 read/write
+  memory_bus.hpp        CPU 访问内存的总线 facade
+
+src/cpu/memory/
+  physical_memory.cpp
+  memory_bus.cpp
+```
+
+`PhysicalMemory` 当前负责：
+
+1. 保存连续字节数组。
+2. 按 `DataSize::BYTE/WORD/DWORD/QWORD` 做小端读写。
+3. 做越界检查。
+4. 提供 `std::span` 视图，方便测试和后续 dump。
+
+`MemoryBus` 当前只是轻量 facade，但它是后续扩展的关键边界：
+
+```text
+Executor -> MemoryBus -> PhysicalMemory
+```
+
+未来如果加入 cache，可以变成：
+
+```text
+Executor -> MemoryBus -> Cache -> PhysicalMemory
+```
+
+如果加入类 Linux OS 的虚拟内存，可以变成：
+
+```text
+Executor -> MemoryBus -> MMU/PageTable -> PhysicalMemory
+```
+
+这个边界能保证 CPU 指令语义、缓存系统、OS 内存管理互相解耦。
 
 ## CMake 目标
 
@@ -213,20 +256,34 @@ program.instructions(); // std::span<const Instruction>
 
 这类接口后面可以自然接入标准算法、调试 dump、测试断言和性能统计。
 
+### 6. Facade 边界
+
+`MemoryBus` 是一个很小的 Facade。它现在只是把读写转发给 `PhysicalMemory`，但意义在于调用方只依赖“总线能读写地址”这个抽象，不依赖物理内存具体怎么存。
+
+这不是为了炫技，而是为了给后续真实硬件模型留出位置：
+
+1. cache 可以挂在 bus 后面。
+2. MMIO 设备可以挂在某些地址范围。
+3. 页表翻译可以插在 bus 和 physical memory 之间。
+4. 性能统计可以在 bus 层统一记录读写次数和访问宽度。
+
 ## 未来扩展建议
 
-### Memory bus
+### Cache / MMU
 
 后续可以添加：
 
 ```text
-include/mnos/cpu/execution/
-  memory_bus.hpp
-  memory.hpp
+include/mnos/cpu/cache/
+  cache_line.hpp
+  cache.hpp
 
-src/cpu/execution/
-  memory_bus.cpp
-  memory.cpp
+include/mnos/cpu/mmu/
+  address_translation.hpp
+  page_table_walker.hpp
+
+src/cpu/cache/
+src/cpu/mmu/
 ```
 
 建议接口大致分层：
@@ -234,8 +291,10 @@ src/cpu/execution/
 1. `RegisterBank` 管寄存器。
 2. `Rflags` 管 flags。
 3. `CpuState` 聚合寄存器、flags、RIP、halted。
-4. `MemoryBus` 抽象内存读写，CPU 不直接知道 OS 的物理页或虚拟页。
-5. `Executor` 根据 `Instruction` 修改 CPU state，并通过 `MemoryBus` 访问内存。
+4. `PhysicalMemory` 管连续物理字节存储。
+5. `MemoryBus` 抽象内存读写，CPU 不直接知道 OS 的物理页或虚拟页。
+6. `Cache/MMU` 可以插在 bus 后面，逐步模拟真实硬件。
+7. `Executor` 根据 `Instruction` 修改 CPU state，并通过 `MemoryBus` 访问内存。
 
 ### OS/kernel
 

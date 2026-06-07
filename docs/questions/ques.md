@@ -947,6 +947,148 @@ Process = 一个或多个 Thread + 虚拟地址空间 + 资源表
 
 所以当前这一步不是偏离 OS，而是在给 OS 的线程/进程模型打硬件基础。
 
+## 8. 为什么要做 PhysicalMemory 和 MemoryBus？
+
+因为线程栈、锁变量、信号量计数、生产者消费者队列，本质上都要落到内存读写。没有内存模型，OS 里的这些概念就只能停留在“对象之间调用函数”，而不是“CPU 真的从某个地址读写数据”。
+
+当前项目把内存拆成两层：
+
+```text
+PhysicalMemory = 真正保存字节的物理内存
+MemoryBus      = CPU 访问内存的总线边界
+```
+
+执行器看到的是 `MemoryBus`：
+
+```cpp
+executor.run(state, program, memory_bus);
+```
+
+而不是直接看到 `PhysicalMemory`。这样后面要加 cache、MMIO、页表翻译时，可以把它们插在 bus 后面。
+
+### 小端序是什么？
+
+x86-64 是 little-endian，小端序。意思是一个多字节整数写进内存时，低位字节放在低地址。
+
+例如写入：
+
+```text
+0x1122334455667788
+```
+
+如果写到地址 `16`，内存布局是：
+
+```text
+address 16: 0x88
+address 17: 0x77
+address 18: 0x66
+address 19: 0x55
+address 20: 0x44
+address 21: 0x33
+address 22: 0x22
+address 23: 0x11
+```
+
+所以 `PhysicalMemory::write_qword` 不是直接把整数对象粗暴拷进去，而是按字节循环写：
+
+```cpp
+for (std::size_t byte_index = 0; byte_index < byte_count; ++byte_index)
+{
+    const std::size_t bit_shift = byte_index * DATA_SIZE_BYTE_BITS;
+    bytes[address + byte_index] = static_cast<UBYTE8>((value >> bit_shift) & 0xFF);
+}
+```
+
+这能明确表达硬件字节序，也避免宿主机平台字节序影响模拟结果。
+
+### `[RBP + displacement]` 是怎么变成地址的？
+
+内存操作数当前建模为：
+
+```cpp
+Operand::mem(RegisterId::RBP, displacement, DataSize::QWORD)
+```
+
+它表示：
+
+```text
+effective_address = register[RBP] + displacement
+```
+
+例如：
+
+```text
+RBP = 16
+displacement = 16
+effective address = 32
+```
+
+执行：
+
+```asm
+mov [rbp + 16], rax
+```
+
+模拟器做的事情是：
+
+```text
+1. 读 RBP。
+2. 加 displacement 得到有效地址。
+3. 按 operand 的 DataSize 决定写几个字节。
+4. 通过 MemoryBus 写入 PhysicalMemory。
+```
+
+负 displacement 也很重要，因为真实栈帧里常见：
+
+```asm
+mov [rbp - 8], rax
+```
+
+当前执行器按 x86-64 地址宽度做加法，然后交给内存范围检查。这样可以开始模拟栈上局部变量、函数调用帧、线程栈。
+
+### 为什么内存到内存指令要拒绝？
+
+当前执行器限制二元指令最多只能有一个 memory operand：
+
+```text
+mov [addr1], [addr2]  // 拒绝
+add [addr1], [addr2]  // 拒绝
+```
+
+这是为了贴近 x86-64 的普通指令规则。大多数普通二元指令不能两个操作数都直接来自内存，因为 CPU 执行单元通常需要先把一个值取进寄存器或内部临时路径。
+
+正确写法更接近：
+
+```asm
+mov rax, [addr2]
+mov [addr1], rax
+```
+
+这个限制对学习很重要：寄存器不是“可有可无”，它是 CPU 执行数据流的核心中转位置。
+
+### 这和线程/进程有什么关系？
+
+有了内存以后，线程就不只是一个 `CpuState`。它还需要栈：
+
+```text
+Thread = CPU 上下文 + 栈内存范围 + 调度状态
+```
+
+有了内存以后，进程也能继续变成：
+
+```text
+Process = 线程集合 + 地址空间 + 资源表
+```
+
+下一阶段如果做线程，可以让每个线程拥有不同的栈范围：
+
+```text
+thread A stack: [0x1000, 0x2000)
+thread B stack: [0x2000, 0x3000)
+```
+
+调度器切换线程时，不只是恢复寄存器，也会让 `RSP/RBP` 指向对应线程的栈。这样你会真正看到：线程切换不是抽象魔法，而是 CPU 上下文和内存地址一起切换。
+
 ## 总结
 
 几个核心判断：
@@ -958,3 +1100,4 @@ Process = 一个或多个 Thread + 虚拟地址空间 + 资源表
 5. `static_cast` 是编译器检查的显式转换；有没有运行时成本取决于转换本身。
 6. `static` 的含义取决于位置：链接、生命周期、类成员归属分别是不同概念。
 7. CPU 单核执行循环是线程/进程/多核调度的底层基础，不是和 OS 目标相反的方向。
+8. PhysicalMemory/MemoryBus 把 CPU 指令执行和底层字节内存连接起来，是后续栈、线程、进程、锁和缓存模型的基础。

@@ -41,6 +41,8 @@ add_library(
         src/cpu/instruction/opcode.cpp
         src/cpu/instruction/operand.cpp
         src/cpu/instruction/instruction.cpp
+        src/cpu/memory/physical_memory.cpp
+        src/cpu/memory/memory_bus.cpp
         src/cpu/execution/cpu_state.cpp
         src/cpu/execution/program.cpp
         src/cpu/execution/trace.cpp
@@ -81,6 +83,8 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/opcode.cpp.gcno
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/operand.cpp.gcno
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/instruction.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/memory/physical_memory.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/memory/memory_bus.cpp.gcno
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/cpu_state.cpp.gcno
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/program.cpp.gcno
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/trace.cpp.gcno
@@ -97,6 +101,8 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/opcode.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/operand.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/instruction.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/memory/physical_memory.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/memory/memory_bus.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/cpu_state.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/program.cpp.gcda
                 ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/execution/trace.cpp.gcda

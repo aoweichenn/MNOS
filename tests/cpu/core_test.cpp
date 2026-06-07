@@ -17,6 +17,8 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
+#include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/bank.hpp>
 #include <mnos/cpu/register/id.hpp>
 
@@ -65,6 +67,32 @@ constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
 constexpr cpu::RIP64 TEST_BRANCH_PROGRAM_FINAL_RIP = cpu::RIP64{6};
 constexpr cpu::UQWORD64 TEST_TRACE_FIRST_CYCLE = cpu::UQWORD64{1};
 constexpr bool TEST_TRACE_NOT_HALTED = false;
+constexpr std::size_t TEST_MEMORY_SIZE_BYTES = 128;
+constexpr std::size_t TEST_MEMORY_RESIZED_SIZE_BYTES = 32;
+constexpr cpu::ADDRESS64 TEST_MEMORY_BASE_ADDRESS = cpu::ADDRESS64{16};
+constexpr cpu::ADDRESS64 TEST_MEMORY_SECOND_ADDRESS = cpu::ADDRESS64{24};
+constexpr cpu::ADDRESS64 TEST_MEMORY_EFFECTIVE_ADDRESS = cpu::ADDRESS64{32};
+constexpr cpu::SQWORD64 TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SQWORD64{16};
+constexpr cpu::SQWORD64 TEST_MEMORY_NEGATIVE_BASE = cpu::SQWORD64{32};
+constexpr cpu::SQWORD64 TEST_MEMORY_NEGATIVE_DISPLACEMENT = cpu::SQWORD64{-8};
+constexpr cpu::UQWORD64 TEST_MEMORY_BYTE_SOURCE_VALUE = cpu::UQWORD64{0x1234};
+constexpr cpu::UBYTE8 TEST_MEMORY_BYTE_EXPECTED_VALUE = cpu::UBYTE8{0x34};
+constexpr cpu::UWORD16 TEST_MEMORY_WORD_VALUE = cpu::UWORD16{0xABCD};
+constexpr cpu::UDWORD32 TEST_MEMORY_DWORD_VALUE = cpu::UDWORD32{0xAABBCCDD};
+constexpr cpu::UQWORD64 TEST_MEMORY_QWORD_VALUE = cpu::UQWORD64{0x1122334455667788ULL};
+constexpr cpu::UBYTE8 TEST_MEMORY_LOW_BYTE_VALUE = cpu::UBYTE8{0x88};
+constexpr cpu::UBYTE8 TEST_MEMORY_HIGH_BYTE_VALUE = cpu::UBYTE8{0x11};
+constexpr cpu::UBYTE8 TEST_MEMORY_FILL_VALUE = cpu::UBYTE8{0xA5};
+constexpr cpu::UBYTE8 TEST_MEMORY_INITIALIZER_FIRST_BYTE = cpu::UBYTE8{0x12};
+constexpr cpu::UBYTE8 TEST_MEMORY_INITIALIZER_SECOND_BYTE = cpu::UBYTE8{0x34};
+constexpr cpu::SQWORD64 TEST_MEMORY_EXECUTOR_VALUE = cpu::SQWORD64{0x123456789ABCDEF0LL};
+constexpr cpu::SQWORD64 TEST_MEMORY_ADD_INITIAL_VALUE = cpu::SQWORD64{10};
+constexpr cpu::SQWORD64 TEST_MEMORY_ADD_INCREMENT = cpu::SQWORD64{32};
+constexpr cpu::SQWORD64 TEST_MEMORY_ADD_EXPECTED_VALUE = cpu::SQWORD64{42};
+constexpr std::size_t TEST_MEMORY_MOV_PROGRAM_STEP_COUNT = 5;
+constexpr std::size_t TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT = 6;
+constexpr std::size_t TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT = 4;
+constexpr cpu::SQWORD64 TEST_MEMORY_BRANCH_TARGET = cpu::SQWORD64{5};
 
 void check(const bool condition, const std::string_view message)
 {
@@ -132,6 +160,14 @@ void check_throws(Callable&& callable, const std::string_view message)
         throw std::logic_error{"test helper requires a jump opcode"};
     }
     throw std::logic_error{"test helper received unknown opcode"};
+}
+
+[[nodiscard]] cpu::Operand make_mem(
+    const cpu::RegisterId base_register,
+    const cpu::SQWORD64 displacement,
+    const cpu::DataSize data_size)
+{
+    return cpu::Operand::mem(base_register, displacement, data_size);
 }
 
 void test_data_size()
@@ -508,6 +544,95 @@ void test_execution_trace_container()
     check(trace.empty(), "trace clear mismatch");
 }
 
+void test_physical_memory()
+{
+    cpu::PhysicalMemory memory;
+    check(memory.empty(), "physical memory should start empty");
+    memory.resize(TEST_MEMORY_RESIZED_SIZE_BYTES);
+    check(!memory.empty(), "physical memory resize should allocate bytes");
+    check(memory.size() == TEST_MEMORY_RESIZED_SIZE_BYTES, "physical memory resized size mismatch");
+    check(memory.contains_range(TEST_MEMORY_BASE_ADDRESS, cpu::DATA_SIZE_QWORD_BYTES),
+          "physical memory should contain qword range");
+    check(!memory.contains_range(TEST_MEMORY_RESIZED_SIZE_BYTES, cpu::DATA_SIZE_BYTE_BYTES),
+          "physical memory should reject range at end");
+    check(!memory.contains_range(TEST_MEMORY_RESIZED_SIZE_BYTES + std::size_t{1}, std::size_t{0}),
+          "physical memory should reject start after end");
+
+    memory.write_qword(TEST_MEMORY_BASE_ADDRESS, TEST_MEMORY_QWORD_VALUE);
+    check(memory.read_qword(TEST_MEMORY_BASE_ADDRESS) == TEST_MEMORY_QWORD_VALUE, "qword little-endian read mismatch");
+    check(memory.bytes()[static_cast<std::size_t>(TEST_MEMORY_BASE_ADDRESS)] == TEST_MEMORY_LOW_BYTE_VALUE,
+          "qword low byte layout mismatch");
+    check(memory.bytes()[static_cast<std::size_t>(TEST_MEMORY_BASE_ADDRESS) + cpu::DATA_SIZE_QWORD_BYTES -
+                         std::size_t{1}] == TEST_MEMORY_HIGH_BYTE_VALUE,
+          "qword high byte layout mismatch");
+
+    memory.write_word(TEST_MEMORY_SECOND_ADDRESS, TEST_MEMORY_WORD_VALUE);
+    check(memory.read_word(TEST_MEMORY_SECOND_ADDRESS) == TEST_MEMORY_WORD_VALUE, "word read mismatch");
+    memory.write_dword(TEST_MEMORY_SECOND_ADDRESS, TEST_MEMORY_DWORD_VALUE);
+    check(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS) == TEST_MEMORY_DWORD_VALUE, "dword read mismatch");
+    memory.write(TEST_MEMORY_SECOND_ADDRESS, cpu::DataSize::BYTE, TEST_MEMORY_BYTE_SOURCE_VALUE);
+    check(memory.read_byte(TEST_MEMORY_SECOND_ADDRESS) == TEST_MEMORY_BYTE_EXPECTED_VALUE,
+          "byte write should keep low byte");
+    memory.write_byte(TEST_MEMORY_SECOND_ADDRESS, TEST_MEMORY_FILL_VALUE);
+    check(memory.read_byte(TEST_MEMORY_SECOND_ADDRESS) == TEST_MEMORY_FILL_VALUE, "write_byte wrapper mismatch");
+
+    const cpu::PhysicalMemory& const_memory = memory;
+    check(const_memory.bytes().size() == memory.size(), "const physical memory span mismatch");
+    memory.fill(TEST_MEMORY_FILL_VALUE);
+    check(memory.read_byte(TEST_MEMORY_BASE_ADDRESS) == TEST_MEMORY_FILL_VALUE, "physical memory fill mismatch");
+
+    const cpu::PhysicalMemory initialized_memory{
+        TEST_MEMORY_INITIALIZER_FIRST_BYTE,
+        TEST_MEMORY_INITIALIZER_SECOND_BYTE,
+    };
+    check(initialized_memory.size() == TEST_TWO_INSTRUCTION_COUNT, "initializer-list memory size mismatch");
+    check(initialized_memory.read_byte(cpu::ADDRESS64{0}) == TEST_MEMORY_INITIALIZER_FIRST_BYTE,
+          "initializer-list memory first byte mismatch");
+
+    std::vector<cpu::UBYTE8> raw_bytes;
+    raw_bytes.push_back(TEST_MEMORY_INITIALIZER_SECOND_BYTE);
+    const cpu::PhysicalMemory vector_memory{std::move(raw_bytes)};
+    check(vector_memory.size() == TEST_SINGLE_INSTRUCTION_COUNT, "vector memory size mismatch");
+    check(vector_memory.read_byte(cpu::ADDRESS64{0}) == TEST_MEMORY_INITIALIZER_SECOND_BYTE,
+          "vector memory byte mismatch");
+
+    check_throws<std::out_of_range>(
+        [&memory]() {
+            static_cast<void>(memory.read_qword(TEST_MEMORY_RESIZED_SIZE_BYTES));
+        },
+        "physical memory out-of-range read");
+    check_throws<std::out_of_range>(
+        [&memory]() {
+            memory.write_word(TEST_MEMORY_RESIZED_SIZE_BYTES, TEST_MEMORY_WORD_VALUE);
+        },
+        "physical memory out-of-range write");
+    check_throws<std::out_of_range>(
+        [&memory]() {
+            static_cast<void>(memory.read(TEST_MEMORY_BASE_ADDRESS, TEST_INVALID_DATA_SIZE));
+        },
+        "physical memory invalid data size read");
+
+    memory.clear();
+    check(memory.empty(), "physical memory clear mismatch");
+}
+
+void test_memory_bus()
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+
+    check(!memory_bus.empty(), "memory bus should expose non-empty memory");
+    check(memory_bus.size() == TEST_MEMORY_SIZE_BYTES, "memory bus size mismatch");
+    check(memory_bus.contains_range(TEST_MEMORY_BASE_ADDRESS, cpu::DATA_SIZE_QWORD_BYTES),
+          "memory bus range check mismatch");
+
+    memory_bus.write(TEST_MEMORY_BASE_ADDRESS, cpu::DataSize::QWORD, TEST_MEMORY_QWORD_VALUE);
+    check(memory_bus.read(TEST_MEMORY_BASE_ADDRESS, cpu::DataSize::QWORD) == TEST_MEMORY_QWORD_VALUE,
+          "memory bus read mismatch");
+    check(memory.read_qword(TEST_MEMORY_BASE_ADDRESS) == TEST_MEMORY_QWORD_VALUE,
+          "memory bus should write physical memory");
+}
+
 void test_executor_linear_program()
 {
     cpu::Program program;
@@ -638,6 +763,92 @@ void test_executor_arithmetic_flags()
     check(borrow_state.flags().read(cpu::FlagId::SF), "SUB borrow SF mismatch");
 }
 
+void test_executor_memory_mov_program()
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+
+    cpu::Program program;
+    program.reserve(TEST_MEMORY_MOV_PROGRAM_STEP_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_MEMORY_EXECUTOR_VALUE));
+    program.push_back(cpu::Instruction::make_mov(
+        make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
+        cpu::Operand::reg(cpu::RegisterId::RAX)));
+    program.push_back(cpu::Instruction::make_mov(
+        cpu::Operand::reg(cpu::RegisterId::RBX),
+        make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD)));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    const std::size_t executed_steps = executor.run(state, program, memory_bus);
+
+    check(executed_steps == TEST_MEMORY_MOV_PROGRAM_STEP_COUNT, "memory MOV step count mismatch");
+    check(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS) == static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE),
+          "memory MOV stored value mismatch");
+    check(state.registers().read(cpu::RegisterId::RBX) == static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE),
+          "memory MOV loaded register mismatch");
+}
+
+void test_executor_memory_arithmetic_program()
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    memory.write_qword(TEST_MEMORY_EFFECTIVE_ADDRESS, static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_INITIAL_VALUE));
+
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(cpu::Instruction::make_add(
+        make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
+        cpu::Operand::imm(TEST_MEMORY_ADD_INCREMENT)));
+    program.push_back(cpu::Instruction::make_cmp(
+        make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
+        cpu::Operand::imm(TEST_MEMORY_ADD_EXPECTED_VALUE)));
+    program.push_back(make_jump_imm(cpu::Opcode::JE, TEST_MEMORY_BRANCH_TARGET));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    const std::size_t executed_steps = executor.run(state, program, memory_bus);
+
+    check(executed_steps == TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT,
+          "memory arithmetic step count mismatch");
+    check(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS) ==
+              static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_EXPECTED_VALUE),
+          "memory arithmetic stored value mismatch");
+    check(state.flags().read(cpu::FlagId::ZF), "memory arithmetic CMP should set ZF");
+    check(state.registers().read(cpu::RegisterId::RAX) == static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE),
+          "memory arithmetic branch result mismatch");
+}
+
+void test_executor_memory_negative_displacement()
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+
+    cpu::Program program;
+    program.reserve(TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT);
+    program.push_back(make_mov_imm(cpu::RegisterId::RBP, TEST_MEMORY_NEGATIVE_BASE));
+    program.push_back(make_mov_imm(cpu::RegisterId::RAX, TEST_MEMORY_ADD_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_mov(
+        make_mem(cpu::RegisterId::RBP, TEST_MEMORY_NEGATIVE_DISPLACEMENT, cpu::DataSize::DWORD),
+        cpu::Operand::reg(cpu::RegisterId::RAX)));
+    program.push_back(cpu::Instruction::make_halt());
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    const std::size_t executed_steps = executor.run(state, program, memory_bus);
+
+    check(executed_steps == TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT,
+          "memory negative displacement step count mismatch");
+    check(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS) == static_cast<cpu::UDWORD32>(TEST_MEMORY_ADD_EXPECTED_VALUE),
+          "memory negative displacement stored value mismatch");
+}
+
 void test_executor_error_paths()
 {
     cpu::Program invalid_jump_program{
@@ -662,7 +873,36 @@ void test_executor_error_paths()
         [&executor, &memory_source_state, &memory_source_program]() {
             static_cast<void>(executor.step(memory_source_state, memory_source_program));
         },
-        "unsupported memory operand");
+        "memory operand without memory bus");
+
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    cpu::Program memory_to_memory_program{
+        cpu::Instruction::make_mov(
+            make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
+            make_mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
+    };
+    cpu::CpuState memory_to_memory_state;
+    memory_to_memory_state.registers().write(cpu::RegisterId::RBP, TEST_MEMORY_BASE_ADDRESS);
+    executor.reset();
+    check_throws<std::logic_error>(
+        [&executor, &memory_to_memory_state, &memory_to_memory_program, &memory_bus]() {
+            static_cast<void>(executor.step(memory_to_memory_state, memory_to_memory_program, memory_bus));
+        },
+        "memory-to-memory instruction");
+
+    cpu::Program out_of_range_memory_program{
+        cpu::Instruction::make_mov(
+            cpu::Operand::reg(cpu::RegisterId::RAX),
+            make_mem(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_SIZE_BYTES), cpu::DataSize::QWORD)),
+    };
+    cpu::CpuState out_of_range_memory_state;
+    executor.reset();
+    check_throws<std::out_of_range>(
+        [&executor, &out_of_range_memory_state, &out_of_range_memory_program, &memory_bus]() {
+            static_cast<void>(executor.step(out_of_range_memory_state, out_of_range_memory_program, memory_bus));
+        },
+        "out-of-range memory execution");
 
     cpu::Program non_register_destination_program{
         cpu::Instruction::make_mov(cpu::Operand::imm(TEST_IMMEDIATE_VALUE), cpu::Operand::imm(TEST_IMMEDIATE_VALUE)),
@@ -710,11 +950,16 @@ int main()
     test_cpu_state();
     test_program_container();
     test_execution_trace_container();
+    test_physical_memory();
+    test_memory_bus();
     test_executor_linear_program();
     test_executor_branch_program();
     test_executor_jne_fallthrough();
     test_executor_unconditional_jump();
     test_executor_arithmetic_flags();
+    test_executor_memory_mov_program();
+    test_executor_memory_arithmetic_program();
+    test_executor_memory_negative_displacement();
     test_executor_error_paths();
 
     std::cout << "mnos_cpu tests passed\n";

@@ -9,9 +9,11 @@ namespace
 {
 constexpr const char* EXECUTOR_MAX_STEPS_EXCEEDED_MESSAGE = "executor max steps exceeded before halt";
 constexpr const char* EXECUTOR_READ_NONE_OPERAND_MESSAGE = "executor cannot read none operand";
-constexpr const char* EXECUTOR_MEMORY_OPERAND_UNSUPPORTED_MESSAGE = "executor memory operand is not supported yet";
+constexpr const char* EXECUTOR_MEMORY_BUS_REQUIRED_MESSAGE = "executor memory operand requires a memory bus";
 constexpr const char* EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE =
-    "executor destination operand must be a register";
+    "executor destination operand must be a register or memory";
+constexpr const char* EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE =
+    "executor binary instruction cannot use two memory operands";
 constexpr const char* EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE = "executor jump target is out of program range";
 constexpr const char* EXECUTOR_INVALID_OPCODE_MESSAGE = "executor received invalid opcode sentinel";
 constexpr mnos::cpu::UQWORD64 EXECUTOR_ONE_BIT = mnos::cpu::UQWORD64{1};
@@ -70,6 +72,43 @@ void Executor::reset() noexcept
 
 StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrace* const trace)
 {
+    return this->step_with_memory(state, program, nullptr, trace);
+}
+
+StepResult Executor::step(
+    CpuState& state,
+    const Program& program,
+    MemoryBus& memory_bus,
+    ExecutionTrace* const trace)
+{
+    return this->step_with_memory(state, program, &memory_bus, trace);
+}
+
+std::size_t Executor::run(
+    CpuState& state,
+    const Program& program,
+    const std::size_t max_steps,
+    ExecutionTrace* const trace)
+{
+    return this->run_with_memory(state, program, nullptr, max_steps, trace);
+}
+
+std::size_t Executor::run(
+    CpuState& state,
+    const Program& program,
+    MemoryBus& memory_bus,
+    const std::size_t max_steps,
+    ExecutionTrace* const trace)
+{
+    return this->run_with_memory(state, program, &memory_bus, max_steps, trace);
+}
+
+StepResult Executor::step_with_memory(
+    CpuState& state,
+    const Program& program,
+    MemoryBus* const memory_bus,
+    ExecutionTrace* const trace)
+{
     if (state.is_halted())
     {
         return StepResult::HALTED;
@@ -77,7 +116,7 @@ StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrac
 
     const RIP64 rip_before = state.rip();
     const Instruction& instruction = program.instruction_at(rip_before);
-    this->execute_instruction(state, program, instruction);
+    this->execute_instruction(state, program, memory_bus, instruction);
     ++this->cycle_count_;
 
     if (trace != nullptr)
@@ -97,16 +136,17 @@ StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrac
     return StepResult::EXECUTED;
 }
 
-std::size_t Executor::run(
+std::size_t Executor::run_with_memory(
     CpuState& state,
     const Program& program,
+    MemoryBus* const memory_bus,
     const std::size_t max_steps,
     ExecutionTrace* const trace)
 {
     std::size_t executed_steps = 0;
     while (!state.is_halted() && executed_steps < max_steps)
     {
-        static_cast<void>(this->step(state, program, trace));
+        static_cast<void>(this->step_with_memory(state, program, memory_bus, trace));
         ++executed_steps;
     }
 
@@ -118,30 +158,34 @@ std::size_t Executor::run(
     return executed_steps;
 }
 
-void Executor::execute_instruction(CpuState& state, const Program& program, const Instruction& instruction)
+void Executor::execute_instruction(
+    CpuState& state,
+    const Program& program,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction)
 {
     switch (instruction.opcode())
     {
     case Opcode::MOV:
-        this->execute_mov(state, instruction);
+        this->execute_mov(state, memory_bus, instruction);
         return;
     case Opcode::ADD:
-        this->execute_add(state, instruction);
+        this->execute_add(state, memory_bus, instruction);
         return;
     case Opcode::SUB:
-        this->execute_sub(state, instruction);
+        this->execute_sub(state, memory_bus, instruction);
         return;
     case Opcode::CMP:
-        this->execute_cmp(state, instruction);
+        this->execute_cmp(state, memory_bus, instruction);
         return;
     case Opcode::JMP:
-        this->execute_jmp(state, program, instruction);
+        this->execute_jmp(state, program, memory_bus, instruction);
         return;
     case Opcode::JE:
-        this->execute_je(state, program, instruction);
+        this->execute_je(state, program, memory_bus, instruction);
         return;
     case Opcode::JNE:
-        this->execute_jne(state, program, instruction);
+        this->execute_jne(state, program, memory_bus, instruction);
         return;
     case Opcode::HALT:
         this->execute_halt(state);
@@ -151,64 +195,81 @@ void Executor::execute_instruction(CpuState& state, const Program& program, cons
     }
 }
 
-void Executor::execute_mov(CpuState& state, const Instruction& instruction)
+void Executor::execute_mov(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
-    this->write_register_operand(
+    this->require_at_most_one_memory_operand(instruction);
+    this->write_operand(
         state,
+        memory_bus,
         instruction.first_operand(),
-        this->read_operand(state, instruction.second_operand()));
+        this->read_operand(state, memory_bus, instruction.second_operand()));
     state.advance_rip();
 }
 
-void Executor::execute_add(CpuState& state, const Instruction& instruction)
+void Executor::execute_add(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
-    const UQWORD64 left = this->read_operand(state, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, instruction.second_operand());
+    this->require_at_most_one_memory_operand(instruction);
+    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
     const UQWORD64 result = left + right;
-    this->write_register_operand(state, instruction.first_operand(), result);
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_add(state.flags(), left, right, result);
     state.advance_rip();
 }
 
-void Executor::execute_sub(CpuState& state, const Instruction& instruction)
+void Executor::execute_sub(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
-    const UQWORD64 left = this->read_operand(state, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, instruction.second_operand());
+    this->require_at_most_one_memory_operand(instruction);
+    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
     const UQWORD64 result = left - right;
-    this->write_register_operand(state, instruction.first_operand(), result);
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
     state.advance_rip();
 }
 
-void Executor::execute_cmp(CpuState& state, const Instruction& instruction)
+void Executor::execute_cmp(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
-    const UQWORD64 left = this->read_operand(state, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, instruction.second_operand());
+    this->require_at_most_one_memory_operand(instruction);
+    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
     const UQWORD64 result = left - right;
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
     state.advance_rip();
 }
 
-void Executor::execute_jmp(CpuState& state, const Program& program, const Instruction& instruction)
+void Executor::execute_jmp(
+    CpuState& state,
+    const Program& program,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction)
 {
-    this->jump_to(state, program, this->read_operand(state, instruction.first_operand()));
+    this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
 }
 
-void Executor::execute_je(CpuState& state, const Program& program, const Instruction& instruction)
+void Executor::execute_je(
+    CpuState& state,
+    const Program& program,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction)
 {
     if (state.flags().read(FlagId::ZF))
     {
-        this->jump_to(state, program, this->read_operand(state, instruction.first_operand()));
+        this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
         return;
     }
     state.advance_rip();
 }
 
-void Executor::execute_jne(CpuState& state, const Program& program, const Instruction& instruction)
+void Executor::execute_jne(
+    CpuState& state,
+    const Program& program,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction)
 {
     if (!state.flags().read(FlagId::ZF))
     {
-        this->jump_to(state, program, this->read_operand(state, instruction.first_operand()));
+        this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
         return;
     }
     state.advance_rip();
@@ -220,7 +281,7 @@ void Executor::execute_halt(CpuState& state) const noexcept
     state.halt();
 }
 
-UQWORD64 Executor::read_operand(const CpuState& state, const Operand& operand) const
+UQWORD64 Executor::read_operand(const CpuState& state, MemoryBus* const memory_bus, const Operand& operand) const
 {
     if (operand.is_register())
     {
@@ -234,20 +295,80 @@ UQWORD64 Executor::read_operand(const CpuState& state, const Operand& operand) c
 
     if (operand.is_memory())
     {
-        throw std::logic_error{EXECUTOR_MEMORY_OPERAND_UNSUPPORTED_MESSAGE};
+        return this->read_memory_operand(state, memory_bus, operand);
     }
 
     throw std::logic_error{EXECUTOR_READ_NONE_OPERAND_MESSAGE};
 }
 
-void Executor::write_register_operand(CpuState& state, const Operand& operand, const UQWORD64 value) const
+void Executor::write_operand(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Operand& operand,
+    const UQWORD64 value) const
 {
-    if (!operand.is_register())
+    if (operand.is_register())
     {
-        throw std::logic_error{EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE};
+        state.registers().write(operand.register_id(), value);
+        return;
     }
 
-    state.registers().write(operand.register_id(), value);
+    if (operand.is_memory())
+    {
+        this->write_memory_operand(state, memory_bus, operand, value);
+        return;
+    }
+
+    throw std::logic_error{EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE};
+}
+
+UQWORD64 Executor::read_memory_operand(
+    const CpuState& state,
+    MemoryBus* const memory_bus,
+    const Operand& operand) const
+{
+    return this->require_memory_bus(memory_bus).read(
+        this->calculate_effective_address(state, operand),
+        operand.memory_data_size());
+}
+
+void Executor::write_memory_operand(
+    const CpuState& state,
+    MemoryBus* const memory_bus,
+    const Operand& operand,
+    const UQWORD64 value) const
+{
+    this->require_memory_bus(memory_bus).write(
+        this->calculate_effective_address(state, operand),
+        operand.memory_data_size(),
+        value);
+}
+
+MemoryBus& Executor::require_memory_bus(MemoryBus* const memory_bus) const
+{
+    if (memory_bus == nullptr)
+    {
+        throw std::logic_error{EXECUTOR_MEMORY_BUS_REQUIRED_MESSAGE};
+    }
+
+    return *memory_bus;
+}
+
+ADDRESS64 Executor::calculate_effective_address(const CpuState& state, const Operand& operand) const
+{
+    const UQWORD64 base_address = state.registers().read(operand.memory_base_register());
+    const UQWORD64 displacement = static_cast<UQWORD64>(operand.memory_displacement());
+
+    // x86-64 effective address addition wraps in the address width before memory range checks.
+    return base_address + displacement;
+}
+
+void Executor::require_at_most_one_memory_operand(const Instruction& instruction) const
+{
+    if (instruction.first_operand().is_memory() && instruction.second_operand().is_memory())
+    {
+        throw std::logic_error{EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE};
+    }
 }
 
 void Executor::jump_to(CpuState& state, const Program& program, const UQWORD64 target) const
