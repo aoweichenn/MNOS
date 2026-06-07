@@ -1,15 +1,13 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
-
 #pragma once
-#include <cstdint>
+
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace mnos
 {
-enum class Opcode : std::uint8_t{
+enum class Opcode : std::uint8_t
+{
     MOV,
     ADD,
     SUB,

@@ -1,6 +1,4 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
+#include <stdexcept>
 
 #include <mnos/cpu/register/bank.hpp>
 
@@ -17,7 +15,7 @@ UQWORD64 RegisterBank::read(const RegisterId id) const
     {
         throw std::out_of_range{REGISTER_BANK_ACCESS_INVALID_ID_MESSAGE};
     }
-    return this->_registers[register_id_to_index(id)];
+    return this->registers_[register_id_to_index(id)];
 }
 
 void RegisterBank::write(const RegisterId id, const UQWORD64 value)
@@ -26,6 +24,6 @@ void RegisterBank::write(const RegisterId id, const UQWORD64 value)
     {
         throw std::out_of_range{REGISTER_BANK_ACCESS_INVALID_ID_MESSAGE};
     }
-    this->_registers[register_id_to_index(id)] = value;
+    this->registers_[register_id_to_index(id)] = value;
 }
 }

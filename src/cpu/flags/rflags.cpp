@@ -1,23 +1,14 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
-#include <stdexcept>
-#include <mnos/cpu/flags/rflags.hpp>
 #include <mnos/cpu/common/data_size.hpp>
+#include <mnos/cpu/flags/rflags.hpp>
 
 namespace
 {
-constexpr const char* RFLAGS_ACCESS_INVALID_FLAG_ID_MESSAGE = "rflags invalid flag id";
 constexpr mnos::UQWORD64 RFLAGS_RAW_EMPTY_BITS = mnos::UQWORD64{0};
 constexpr mnos::UQWORD64 RFLAGS_RAW_ONE_BIT = mnos::UQWORD64{1};
 constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::DATA_SIZE_QWORD_BITS - std::size_t{1};
 
 [[nodiscard]] mnos::UQWORD64 make_flag_mask(const mnos::FlagId id)
 {
-    if (!mnos::is_flag_id_valid(id))
-    {
-        throw std::out_of_range{RFLAGS_ACCESS_INVALID_FLAG_ID_MESSAGE};
-    }
     return RFLAGS_RAW_ONE_BIT << mnos::flag_id_to_bit_index(id);
 }
 
@@ -32,7 +23,7 @@ namespace mnos
 bool Rflags::read(const FlagId id) const
 {
     const UQWORD64 mask = make_flag_mask(id);
-    return (this->_raw_bits & mask) != RFLAGS_RAW_EMPTY_BITS;
+    return (this->raw_bits_ & mask) != RFLAGS_RAW_EMPTY_BITS;
 }
 
 void Rflags::write(const FlagId id, const bool value)
@@ -41,16 +32,16 @@ void Rflags::write(const FlagId id, const bool value)
     if (value)
     {
         // 写 1
-        this->_raw_bits |= mask;
+        this->raw_bits_ |= mask;
         return;
     }
     // 写 0
-    this->_raw_bits &= ~mask;
+    this->raw_bits_ &= ~mask;
 }
 
 void Rflags::clear_status_flags() noexcept
 {
-    this->_raw_bits = RFLAGS_RAW_EMPTY_BITS;
+    this->raw_bits_ = RFLAGS_RAW_EMPTY_BITS;
 }
 
 void Rflags::update_zero_sign_from_qword(const UQWORD64 result) noexcept
@@ -62,6 +53,6 @@ void Rflags::update_zero_sign_from_qword(const UQWORD64 result) noexcept
 
 UQWORD64 Rflags::raw_bits() const noexcept
 {
-    return this->_raw_bits;
+    return this->raw_bits_;
 }
 }

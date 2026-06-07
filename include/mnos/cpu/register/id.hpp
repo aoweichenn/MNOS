@@ -1,7 +1,3 @@
-//
-// Created by aoweichen on 2026/6/5.
-//
-
 #pragma once
 
 #include <cstddef>
@@ -10,7 +6,8 @@
 
 namespace mnos
 {
-enum class RegisterId : std::uint8_t{
+enum class RegisterId : std::uint8_t
+{
     RAX,
     RBX,
     RCX,

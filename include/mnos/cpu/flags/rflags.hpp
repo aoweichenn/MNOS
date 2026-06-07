@@ -1,15 +1,12 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
-
 #pragma once
+
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/flags/id.hpp>
 
-
 namespace mnos
 {
-class Rflags{
+class Rflags
+{
 public:
     [[nodiscard]] bool read(FlagId id) const;
     void write(FlagId id, bool value);
@@ -18,6 +15,6 @@ public:
     [[nodiscard]] UQWORD64 raw_bits() const noexcept;
 
 private:
-    UQWORD64 _raw_bits = UQWORD64{0};
+    UQWORD64 raw_bits_ = UQWORD64{0};
 };
 }

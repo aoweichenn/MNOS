@@ -1,21 +1,20 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
-
 #pragma once
 
-
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
+#include <variant>
+
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/register/id.hpp>
 
 namespace mnos
 {
-enum class OperandKind : std::uint8_t{
+enum class OperandKind : std::uint8_t
+{
     NONE,      // 没有操作数
-    REGISTER,  //寄存器操作数
+    REGISTER,  // 寄存器操作数
     IMMEDIATE, // 立即数
     MEMORY,    // 内存
     COUNT,     // 尾部计数
@@ -31,10 +30,11 @@ inline constexpr SQWORD64 OPERAND_MEMORY_DEFAULT_DISPLACEMENT = SQWORD64{0};
 
 [[nodiscard]] std::string_view operand_kind_to_assembly_name(OperandKind kind) noexcept;
 
-class Operand{
+class Operand
+{
 public:
     [[nodiscard]] static Operand none() noexcept;
-    [[nodiscard]] static Operand reg(RegisterId id) noexcept;
+    [[nodiscard]] static Operand reg(RegisterId id);
     [[nodiscard]] static Operand imm(SQWORD64 value) noexcept;
     [[nodiscard]] static Operand mem(RegisterId base_register, SQWORD64 displacement, DataSize data_size);
 
@@ -51,11 +51,41 @@ public:
     [[nodiscard]] DataSize memory_data_size() const;
 
 private:
-    OperandKind _kind = OperandKind::NONE;
-    RegisterId _register_id = RegisterId::COUNT;
-    SQWORD64 _immediate_value = SQWORD64{0};
-    RegisterId _memory_base_register = RegisterId::COUNT;
-    SQWORD64 _memory_displacement = OPERAND_MEMORY_DEFAULT_DISPLACEMENT;
-    DataSize _memory_data_size = DataSize::QWORD;
+    struct RegisterPayload
+    {
+        RegisterId id;
+    };
+
+    struct ImmediatePayload
+    {
+        SQWORD64 value;
+    };
+
+    struct MemoryPayload
+    {
+        RegisterId base_register;
+        SQWORD64 displacement;
+        DataSize data_size;
+    };
+
+    using Storage = std::variant<std::monostate, RegisterPayload, ImmediatePayload, MemoryPayload>;
+
+    static constexpr std::size_t OPERAND_STORAGE_NONE_INDEX = 0;
+    static constexpr std::size_t OPERAND_STORAGE_REGISTER_INDEX = 1;
+    static constexpr std::size_t OPERAND_STORAGE_IMMEDIATE_INDEX = 2;
+    static constexpr std::size_t OPERAND_STORAGE_MEMORY_INDEX = 3;
+
+    static_assert(static_cast<std::size_t>(OperandKind::NONE) == OPERAND_STORAGE_NONE_INDEX);
+    static_assert(static_cast<std::size_t>(OperandKind::REGISTER) == OPERAND_STORAGE_REGISTER_INDEX);
+    static_assert(static_cast<std::size_t>(OperandKind::IMMEDIATE) == OPERAND_STORAGE_IMMEDIATE_INDEX);
+    static_assert(static_cast<std::size_t>(OperandKind::MEMORY) == OPERAND_STORAGE_MEMORY_INDEX);
+    static_assert(std::variant_size_v<Storage> == OPERAND_KIND_COUNT);
+
+    explicit Operand(Storage storage) noexcept;
+
+    template <typename Payload>
+    [[nodiscard]] const Payload& payload() const;
+
+    Storage storage_;
 };
 }

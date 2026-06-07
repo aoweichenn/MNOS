@@ -1,7 +1,3 @@
-//
-// Created by aoweichen on 2026/6/6.
-//
-
 #pragma once
 
 #include <array>
@@ -13,7 +9,8 @@ namespace mnos
 inline constexpr std::size_t REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT = REGISTER_ID_GENERAL_REGISTER_COUNT;
 
 // 寄存器组
-class RegisterBank{
+class RegisterBank
+{
 public:
     // 从寄存器中读取数据
     [[nodiscard]] UQWORD64 read(RegisterId id) const;
@@ -21,6 +18,6 @@ public:
     void write(RegisterId id, UQWORD64 value);
 
 private:
-    std::array<UQWORD64, REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT> _registers{};
+    std::array<UQWORD64, REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT> registers_{};
 };
 }

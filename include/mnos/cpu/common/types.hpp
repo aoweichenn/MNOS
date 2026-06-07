@@ -1,8 +1,5 @@
-//
-// Created by aoweichen on 2026/6/5.
-//
-
 #pragma once
+
 #include <cstdint>
 
 namespace mnos
