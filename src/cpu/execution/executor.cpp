@@ -20,6 +20,10 @@ constexpr const char* EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE = "executor jump
 constexpr const char* EXECUTOR_INVALID_OPCODE_MESSAGE = "executor received invalid opcode sentinel";
 constexpr const char* EXECUTOR_INVALID_CONDITION_CODE_MESSAGE = "executor received invalid condition code sentinel";
 constexpr const char* EXECUTOR_INVALID_DATA_SIZE_MESSAGE = "executor data size is invalid";
+constexpr const char* EXECUTOR_TRAP_CONTROLLER_REQUIRED_MESSAGE =
+    "executor trap instruction requires an attached trap controller";
+constexpr const char* EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE =
+    "executor INT instruction requires an 8-bit vector immediate";
 constexpr mnos::cpu::Qword EXECUTOR_ONE_BIT = mnos::cpu::Qword{1};
 constexpr mnos::cpu::Qword EXECUTOR_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
 constexpr mnos::cpu::Qword EXECUTOR_WORD_MASK = mnos::cpu::Qword{0xFFFF};
@@ -30,6 +34,9 @@ constexpr mnos::cpu::Qword EXECUTOR_STACK_SLOT_BYTES =
     static_cast<mnos::cpu::Qword>(mnos::cpu::DATA_SIZE_QWORD_BYTES);
 constexpr mnos::cpu::Qword EXECUTOR_QWORD_SIGN_MASK =
     EXECUTOR_ONE_BIT << (mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
+constexpr mnos::cpu::SignedQword EXECUTOR_INTERRUPT_VECTOR_MIN_VALUE = mnos::cpu::SignedQword{0};
+constexpr mnos::cpu::SignedQword EXECUTOR_INTERRUPT_VECTOR_MAX_VALUE =
+    static_cast<mnos::cpu::SignedQword>(mnos::cpu::system::INTERRUPT_VECTOR_COUNT - std::size_t{1});
 
 [[nodiscard]] bool has_qword_sign_bit(const mnos::cpu::Qword value) noexcept
 {
@@ -149,6 +156,21 @@ void Executor::reset() noexcept
     this->cycle_count_ = CycleCount{0};
 }
 
+void Executor::attach_trap_controller(system::TrapController& trap_controller) noexcept
+{
+    this->trap_controller_ = &trap_controller;
+}
+
+void Executor::detach_trap_controller() noexcept
+{
+    this->trap_controller_ = nullptr;
+}
+
+bool Executor::has_trap_controller() const noexcept
+{
+    return this->trap_controller_ != nullptr;
+}
+
 StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrace* const trace)
 {
     return this->step_with_memory(state, program, nullptr, trace);
@@ -242,7 +264,8 @@ StepResult Executor::step_with_memory(
             rip_before,
             state.rip(),
             instruction.opcode(),
-            state.is_halted()});
+            state.is_halted(),
+            state.has_pending_trap()});
     }
 
     if (state.is_halted())
@@ -276,7 +299,8 @@ StepResult Executor::step_image_with_memory(
             decoded_instruction.start_rip,
             state.rip(),
             decoded_instruction.instruction.opcode(),
-            state.is_halted()});
+            state.is_halted(),
+            state.has_pending_trap()});
     }
 
     if (state.is_halted())
@@ -406,6 +430,18 @@ void Executor::execute_instruction(
         return;
     case Opcode::CMOVCC:
         this->execute_cmovcc(state, memory_bus, instruction, context);
+        return;
+    case Opcode::INT:
+        this->execute_int(state, instruction, context);
+        return;
+    case Opcode::SYSCALL:
+        this->execute_syscall(state, context);
+        return;
+    case Opcode::SYSRET:
+        this->execute_sysret(state);
+        return;
+    case Opcode::IRET:
+        this->execute_iret(state);
         return;
     case Opcode::HLT:
         this->execute_hlt(state, context);
@@ -719,6 +755,40 @@ void Executor::execute_cmovcc(
     this->set_next_rip(state, context);
 }
 
+void Executor::execute_int(CpuState& state, const Instruction& instruction, const ExecutionContext& context) const
+{
+    if (!instruction.first_operand().is_immediate())
+    {
+        throw std::logic_error{EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE};
+    }
+
+    const SignedQword vector_value = instruction.first_operand().immediate_value();
+    if (vector_value < EXECUTOR_INTERRUPT_VECTOR_MIN_VALUE || vector_value > EXECUTOR_INTERRUPT_VECTOR_MAX_VALUE)
+    {
+        throw std::logic_error{EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE};
+    }
+
+    static_cast<void>(this->require_trap_controller().raise_software_interrupt(
+        state,
+        system::InterruptVector{static_cast<system::InterruptVector::value_type>(vector_value)},
+        context.next_rip));
+}
+
+void Executor::execute_syscall(CpuState& state, const ExecutionContext& context) const
+{
+    static_cast<void>(this->require_trap_controller().enter_syscall(state, context.next_rip));
+}
+
+void Executor::execute_sysret(CpuState& state) const
+{
+    this->require_trap_controller().return_from_syscall(state);
+}
+
+void Executor::execute_iret(CpuState& state) const
+{
+    this->require_trap_controller().return_from_trap(state);
+}
+
 void Executor::execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept
 {
     this->set_next_rip(state, context);
@@ -927,6 +997,15 @@ void Executor::require_memory_operand(const Operand& operand) const
     {
         throw std::logic_error{EXECUTOR_MEMORY_OPERAND_REQUIRED_MESSAGE};
     }
+}
+
+system::TrapController& Executor::require_trap_controller() const
+{
+    if (this->trap_controller_ == nullptr)
+    {
+        throw std::logic_error{EXECUTOR_TRAP_CONTROLLER_REQUIRED_MESSAGE};
+    }
+    return *this->trap_controller_;
 }
 
 void Executor::set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept

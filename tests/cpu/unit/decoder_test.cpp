@@ -10,8 +10,10 @@
 #include <mnos/cpu/instruction/condition_code.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
 
 namespace cpu = mnos::cpu;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -376,6 +378,32 @@ TEST(DecoderTest, DecodesConditionCodeOperations)
     EXPECT_THAT(cmovl.instruction.second_operand().register_id(), Eq(cpu::RegisterId::RBX));
 }
 
+TEST(DecoderTest, DecodesStage3TrapAndSyscallForms)
+{
+    cpu::Decoder decoder;
+
+    const cpu::DecodedInstruction int3 = decoder.decode(cpu::ExecutableImage{0xCC}, TEST_RIP_ZERO);
+    EXPECT_THAT(int3.instruction.opcode(), Eq(cpu::Opcode::INT));
+    EXPECT_THAT(
+        int3.instruction.first_operand().immediate_value(),
+        Eq(static_cast<cpu::SignedQword>(cpu_system::InterruptVector::breakpoint().value())));
+
+    const cpu::DecodedInstruction int_syscall = decoder.decode(cpu::ExecutableImage{0xCD, 0x80}, TEST_RIP_ZERO);
+    EXPECT_THAT(int_syscall.instruction.opcode(), Eq(cpu::Opcode::INT));
+    EXPECT_THAT(
+        int_syscall.instruction.first_operand().immediate_value(),
+        Eq(static_cast<cpu::SignedQword>(cpu_system::InterruptVector::syscall_compat().value())));
+
+    const cpu::DecodedInstruction syscall = decoder.decode(cpu::ExecutableImage{0x0F, 0x05}, TEST_RIP_ZERO);
+    EXPECT_THAT(syscall.instruction.opcode(), Eq(cpu::Opcode::SYSCALL));
+
+    const cpu::DecodedInstruction sysret = decoder.decode(cpu::ExecutableImage{0x48, 0x0F, 0x07}, TEST_RIP_ZERO);
+    EXPECT_THAT(sysret.instruction.opcode(), Eq(cpu::Opcode::SYSRET));
+
+    const cpu::DecodedInstruction iret = decoder.decode(cpu::ExecutableImage{0xCF}, TEST_RIP_ZERO);
+    EXPECT_THAT(iret.instruction.opcode(), Eq(cpu::Opcode::IRET));
+}
+
 TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
 {
     cpu::Decoder decoder;
@@ -387,6 +415,7 @@ TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0xB8, 0x2A}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x8D, 0x45, 0x00}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0x44, 0xC3}, TEST_RIP_ZERO)), cpu::DecodeError);
+    EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0x07}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0xB6, 0xC3}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x8D, 0xC0}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(

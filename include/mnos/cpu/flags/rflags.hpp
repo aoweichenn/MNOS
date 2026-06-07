@@ -14,6 +14,7 @@ public:
     void update_zero_sign_from_qword(Qword result) noexcept;
     void update_zero_sign_parity_from_qword(Qword result) noexcept;
     [[nodiscard]] Qword raw_bits() const noexcept;
+    void set_raw_bits(Qword value) noexcept;
 
 private:
     Qword raw_bits_ = Qword{0};

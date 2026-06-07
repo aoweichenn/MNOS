@@ -9,6 +9,12 @@ constexpr mnos::cpu::Qword RFLAGS_RAW_EMPTY_BITS = mnos::cpu::Qword{0};
 constexpr mnos::cpu::Qword RFLAGS_RAW_ONE_BIT = mnos::cpu::Qword{1};
 constexpr mnos::cpu::Qword RFLAGS_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
 constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1};
+constexpr mnos::cpu::Qword RFLAGS_STATUS_FLAG_MASK =
+    (RFLAGS_RAW_ONE_BIT << mnos::cpu::FLAG_ID_CF_BIT_INDEX) |
+    (RFLAGS_RAW_ONE_BIT << mnos::cpu::FLAG_ID_PF_BIT_INDEX) |
+    (RFLAGS_RAW_ONE_BIT << mnos::cpu::FLAG_ID_ZF_BIT_INDEX) |
+    (RFLAGS_RAW_ONE_BIT << mnos::cpu::FLAG_ID_SF_BIT_INDEX) |
+    (RFLAGS_RAW_ONE_BIT << mnos::cpu::FLAG_ID_OF_BIT_INDEX);
 
 [[nodiscard]] mnos::cpu::Qword make_flag_mask(const mnos::cpu::FlagId id)
 {
@@ -50,7 +56,7 @@ void Rflags::write(const FlagId id, const bool value)
 
 void Rflags::clear_status_flags() noexcept
 {
-    this->raw_bits_ = RFLAGS_RAW_EMPTY_BITS;
+    this->raw_bits_ &= ~RFLAGS_STATUS_FLAG_MASK;
 }
 
 void Rflags::update_zero_sign_from_qword(const Qword result) noexcept
@@ -69,5 +75,10 @@ void Rflags::update_zero_sign_parity_from_qword(const Qword result) noexcept
 Qword Rflags::raw_bits() const noexcept
 {
     return this->raw_bits_;
+}
+
+void Rflags::set_raw_bits(const Qword value) noexcept
+{
+    this->raw_bits_ = value;
 }
 }

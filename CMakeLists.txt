@@ -104,6 +104,11 @@ set(
         src/cpu/instruction/instruction.cpp
         src/cpu/memory/physical_memory.cpp
         src/cpu/memory/memory_bus.cpp
+        src/cpu/system/privilege.cpp
+        src/cpu/system/interrupt_vector.cpp
+        src/cpu/system/descriptor_tables.cpp
+        src/cpu/system/trap_frame.cpp
+        src/cpu/system/trap_controller.cpp
         src/cpu/execution/cpu_state.cpp
         src/cpu/execution/program.cpp
         src/cpu/execution/trace.cpp
@@ -221,6 +226,7 @@ endmacro()
 mnos_add_cpu_test(mnos_cpu_common_unit_tests tests/cpu/unit/common_data_size_test.cpp)
 mnos_add_cpu_test(mnos_cpu_register_flags_unit_tests tests/cpu/unit/register_flags_test.cpp)
 mnos_add_cpu_test(mnos_cpu_instruction_unit_tests tests/cpu/unit/instruction_test.cpp)
+mnos_add_cpu_test(mnos_cpu_system_unit_tests tests/cpu/unit/system_test.cpp)
 mnos_add_cpu_test(mnos_cpu_decoder_unit_tests tests/cpu/unit/decoder_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)

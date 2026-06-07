@@ -6,12 +6,16 @@
 #include <gtest/gtest.h>
 
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
+#include <mnos/cpu/system/privilege.hpp>
+#include <mnos/cpu/system/trap_frame.hpp>
 #include <mnos/os/mm/page.hpp>
 #include <mnos/os/sched/thread_context.hpp>
 #include <mnos/os/sched/thread_id.hpp>
 #include <mnos/os/sched/thread_state.hpp>
 
 namespace cpu = mnos::cpu;
+namespace cpu_system = mnos::cpu::system;
 namespace mm = mnos::os::mm;
 namespace sched = mnos::os::sched;
 
@@ -27,6 +31,8 @@ constexpr mm::AddressValue TEST_UNALIGNED_STACK_BOTTOM_VALUE = TEST_STACK_BOTTOM
 constexpr std::uint64_t TEST_CUSTOM_STACK_SIZE_BYTES = mm::MM_PAGE_SIZE_BYTES * std::uint64_t{2};
 constexpr std::uint64_t TEST_UNALIGNED_STACK_SIZE_BYTES = mm::MM_PAGE_SIZE_BYTES + std::uint64_t{1};
 constexpr cpu::Qword TEST_REGISTER_VALUE = cpu::Qword{0xFEEDBEEFULL};
+constexpr cpu::InstructionPointer TEST_TRAP_RIP = cpu::InstructionPointer{4};
+constexpr cpu::InstructionPointer TEST_TRAP_RETURN_RIP = cpu::InstructionPointer{5};
 }
 
 TEST(ThreadIdTest, ProvidesInvalidAndFirstKernelIdSentinels)
@@ -104,6 +110,36 @@ TEST(ThreadContextTest, SupportsStateTransitionsAndCpuReset)
     EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_FALSE(thread.cpu_state().is_halted());
     EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RSP), Eq(static_cast<cpu::Qword>(thread.kernel_stack_top().value())));
+}
+
+TEST(ThreadContextTest, SnapshotsPendingTrapFramesForSchedulerUse)
+{
+    sched::ThreadContext thread{sched::ThreadId::first_kernel_thread(), mm::VirtualAddress{TEST_STACK_BOTTOM_VALUE}};
+    EXPECT_FALSE(thread.has_last_trap_frame());
+    EXPECT_THROW(static_cast<void>(thread.last_trap_frame()), std::logic_error);
+    EXPECT_FALSE(thread.snapshot_pending_trap_frame());
+
+    thread.cpu_state().set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    thread.cpu_state().set_pending_trap(cpu_system::TrapFrame{
+        cpu_system::TrapKind::SOFTWARE_INTERRUPT,
+        cpu_system::InterruptVector::breakpoint(),
+        TEST_TRAP_RIP,
+        TEST_TRAP_RETURN_RIP,
+        thread.cpu_state().flags().raw_bits(),
+        thread.cpu_state().registers().read(cpu::RegisterId::RSP),
+        thread.cpu_state().privilege_level()});
+
+    EXPECT_TRUE(thread.snapshot_pending_trap_frame());
+    EXPECT_TRUE(thread.has_last_trap_frame());
+    EXPECT_THAT(thread.last_trap_frame().return_rip(), Eq(TEST_TRAP_RETURN_RIP));
+    EXPECT_THAT(thread.last_trap_frame().privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
+
+    thread.clear_last_trap_frame();
+    EXPECT_FALSE(thread.has_last_trap_frame());
+    EXPECT_TRUE(thread.snapshot_pending_trap_frame());
+    thread.reset_cpu_state();
+    EXPECT_FALSE(thread.has_last_trap_frame());
+    EXPECT_FALSE(thread.cpu_state().has_pending_trap());
 }
 
 TEST(ThreadContextTest, RejectsInvalidIdsStacksAndStates)

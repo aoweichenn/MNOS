@@ -11,8 +11,11 @@
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/privilege.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 
 namespace cpu = mnos::cpu;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -35,6 +38,10 @@ constexpr cpu::Address64 TEST_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
 constexpr std::size_t TEST_STAGE2_STACK_BYTE_PROGRAM_STEP_COUNT = 7;
 constexpr std::size_t TEST_STAGE2_LOGIC_BYTE_PROGRAM_STEP_COUNT = 8;
 constexpr cpu::Qword TEST_STAGE2_SIGN_EXTEND_EXPECTED = cpu::Qword{0xFFFF'FFFF'FFFF'FF80ULL};
+constexpr cpu::Address64 TEST_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
+constexpr cpu::Qword TEST_STAGE3_USER_STACK_TOP = cpu::Qword{120};
+constexpr cpu::Qword TEST_STAGE3_KERNEL_STACK_TOP = cpu::Qword{96};
+constexpr std::size_t TEST_STAGE3_SYSCALL_BYTE_PROGRAM_STEP_COUNT = 6;
 }
 
 TEST(ByteExecutorTest, RunsDecodedByteProgramThroughMemoryAndBranching)
@@ -220,4 +227,36 @@ TEST(ByteExecutorTest, ExecutesStage2LogicalConditionAndExtensionByteImage)
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RCX), Eq(cpu::Qword{1}));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RDX), Eq(cpu::Qword{0xF0}));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RSI), Eq(TEST_STAGE2_SIGN_EXTEND_EXPECTED));
+}
+
+TEST(ByteExecutorTest, ExecutesStage3SyscallAndSysretByteImage)
+{
+    cpu::ExecutableImage image{
+        0x48, 0xBC, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RSP, 120
+        0x0F, 0x05,                                                 // SYSCALL
+        0x48, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 42
+        0xF4,                                                       // HLT
+        0x48, 0xBB, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 13
+        0x48, 0x0F, 0x07};                                          // SYSRETQ
+
+    cpu_system::TrapController trap_controller;
+    trap_controller.configure_syscall(cpu_system::SyscallDescriptor::enabled(TEST_STAGE3_SYSCALL_HANDLER_RIP));
+    trap_controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_STAGE3_KERNEL_STACK_TOP);
+
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.flags().write(cpu::FlagId::IF, true);
+    cpu::Executor executor;
+    executor.attach_trap_controller(trap_controller);
+
+    const std::size_t executed_steps = executor.run(state, image);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_STAGE3_SYSCALL_BYTE_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_FALSE(state.has_pending_trap());
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::IF));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE3_USER_STACK_TOP));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(TEST_EXPECTED_VALUE));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(TEST_SKIPPED_VALUE));
 }

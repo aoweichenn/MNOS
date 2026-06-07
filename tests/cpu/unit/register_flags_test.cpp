@@ -25,6 +25,7 @@ constexpr cpu::Qword TEST_SECOND_REGISTER_VALUE = cpu::Qword{0xFEDCBA98ULL};
 constexpr cpu::Qword TEST_ONE_BIT = cpu::Qword{1};
 constexpr cpu::Qword TEST_QWORD_SIGN_MASK = TEST_ONE_BIT << (cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
 constexpr cpu::Qword TEST_CF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_CF_BIT_INDEX;
+constexpr cpu::Qword TEST_IF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_IF_BIT_INDEX;
 constexpr cpu::Qword TEST_EVEN_PARITY_LOW_BYTE = cpu::Qword{0b11};
 constexpr cpu::Qword TEST_ODD_PARITY_LOW_BYTE = cpu::Qword{0b1};
 
@@ -58,7 +59,8 @@ constexpr std::array<FlagCase, cpu::FLAG_ID_COUNT> FLAG_CASES{
     FlagCase{cpu::FlagId::PF, 1, cpu::FLAG_ID_PF_BIT_INDEX, "PF"},
     FlagCase{cpu::FlagId::ZF, 2, cpu::FLAG_ID_ZF_BIT_INDEX, "ZF"},
     FlagCase{cpu::FlagId::SF, 3, cpu::FLAG_ID_SF_BIT_INDEX, "SF"},
-    FlagCase{cpu::FlagId::OF, 4, cpu::FLAG_ID_OF_BIT_INDEX, "OF"}};
+    FlagCase{cpu::FlagId::IF, 4, cpu::FLAG_ID_IF_BIT_INDEX, "IF"},
+    FlagCase{cpu::FlagId::OF, 5, cpu::FLAG_ID_OF_BIT_INDEX, "OF"}};
 }
 
 TEST(RegisterIdTest, CatalogMapsIdsToIndicesAndNames)
@@ -131,7 +133,12 @@ TEST(RflagsTest, StoresStatusBitsAndUpdatesZeroSignFlags)
     flags.update_zero_sign_parity_from_qword(TEST_ODD_PARITY_LOW_BYTE);
     EXPECT_FALSE(flags.read(cpu::FlagId::PF));
 
+    flags.write(cpu::FlagId::IF, true);
+    flags.write(cpu::FlagId::CF, true);
+    flags.write(cpu::FlagId::OF, true);
     flags.clear_status_flags();
+    EXPECT_THAT(flags.raw_bits(), Eq(TEST_IF_MASK));
+    flags.set_raw_bits(cpu::Qword{0});
     EXPECT_THAT(flags.raw_bits(), Eq(cpu::Qword{0}));
     EXPECT_THROW(static_cast<void>(flags.read(TEST_INVALID_FLAG_ID)), std::out_of_range);
     EXPECT_THROW(flags.write(TEST_INVALID_FLAG_ID, true), std::out_of_range);

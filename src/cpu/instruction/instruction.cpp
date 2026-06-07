@@ -156,6 +156,29 @@ Instruction Instruction::make_cmovcc(const ConditionCode condition, Operand dest
     return Instruction{Opcode::CMOVCC, condition, std::move(destination), std::move(source)};
 }
 
+Instruction Instruction::make_int(const system::InterruptVector vector) noexcept
+{
+    return Instruction{
+        Opcode::INT,
+        Operand::imm(static_cast<SignedQword>(vector.value())),
+        Operand::none()};
+}
+
+Instruction Instruction::make_syscall() noexcept
+{
+    return Instruction{Opcode::SYSCALL, Operand::none(), Operand::none()};
+}
+
+Instruction Instruction::make_sysret() noexcept
+{
+    return Instruction{Opcode::SYSRET, Operand::none(), Operand::none()};
+}
+
+Instruction Instruction::make_iret() noexcept
+{
+    return Instruction{Opcode::IRET, Operand::none(), Operand::none()};
+}
+
 Opcode Instruction::opcode() const noexcept
 {
     return this->opcode_;

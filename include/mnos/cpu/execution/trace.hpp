@@ -16,6 +16,7 @@ struct ExecutionTraceEntry
     InstructionPointer rip_after;
     Opcode opcode;
     bool halted_after;
+    bool trap_pending_after = false;
 };
 
 class ExecutionTrace

@@ -39,10 +39,11 @@ private:
             mnos::cpu::FLAG_ID_PF_BIT_INDEX,
             mnos::cpu::FLAG_ID_ZF_BIT_INDEX,
             mnos::cpu::FLAG_ID_SF_BIT_INDEX,
+            mnos::cpu::FLAG_ID_IF_BIT_INDEX,
             mnos::cpu::FLAG_ID_OF_BIT_INDEX});
 
     inline static constexpr auto FLAG_ID_NAMES = mnos::core::make_enum_name_table<mnos::cpu::FlagId>(
-        std::array<std::string_view, mnos::cpu::FLAG_ID_COUNT>{"CF", "PF", "ZF", "SF", "OF"},
+        std::array<std::string_view, mnos::cpu::FLAG_ID_COUNT>{"CF", "PF", "ZF", "SF", "IF", "OF"},
         FLAG_ID_ASSEMBLY_NAME_INVALID_TEXT);
 };
 }

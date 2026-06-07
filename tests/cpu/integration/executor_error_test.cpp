@@ -13,9 +13,12 @@
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -157,4 +160,24 @@ TEST(ExecutorErrorTest, EnforcesMaxStepLimit)
     cpu::Executor executor;
 
     EXPECT_THROW(static_cast<void>(executor.run(loop_state, loop_program, TEST_LOOP_MAX_STEPS)), std::runtime_error);
+}
+
+TEST(ExecutorErrorTest, RejectsTrapInstructionsWithoutControllerOrSyscallDescriptor)
+{
+    cpu::Program int_program{
+        cpu::Instruction::make_int(cpu_system::InterruptVector::breakpoint()),
+    };
+    cpu::CpuState int_state;
+    cpu::Executor executor;
+
+    EXPECT_THROW(static_cast<void>(executor.step(int_state, int_program)), std::logic_error);
+
+    cpu_system::TrapController trap_controller;
+    executor.attach_trap_controller(trap_controller);
+    cpu::Program syscall_program{
+        cpu::Instruction::make_syscall(),
+    };
+    cpu::CpuState syscall_state;
+
+    EXPECT_THROW(static_cast<void>(executor.step(syscall_state, syscall_program)), std::logic_error);
 }

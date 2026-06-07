@@ -9,14 +9,18 @@
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
 #include <mnos/cpu/execution/program.hpp>
+#include <mnos/cpu/flags/id.hpp>
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/privilege.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -27,7 +31,10 @@ constexpr cpu::SignedQword BENCHMARK_MEMORY_BASE_VALUE = cpu::SignedQword{128};
 constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
 constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
 constexpr std::size_t BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
+constexpr std::size_t BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT = 6;
 constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
+constexpr cpu::Address64 BENCHMARK_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
+constexpr cpu::Qword BENCHMARK_STAGE3_KERNEL_STACK_TOP = cpu::Qword{384};
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -75,6 +82,17 @@ constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
         0x48, 0x0F, 0xB6, 0x55, 0x00,                               // MOVZX RDX, BYTE [RBP]
         0x48, 0x0F, 0xBE, 0x75, 0x01,                               // MOVSX RSI, BYTE [RBP + 1]
         0xF4};                                                      // HLT
+}
+
+[[nodiscard]] cpu::ExecutableImage make_stage3_image()
+{
+    return cpu::ExecutableImage{
+        0x48, 0xBC, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RSP, 120
+        0x0F, 0x05,                                                 // SYSCALL
+        0x48, 0xB8, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 41
+        0xF4,                                                       // HLT
+        0x48, 0xBB, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 13
+        0x48, 0x0F, 0x07};                                          // SYSRETQ
 }
 
 void set_instruction_items_processed(benchmark::State& state, const std::size_t program_size)
@@ -155,7 +173,32 @@ static void BM_CPUExecutorStage2ByteImageProgram(benchmark::State& state)
     set_instruction_items_processed(state, BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT);
 }
 
+static void BM_CPUExecutorStage3SyscallByteImageProgram(benchmark::State& state)
+{
+    const cpu::ExecutableImage image = make_stage3_image();
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu_system::TrapController trap_controller;
+        trap_controller.configure_syscall(cpu_system::SyscallDescriptor::enabled(BENCHMARK_STAGE3_SYSCALL_HANDLER_RIP));
+        trap_controller.tss().set_privilege_stack(
+            cpu_system::PrivilegeLevel::RING0,
+            BENCHMARK_STAGE3_KERNEL_STACK_TOP);
+        cpu::CpuState cpu_state;
+        cpu_state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+        cpu_state.flags().write(cpu::FlagId::IF, true);
+        cpu::Executor executor;
+        executor.attach_trap_controller(trap_controller);
+        benchmark::DoNotOptimize(executor.run(cpu_state, image));
+        benchmark::DoNotOptimize(cpu_state.registers().read(cpu::RegisterId::RAX));
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT);
+}
+
 BENCHMARK(BM_CPUExecutorRegisterProgram);
 BENCHMARK(BM_CPUExecutorMemoryProgram);
 BENCHMARK(BM_CPUExecutorByteImageMemoryProgram);
 BENCHMARK(BM_CPUExecutorStage2ByteImageProgram);
+BENCHMARK(BM_CPUExecutorStage3SyscallByteImageProgram);

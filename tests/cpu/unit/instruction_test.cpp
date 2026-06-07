@@ -12,8 +12,10 @@
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
 
 namespace cpu = mnos::cpu;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -28,6 +30,7 @@ constexpr auto TEST_INVALID_CONDITION_CODE = static_cast<cpu::ConditionCode>(cpu
 constexpr cpu::SignedQword TEST_IMMEDIATE_VALUE = cpu::SignedQword{-42};
 constexpr cpu::SignedQword TEST_MEMORY_DISPLACEMENT = cpu::SignedQword{16};
 constexpr cpu::Address64 TEST_MEMORY_ABSOLUTE_ADDRESS = cpu::Address64{128};
+constexpr cpu_system::InterruptVector TEST_INTERRUPT_VECTOR = cpu_system::InterruptVector::syscall_compat();
 constexpr std::uint8_t TEST_MEMORY_INDEX_SCALE = cpu::MEMORY_ADDRESS_SCALE_4;
 constexpr std::uint8_t TEST_MEMORY_INVALID_SCALE = 3;
 
@@ -50,7 +53,9 @@ constexpr std::array<OpcodeCase, cpu::OPCODE_COUNT> OPCODE_CASES{
     OpcodeCase{cpu::Opcode::RET, 16, "RET"},      OpcodeCase{cpu::Opcode::JMP, 17, "JMP"},
     OpcodeCase{cpu::Opcode::JE, 18, "JE"},        OpcodeCase{cpu::Opcode::JNE, 19, "JNE"},
     OpcodeCase{cpu::Opcode::JCC, 20, "JCC"},      OpcodeCase{cpu::Opcode::SETCC, 21, "SETCC"},
-    OpcodeCase{cpu::Opcode::CMOVCC, 22, "CMOVCC"}, OpcodeCase{cpu::Opcode::HLT, 23, "HLT"}};
+    OpcodeCase{cpu::Opcode::CMOVCC, 22, "CMOVCC"}, OpcodeCase{cpu::Opcode::INT, 23, "INT"},
+    OpcodeCase{cpu::Opcode::SYSCALL, 24, "SYSCALL"}, OpcodeCase{cpu::Opcode::SYSRET, 25, "SYSRET"},
+    OpcodeCase{cpu::Opcode::IRET, 26, "IRET"},    OpcodeCase{cpu::Opcode::HLT, 27, "HLT"}};
 
 struct ConditionCodeCase
 {
@@ -277,4 +282,14 @@ TEST(InstructionTest, FactoryFunctionsCreateExpectedShapes)
     EXPECT_THROW(
         static_cast<void>(cpu::Instruction::make_jcc(TEST_INVALID_CONDITION_CODE, cpu::Operand::imm(TEST_MEMORY_DISPLACEMENT))),
         std::out_of_range);
+
+    const cpu::Instruction software_interrupt = cpu::Instruction::make_int(TEST_INTERRUPT_VECTOR);
+    EXPECT_THAT(software_interrupt.opcode(), Eq(cpu::Opcode::INT));
+    EXPECT_THAT(
+        software_interrupt.first_operand().immediate_value(),
+        Eq(static_cast<cpu::SignedQword>(TEST_INTERRUPT_VECTOR.value())));
+
+    EXPECT_THAT(cpu::Instruction::make_syscall().opcode(), Eq(cpu::Opcode::SYSCALL));
+    EXPECT_THAT(cpu::Instruction::make_sysret().opcode(), Eq(cpu::Opcode::SYSRET));
+    EXPECT_THAT(cpu::Instruction::make_iret().opcode(), Eq(cpu::Opcode::IRET));
 }

@@ -12,6 +12,7 @@ constexpr const char* THREAD_CONTEXT_INVALID_STACK_SIZE_MESSAGE =
     "thread kernel stack size must be a non-zero page multiple";
 constexpr const char* THREAD_CONTEXT_STACK_RANGE_OVERFLOW_MESSAGE = "thread kernel stack range overflows address value";
 constexpr const char* THREAD_CONTEXT_INVALID_STATE_MESSAGE = "thread state is invalid";
+constexpr const char* THREAD_CONTEXT_TRAP_FRAME_NOT_PRESENT_MESSAGE = "thread context has no last trap frame";
 
 [[nodiscard]] bool is_valid_stack_size(const std::uint64_t stack_size_bytes) noexcept
 {
@@ -125,9 +126,40 @@ bool ThreadContext::contains_kernel_stack_address(const mm::VirtualAddress addre
     return this->kernel_stack_bottom_ <= address && address < this->kernel_stack_top_;
 }
 
+bool ThreadContext::has_last_trap_frame() const noexcept
+{
+    return this->last_trap_frame_.has_value();
+}
+
+const cpu::system::TrapFrame& ThreadContext::last_trap_frame() const
+{
+    if (!this->last_trap_frame_.has_value())
+    {
+        throw std::logic_error{THREAD_CONTEXT_TRAP_FRAME_NOT_PRESENT_MESSAGE};
+    }
+    return this->last_trap_frame_.value();
+}
+
+bool ThreadContext::snapshot_pending_trap_frame()
+{
+    if (!this->cpu_state_.has_pending_trap())
+    {
+        return false;
+    }
+
+    this->last_trap_frame_ = this->cpu_state_.pending_trap();
+    return true;
+}
+
+void ThreadContext::clear_last_trap_frame() noexcept
+{
+    this->last_trap_frame_.reset();
+}
+
 void ThreadContext::reset_cpu_state()
 {
     this->cpu_state_.reset();
+    this->last_trap_frame_.reset();
     this->initialize_cpu_stack_pointer();
 }
 

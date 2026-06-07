@@ -11,6 +11,7 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 
 namespace mnos::cpu
 {
@@ -28,6 +29,9 @@ class Executor
 public:
     [[nodiscard]] CycleCount cycle_count() const noexcept;
     void reset() noexcept;
+    void attach_trap_controller(system::TrapController& trap_controller) noexcept;
+    void detach_trap_controller() noexcept;
+    [[nodiscard]] bool has_trap_controller() const noexcept;
 
     [[nodiscard]] StepResult step(CpuState& state, const Program& program, ExecutionTrace* trace = nullptr);
     [[nodiscard]] StepResult step(
@@ -210,6 +214,10 @@ private:
         MemoryBus* memory_bus,
         const Instruction& instruction,
         const ExecutionContext& context);
+    void execute_int(CpuState& state, const Instruction& instruction, const ExecutionContext& context) const;
+    void execute_syscall(CpuState& state, const ExecutionContext& context) const;
+    void execute_sysret(CpuState& state) const;
+    void execute_iret(CpuState& state) const;
     void execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept;
 
     [[nodiscard]] Qword read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
@@ -229,10 +237,12 @@ private:
     void require_at_most_one_memory_operand(const Instruction& instruction) const;
     void require_register_operand(const Operand& operand) const;
     void require_memory_operand(const Operand& operand) const;
+    [[nodiscard]] system::TrapController& require_trap_controller() const;
     void set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept;
     void jump_to(CpuState& state, const ExecutionContext& context, InstructionPointer target) const;
 
     Decoder decoder_;
+    system::TrapController* trap_controller_ = nullptr;
     CycleCount cycle_count_ = CycleCount{0};
 };
 }

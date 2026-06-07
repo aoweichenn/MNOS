@@ -52,6 +52,10 @@ private:
             "JCC",
             "SETCC",
             "CMOVCC",
+            "INT",
+            "SYSCALL",
+            "SYSRET",
+            "IRET",
             "HLT"},
         OPCODE_ASSEMBLY_NAME_INVALID_TEXT);
 };

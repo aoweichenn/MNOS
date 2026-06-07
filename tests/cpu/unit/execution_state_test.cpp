@@ -14,9 +14,13 @@
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
+#include <mnos/cpu/system/privilege.hpp>
+#include <mnos/cpu/system/trap_frame.hpp>
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -32,6 +36,8 @@ constexpr cpu::InstructionPointer TEST_SECOND_RIP = cpu::InstructionPointer{1};
 constexpr cpu::InstructionPointer TEST_TWO_INSTRUCTION_END_RIP = cpu::InstructionPointer{2};
 constexpr cpu::CycleCount TEST_TRACE_FIRST_CYCLE = cpu::CycleCount{1};
 constexpr bool TEST_TRACE_NOT_HALTED = false;
+constexpr cpu::InstructionPointer TEST_TRAP_RETURN_RIP = cpu::InstructionPointer{7};
+constexpr cpu::Qword TEST_STACK_POINTER = cpu::Qword{0x8000};
 }
 
 TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
@@ -45,20 +51,36 @@ TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
     state.registers().write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
     state.flags().write(cpu::FlagId::ZF, true);
     state.advance_rip();
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.set_pending_trap(cpu_system::TrapFrame{
+        cpu_system::TrapKind::SOFTWARE_INTERRUPT,
+        cpu_system::InterruptVector::breakpoint(),
+        state.rip(),
+        TEST_TRAP_RETURN_RIP,
+        state.flags().raw_bits(),
+        TEST_STACK_POINTER,
+        state.privilege_level()});
     state.halt();
 
     EXPECT_THAT(const_state.registers().read(cpu::RegisterId::RAX), Eq(TEST_REGISTER_VALUE));
     EXPECT_TRUE(const_state.flags().read(cpu::FlagId::ZF));
     EXPECT_THAT(state.rip(), Eq(cpu::CPU_STATE_NEXT_INSTRUCTION_OFFSET));
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
+    EXPECT_TRUE(state.has_pending_trap());
+    EXPECT_THAT(state.pending_trap().return_rip(), Eq(TEST_TRAP_RETURN_RIP));
     EXPECT_TRUE(state.is_halted());
 
     state.resume();
     EXPECT_FALSE(state.is_halted());
+    state.clear_pending_trap();
+    EXPECT_FALSE(state.has_pending_trap());
 
     state.reset();
     EXPECT_THAT(state.rip(), Eq(cpu::CPU_STATE_INITIAL_RIP));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING0));
+    EXPECT_THROW(static_cast<void>(state.pending_trap()), std::logic_error);
 }
 
 TEST(ProgramTest, ProvidesStandardContainerAndRipAccess)
@@ -117,6 +139,7 @@ TEST(ExecutionTraceTest, ProvidesStandardContainerForTraceEntries)
     EXPECT_THAT(trace.size(), Eq(TEST_SINGLE_ENTRY_COUNT));
     EXPECT_THAT(trace.at(0).opcode, Eq(cpu::Opcode::MOV));
     EXPECT_THAT(trace.entries().front().rip_after, Eq(TEST_SECOND_RIP));
+    EXPECT_FALSE(trace.entries().front().trap_pending_after);
     EXPECT_THAT(trace.begin()->cycle_count, Eq(TEST_TRACE_FIRST_CYCLE));
 
     auto trace_iterator = trace.begin();

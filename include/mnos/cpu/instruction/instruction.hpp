@@ -3,6 +3,7 @@
 #include <mnos/cpu/instruction/condition_code.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
 
 namespace mnos::cpu
 {
@@ -33,6 +34,10 @@ public:
     [[nodiscard]] static Instruction make_jcc(ConditionCode condition, Operand target);
     [[nodiscard]] static Instruction make_setcc(ConditionCode condition, Operand destination);
     [[nodiscard]] static Instruction make_cmovcc(ConditionCode condition, Operand destination, Operand source);
+    [[nodiscard]] static Instruction make_int(system::InterruptVector vector) noexcept;
+    [[nodiscard]] static Instruction make_syscall() noexcept;
+    [[nodiscard]] static Instruction make_sysret() noexcept;
+    [[nodiscard]] static Instruction make_iret() noexcept;
 
     [[nodiscard]] Opcode opcode() const noexcept;
     [[nodiscard]] bool has_condition_code() const noexcept;

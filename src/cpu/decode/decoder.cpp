@@ -24,6 +24,9 @@ constexpr std::uint8_t X86_REX_EXTENDED_REGISTER_OFFSET = 8;
 constexpr std::uint8_t X86_OPCODE_ESCAPE = 0x0F;
 constexpr std::uint8_t X86_OPCODE_HLT = 0xF4;
 constexpr std::uint8_t X86_OPCODE_RET_NEAR = 0xC3;
+constexpr std::uint8_t X86_OPCODE_INT3 = 0xCC;
+constexpr std::uint8_t X86_OPCODE_INT_IMM8 = 0xCD;
+constexpr std::uint8_t X86_OPCODE_IRET = 0xCF;
 constexpr std::uint8_t X86_OPCODE_CALL_REL32 = 0xE8;
 constexpr std::uint8_t X86_OPCODE_JMP_REL8 = 0xEB;
 constexpr std::uint8_t X86_OPCODE_JMP_REL32 = 0xE9;
@@ -31,6 +34,8 @@ constexpr std::uint8_t X86_OPCODE_JCC_REL8_MIN = 0x70;
 constexpr std::uint8_t X86_OPCODE_JCC_REL8_MAX = 0x7F;
 constexpr std::uint8_t X86_OPCODE_JCC_REL32_MIN = 0x80;
 constexpr std::uint8_t X86_OPCODE_JCC_REL32_MAX = 0x8F;
+constexpr std::uint8_t X86_OPCODE_SYSCALL = 0x05;
+constexpr std::uint8_t X86_OPCODE_SYSRET = 0x07;
 constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MIN = 0x40;
 constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MAX = 0x4F;
 constexpr std::uint8_t X86_OPCODE_SETCC_RM8_MIN = 0x90;
@@ -601,9 +606,21 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
     {
         instruction = Instruction::make_hlt();
     }
+    else if (opcode == X86_OPCODE_INT3)
+    {
+        instruction = Instruction::make_int(system::InterruptVector::breakpoint());
+    }
+    else if (opcode == X86_OPCODE_INT_IMM8)
+    {
+        instruction = Instruction::make_int(system::InterruptVector{cursor.read_u8()});
+    }
     else if (opcode == X86_OPCODE_RET_NEAR)
     {
         instruction = Instruction::make_ret();
+    }
+    else if (opcode == X86_OPCODE_IRET)
+    {
+        instruction = Instruction::make_iret();
     }
     else if (opcode >= X86_OPCODE_PUSH_R64_MIN && opcode <= X86_OPCODE_PUSH_R64_MAX)
     {
@@ -732,7 +749,16 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
     else if (opcode == X86_OPCODE_ESCAPE)
     {
         const std::uint8_t escaped_opcode = cursor.read_u8();
-        if (escaped_opcode >= X86_OPCODE_JCC_REL32_MIN && escaped_opcode <= X86_OPCODE_JCC_REL32_MAX)
+        if (escaped_opcode == X86_OPCODE_SYSCALL)
+        {
+            instruction = Instruction::make_syscall();
+        }
+        else if (escaped_opcode == X86_OPCODE_SYSRET)
+        {
+            require_rex_w(rex);
+            instruction = Instruction::make_sysret();
+        }
+        else if (escaped_opcode >= X86_OPCODE_JCC_REL32_MIN && escaped_opcode <= X86_OPCODE_JCC_REL32_MAX)
         {
             const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
             instruction = make_conditional_jump_instruction(

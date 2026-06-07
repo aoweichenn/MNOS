@@ -31,6 +31,10 @@ enum class Opcode : std::uint8_t
     JCC,
     SETCC,
     CMOVCC,
+    INT,
+    SYSCALL,
+    SYSRET,
+    IRET,
     HLT,
     COUNT
 };

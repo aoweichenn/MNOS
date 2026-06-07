@@ -17,9 +17,14 @@
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/descriptor_tables.hpp>
+#include <mnos/cpu/system/interrupt_vector.hpp>
+#include <mnos/cpu/system/privilege.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_system = mnos::cpu::system;
 
 namespace
 {
@@ -82,6 +87,13 @@ constexpr cpu::SignedQword TEST_STAGE2_SIGNED_LEFT_VALUE = cpu::SignedQword{5};
 constexpr cpu::SignedQword TEST_STAGE2_SIGNED_RIGHT_VALUE = cpu::SignedQword{10};
 constexpr cpu::SignedQword TEST_STAGE2_JCC_TARGET = cpu::SignedQword{4};
 constexpr std::size_t TEST_STAGE2_JCC_PROGRAM_STEP_COUNT = 5;
+constexpr cpu::Qword TEST_STAGE3_USER_STACK_TOP = cpu::Qword{120};
+constexpr cpu::Qword TEST_STAGE3_KERNEL_STACK_TOP = cpu::Qword{96};
+constexpr cpu::SignedQword TEST_STAGE3_TRAP_HANDLER_RIP = cpu::SignedQword{4};
+constexpr cpu::SignedQword TEST_STAGE3_SYSCALL_HANDLER_RIP = cpu::SignedQword{4};
+constexpr cpu::SignedQword TEST_STAGE3_HANDLER_VALUE = cpu::SignedQword{13};
+constexpr std::size_t TEST_STAGE3_TRAP_PROGRAM_STEP_COUNT = 6;
+constexpr std::size_t TEST_STAGE3_SYSCALL_PROGRAM_STEP_COUNT = 6;
 }
 
 TEST(ExecutorProgramTest, RunsLinearProgramAndRecordsTrace)
@@ -455,4 +467,79 @@ TEST(ExecutorProgramTest, RunsGenericSignedConditionalJump)
 
     EXPECT_THAT(executed_steps, Eq(TEST_STAGE2_JCC_PROGRAM_STEP_COUNT));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
+}
+
+TEST(ExecutorProgramTest, RunsStage3SoftwareInterruptAndIretProgram)
+{
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RSP, static_cast<cpu::SignedQword>(TEST_STAGE3_USER_STACK_TOP)));
+    program.push_back(cpu::Instruction::make_int(cpu_system::InterruptVector::breakpoint()));
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_hlt());
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_STAGE3_HANDLER_VALUE));
+    program.push_back(cpu::Instruction::make_iret());
+
+    cpu_system::TrapController trap_controller;
+    trap_controller.idt().set_gate(
+        cpu_system::InterruptVector::breakpoint(),
+        cpu_system::InterruptGate::interrupt_gate(
+            static_cast<cpu::Address64>(TEST_STAGE3_TRAP_HANDLER_RIP),
+            cpu_system::PrivilegeLevel::RING0));
+    trap_controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_STAGE3_KERNEL_STACK_TOP);
+
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.flags().write(cpu::FlagId::IF, true);
+    cpu::Executor executor;
+    executor.attach_trap_controller(trap_controller);
+    cpu::ExecutionTrace trace;
+    trace.reserve(TEST_STAGE3_TRAP_PROGRAM_STEP_COUNT);
+
+    const std::size_t executed_steps = executor.run(state, program, cpu::EXECUTOR_DEFAULT_MAX_STEPS, &trace);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_STAGE3_TRAP_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_FALSE(state.has_pending_trap());
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::IF));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE3_USER_STACK_TOP));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_STAGE3_HANDLER_VALUE)));
+    EXPECT_TRUE(trace.at(1).trap_pending_after);
+    EXPECT_FALSE(trace.at(3).trap_pending_after);
+}
+
+TEST(ExecutorProgramTest, RunsStage3SyscallAndSysretProgram)
+{
+    cpu::Program program;
+    program.reserve(TEST_PROGRAM_RESERVE_COUNT);
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RSP, static_cast<cpu::SignedQword>(TEST_STAGE3_USER_STACK_TOP)));
+    program.push_back(cpu::Instruction::make_syscall());
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
+    program.push_back(cpu::Instruction::make_hlt());
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_STAGE3_HANDLER_VALUE));
+    program.push_back(cpu::Instruction::make_sysret());
+
+    cpu_system::TrapController trap_controller;
+    trap_controller.configure_syscall(
+        cpu_system::SyscallDescriptor::enabled(static_cast<cpu::Address64>(TEST_STAGE3_SYSCALL_HANDLER_RIP)));
+    trap_controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_STAGE3_KERNEL_STACK_TOP);
+
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.flags().write(cpu::FlagId::IF, true);
+    cpu::Executor executor;
+    executor.attach_trap_controller(trap_controller);
+
+    const std::size_t executed_steps = executor.run(state, program);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_STAGE3_SYSCALL_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_FALSE(state.has_pending_trap());
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
+    EXPECT_TRUE(state.flags().read(cpu::FlagId::IF));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE3_USER_STACK_TOP));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_STAGE3_HANDLER_VALUE)));
 }

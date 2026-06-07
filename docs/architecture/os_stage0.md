@@ -68,7 +68,7 @@ RSP 初始化为 kernel_stack_top
 
 x86-64 栈通常向低地址增长，所以初始 `RSP` 放在 stack top。
 
-## 和 x86-64 CPU Stage 0/1/2 的关系
+## 和 x86-64 CPU Stage 0/1/2/3 的关系
 
 当前 `CpuState` 包含：
 
@@ -79,27 +79,30 @@ RIP
 halted
 ```
 
-`RFLAGS` 当前建模了 `CF/PF/ZF/SF/OF`。`ADD/SUB/CMP`、`INC/DEC`、`AND/OR/XOR/TEST` 会按当前教学范围更新这些状态位，`Jcc/SETcc/CMOVcc` 会读取对应条件码。这比 RV 的显式寄存器比较更复杂，但更贴近 x86-64 现实。
+`RFLAGS` 当前建模了 `CF/PF/ZF/SF/IF/OF`。`ADD/SUB/CMP`、`INC/DEC`、`AND/OR/XOR/TEST` 会按当前教学范围更新这些状态位，`Jcc/SETcc/CMOVcc` 会读取对应条件码。Stage 3 中 interrupt gate 会清 `IF`，`IRET/SYSRET` 会恢复保存的 flags。这比 RV 的显式寄存器比较更复杂，但更贴近 x86-64 现实。
 
-CPU Stage 1 已经加入 `ExecutableImage -> Decoder -> Instruction` 的真实 byte image 路径，Stage 2 已补入 `CALL/RET/PUSH/POP`、`LEA`、逻辑/条件码和扩展 load。`Program` 对象路径继续用于教学和语义测试，`HLT` 当前仍作为停止点。后续系统调用和中断阶段会引入：
+CPU Stage 1 已经加入 `ExecutableImage -> Decoder -> Instruction` 的真实 byte image 路径，Stage 2 已补入 `CALL/RET/PUSH/POP`、`LEA`、逻辑/条件码和扩展 load。Stage 3 已加入：
 
 ```text
+INT/INT3/IRET
 SYSCALL/SYSRET
-IDT/GDT/TSS
-timer interrupt
-page fault
-trapframe
+IDT/GDT/TSS 教学模型
+TrapFrame + pending trap
+CPL + IF
+ThreadContext trapframe snapshot
 ```
+
+其中 page fault 目前只是 vector/trapframe 能表达，真实 paging/MMU/TLB 和 memory fault 接入放到 Stage 4。
 
 ## 下一步
 
 合理顺序：
 
 ```text
-1. exception/syscall/interrupt
-2. paging/MMU/TLB
-3. trapframe + context switch
-4. syscall ABI + scheduler
+1. paging/MMU/TLB + page fault 接入
+2. trapframe + context switch
+3. syscall ABI + scheduler
+4. timer interrupt + APIC/IOAPIC 教学模型
 5. 进程地址空间和用户/内核切换
 6. 原子操作、多核、cache/TLB 交互
 ```

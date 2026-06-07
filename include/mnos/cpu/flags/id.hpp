@@ -12,6 +12,7 @@ enum class FlagId : std::uint8_t
     PF,    // Parity Flag
     ZF,    // Zero Flag
     SF,    // Sign Flag
+    IF,    // Interrupt Enable Flag
     OF,    // Overflow Flag
     COUNT, // flags count
 };
@@ -21,6 +22,7 @@ inline constexpr std::size_t FLAG_ID_CF_BIT_INDEX = 0;
 inline constexpr std::size_t FLAG_ID_PF_BIT_INDEX = 2;
 inline constexpr std::size_t FLAG_ID_ZF_BIT_INDEX = 6;
 inline constexpr std::size_t FLAG_ID_SF_BIT_INDEX = 7;
+inline constexpr std::size_t FLAG_ID_IF_BIT_INDEX = 9;
 inline constexpr std::size_t FLAG_ID_OF_BIT_INDEX = 11;
 
 [[nodiscard]] bool is_flag_id_valid(FlagId id) noexcept;
