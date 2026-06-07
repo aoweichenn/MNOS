@@ -68,7 +68,7 @@ RSP 初始化为 kernel_stack_top
 
 x86-64 栈通常向低地址增长，所以初始 `RSP` 放在 stack top。
 
-## 和 x86-64 CPU Stage 0 的关系
+## 和 x86-64 CPU Stage 0/1 的关系
 
 当前 `CpuState` 包含：
 
@@ -81,7 +81,7 @@ halted
 
 `RFLAGS` 当前建模了 `CF/ZF/SF/OF`。`ADD/SUB/CMP` 会更新这些状态位，`JE/JNE` 读取 `ZF`。这比 RV 的显式寄存器比较更复杂，但更贴近 x86-64 现实。
 
-`HLT` 当前作为 Stage 0 停止点。后续系统调用和中断阶段会引入：
+CPU Stage 1 已经加入 `ExecutableImage -> Decoder -> Instruction` 的真实 byte image 路径，`Program` 对象路径继续用于教学和语义测试。`HLT` 当前仍作为停止点。后续系统调用和中断阶段会引入：
 
 ```text
 SYSCALL/SYSRET
@@ -96,14 +96,14 @@ trapframe
 合理顺序：
 
 ```text
-1. x86-64 byte fetch/decode
-2. REX/ModRM/SIB/immediate/displacement
-3. RIP-relative addressing
-4. CALL/RET/PUSH/POP
-5. exception/syscall/interrupt
-6. paging/MMU/TLB
-7. trapframe + context switch
-8. syscall ABI + scheduler
+1. CALL/RET/PUSH/POP 和基础栈语义
+2. LEA、TEST、AND/OR/XOR、SETcc/CMOVcc
+3. exception/syscall/interrupt
+4. paging/MMU/TLB
+5. trapframe + context switch
+6. syscall ABI + scheduler
+7. 进程地址空间和用户/内核切换
+8. 原子操作、多核、cache/TLB 交互
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

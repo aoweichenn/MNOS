@@ -1,6 +1,6 @@
 # C++ 与 MNOS 学习问题合集
 
-这份文档把 C++ 语言规则和当前 x86-64 Stage 0 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT` 等当前主线术语。
+这份文档把 C++ 语言规则和当前 x86-64 Stage 0/1 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT` 等当前主线术语。
 
 ## 1. 编译期常量和运行时常量
 
@@ -56,28 +56,28 @@ MOV [RBP - 8], RAX
 ADD RAX, [RBX + 16]
 ```
 
-Stage 0 用 `Operand` 建模：
+当前用 `Operand` 建模：
 
 ```text
 none
 register
 immediate
-memory(base register + displacement + data size)
+memory(base/index/scale/displacement/absolute + data size)
 ```
 
 `Operand` 使用 `std::variant`，是为了把合法 payload 绑定到类型上，而不是用一堆松散字段。
 
 ## 5. RIP 和 Program
 
-真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 还没有机器码 decode，所以 `Program` 暂时是对象指令数组，`RIP` 表示当前对象指令槽位。
+真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址。
 
-后续 Stage 1 会把它升级为：
+当前 Stage 1 路径是：
 
 ```text
-RIP -> MemoryBus 取 byte -> variable-length decoder -> Instruction
+RIP -> ExecutableImage 取 byte -> variable-length decoder -> Instruction -> Executor
 ```
 
-这一步不能跳过，否则很难测试 RFLAGS、内存和跳转语义。
+对象路径和 byte 路径复用同一套 `Instruction` 执行语义，这样可以先稳定 RFLAGS、内存和跳转，再逐步扩展更多 x86-64 编码。
 
 ## 6. RFLAGS
 
@@ -110,7 +110,7 @@ DWORD  32 bit
 QWORD  64 bit
 ```
 
-当前内存读写按小端序实现。后续加入真实 decode 后，ModRM/SIB 和 opcode 会决定访问宽度。
+当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；后续会继续扩展 BYTE/WORD/DWORD load/store、符号扩展和更多 opcode 宽度规则。
 
 ## 8. 为什么热路径不用复杂模式？
 

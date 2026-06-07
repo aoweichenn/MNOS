@@ -1,4 +1,5 @@
 #include <array>
+#include <cstdint>
 #include <stdexcept>
 #include <string_view>
 
@@ -24,6 +25,9 @@ constexpr auto TEST_INVALID_OPERAND_KIND = static_cast<cpu::OperandKind>(cpu::OP
 
 constexpr cpu::SignedQword TEST_IMMEDIATE_VALUE = cpu::SignedQword{-42};
 constexpr cpu::SignedQword TEST_MEMORY_DISPLACEMENT = cpu::SignedQword{16};
+constexpr cpu::Address64 TEST_MEMORY_ABSOLUTE_ADDRESS = cpu::Address64{128};
+constexpr std::uint8_t TEST_MEMORY_INDEX_SCALE = cpu::MEMORY_ADDRESS_SCALE_4;
+constexpr std::uint8_t TEST_MEMORY_INVALID_SCALE = 3;
 
 struct OpcodeCase
 {
@@ -96,6 +100,44 @@ TEST(OperandTest, ModelsNoneRegisterImmediateAndMemoryPayloads)
         std::out_of_range);
     EXPECT_THROW(
         static_cast<void>(cpu::Operand::mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, TEST_INVALID_DATA_SIZE)),
+        std::out_of_range);
+
+    const cpu::Operand indexed_mem = cpu::Operand::indexed_mem(
+        cpu::RegisterId::RBP,
+        cpu::RegisterId::RAX,
+        TEST_MEMORY_INDEX_SCALE,
+        TEST_MEMORY_DISPLACEMENT,
+        cpu::DataSize::QWORD);
+    EXPECT_TRUE(indexed_mem.memory_has_base_register());
+    EXPECT_TRUE(indexed_mem.memory_has_index_register());
+    EXPECT_FALSE(indexed_mem.memory_has_absolute_address());
+    EXPECT_THAT(indexed_mem.memory_base_register(), Eq(cpu::RegisterId::RBP));
+    EXPECT_THAT(indexed_mem.memory_index_register(), Eq(cpu::RegisterId::RAX));
+    EXPECT_THAT(indexed_mem.memory_scale(), Eq(TEST_MEMORY_INDEX_SCALE));
+
+    const cpu::Operand index_only_mem = cpu::Operand::mem(
+        cpu::MemoryAddress::index_displacement(
+            cpu::RegisterId::RAX,
+            TEST_MEMORY_INDEX_SCALE,
+            TEST_MEMORY_DISPLACEMENT),
+        cpu::DataSize::QWORD);
+    EXPECT_FALSE(index_only_mem.memory_has_base_register());
+    EXPECT_TRUE(index_only_mem.memory_has_index_register());
+    EXPECT_THROW(static_cast<void>(index_only_mem.memory_base_register()), std::logic_error);
+
+    const cpu::Operand absolute_mem = cpu::Operand::absolute_mem(TEST_MEMORY_ABSOLUTE_ADDRESS, cpu::DataSize::QWORD);
+    EXPECT_FALSE(absolute_mem.memory_has_base_register());
+    EXPECT_FALSE(absolute_mem.memory_has_index_register());
+    EXPECT_TRUE(absolute_mem.memory_has_absolute_address());
+    EXPECT_THAT(absolute_mem.memory_absolute_address(), Eq(TEST_MEMORY_ABSOLUTE_ADDRESS));
+    EXPECT_THROW(static_cast<void>(absolute_mem.memory_index_register()), std::logic_error);
+    EXPECT_THROW(
+        static_cast<void>(cpu::Operand::indexed_mem(
+            cpu::RegisterId::RBP,
+            cpu::RegisterId::RAX,
+            TEST_MEMORY_INVALID_SCALE,
+            TEST_MEMORY_DISPLACEMENT,
+            cpu::DataSize::QWORD)),
         std::out_of_range);
 }
 

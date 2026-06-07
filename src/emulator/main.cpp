@@ -1,12 +1,10 @@
 #include <cstddef>
 #include <iostream>
 
+#include <mnos/cpu/decode/executable_image.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
-#include <mnos/cpu/execution/program.hpp>
-#include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
-#include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
@@ -18,10 +16,7 @@ namespace platform = mnos::os::platform;
 
 namespace
 {
-constexpr std::size_t EMULATOR_BOOTSTRAP_PROGRAM_INSTRUCTION_COUNT = 6;
 constexpr std::size_t EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES = 16384;
-constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_INITIAL_RAX = cpu::SignedQword{1};
-constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_RAX_INCREMENT = cpu::SignedQword{41};
 constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_BASE = cpu::SignedQword{64};
 constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT = cpu::SignedQword{8};
 constexpr cpu::Address64 EMULATOR_BOOTSTRAP_STORED_ADDRESS =
@@ -35,34 +30,17 @@ int main()
     kernel::Kernel os_kernel{boot_context};
     os_kernel.boot();
 
-    cpu::Program program;
-    program.reserve(EMULATOR_BOOTSTRAP_PROGRAM_INSTRUCTION_COUNT);
-    program.push_back(cpu::Instruction::make_mov(
-        cpu::Operand::reg(cpu::RegisterId::RAX),
-        cpu::Operand::imm(EMULATOR_BOOTSTRAP_INITIAL_RAX)));
-    program.push_back(cpu::Instruction::make_add(
-        cpu::Operand::reg(cpu::RegisterId::RAX),
-        cpu::Operand::imm(EMULATOR_BOOTSTRAP_RAX_INCREMENT)));
-    program.push_back(cpu::Instruction::make_mov(
-        cpu::Operand::reg(cpu::RegisterId::RBP),
-        cpu::Operand::imm(EMULATOR_BOOTSTRAP_MEMORY_BASE)));
-    program.push_back(cpu::Instruction::make_mov(
-        cpu::Operand::mem(
-            cpu::RegisterId::RBP,
-            EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT,
-            cpu::DataSize::QWORD),
-        cpu::Operand::reg(cpu::RegisterId::RAX)));
-    program.push_back(cpu::Instruction::make_mov(
-        cpu::Operand::reg(cpu::RegisterId::RBX),
-        cpu::Operand::mem(
-            cpu::RegisterId::RBP,
-            EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT,
-            cpu::DataSize::QWORD)));
-    program.push_back(cpu::Instruction::make_hlt());
+    const cpu::ExecutableImage bootstrap_image{
+        0x48, 0xBD, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 64
+        0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 1
+        0x48, 0x81, 0xC0, 0x29, 0x00, 0x00, 0x00,                   // ADD RAX, 41
+        0x48, 0x89, 0x45, 0x08,                                     // MOV [RBP + 8], RAX
+        0x48, 0x8B, 0x5D, 0x08,                                     // MOV RBX, [RBP + 8]
+        0xF4};                                                      // HLT
 
     cpu::CpuState state;
     cpu::Executor executor;
-    const std::size_t executed_steps = executor.run(state, program, boot_context.memory_bus());
+    const std::size_t executed_steps = executor.run(state, bootstrap_image, boot_context.memory_bus());
 
     std::cout << "MNOS emulator bootstrap: kernel=" << (os_kernel.is_booted() ? "booted" : "not-booted")
               << ", " << cpu::opcode_to_assembly_name(cpu::Opcode::HLT)

@@ -5,6 +5,7 @@
 
 #include <cpu/support/cpu_test_helpers.hpp>
 #include <mnos/cpu/common/data_size.hpp>
+#include <mnos/cpu/decode/executable_image.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/execution/executor.hpp>
 #include <mnos/cpu/execution/program.hpp>
@@ -24,6 +25,7 @@ constexpr cpu::SignedQword BENCHMARK_INITIAL_VALUE = cpu::SignedQword{1};
 constexpr cpu::SignedQword BENCHMARK_INCREMENT_VALUE = cpu::SignedQword{41};
 constexpr cpu::SignedQword BENCHMARK_MEMORY_BASE_VALUE = cpu::SignedQword{128};
 constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
+constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -48,6 +50,16 @@ constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
             cpu_support::make_mem(cpu::RegisterId::RBP, BENCHMARK_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
         cpu::Instruction::make_hlt(),
     };
+}
+
+[[nodiscard]] cpu::ExecutableImage make_memory_image()
+{
+    return cpu::ExecutableImage{
+        0x48, 0xBD, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 128
+        0x48, 0xB8, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 41
+        0x48, 0x89, 0x45, 0x20,                                     // MOV [RBP + 32], RAX
+        0x48, 0x8B, 0x5D, 0x20,                                     // MOV RBX, [RBP + 32]
+        0xF4};                                                      // HLT
 }
 
 void set_instruction_items_processed(benchmark::State& state, const std::size_t program_size)
@@ -90,5 +102,24 @@ static void BM_CPUExecutorMemoryProgram(benchmark::State& state)
     set_instruction_items_processed(state, program.size());
 }
 
+static void BM_CPUExecutorByteImageMemoryProgram(benchmark::State& state)
+{
+    const cpu::ExecutableImage image = make_memory_image();
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::CpuState cpu_state;
+        cpu::PhysicalMemory memory(BENCHMARK_MEMORY_SIZE_BYTES);
+        cpu::MemoryBus memory_bus{memory};
+        cpu::Executor executor;
+        benchmark::DoNotOptimize(executor.run(cpu_state, image, memory_bus));
+        benchmark::DoNotOptimize(cpu_state.registers().read(cpu::RegisterId::RBX));
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT);
+}
+
 BENCHMARK(BM_CPUExecutorRegisterProgram);
 BENCHMARK(BM_CPUExecutorMemoryProgram);
+BENCHMARK(BM_CPUExecutorByteImageMemoryProgram);

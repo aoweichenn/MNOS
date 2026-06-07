@@ -92,6 +92,8 @@ endfunction()
 set(
     MNOS_CPU_SOURCES
         src/cpu/common/data_size.cpp
+        src/cpu/decode/decoder.cpp
+        src/cpu/decode/executable_image.cpp
         src/cpu/register/id.cpp
         src/cpu/register/bank.cpp
         src/cpu/flags/id.cpp
@@ -218,10 +220,12 @@ endmacro()
 mnos_add_cpu_test(mnos_cpu_common_unit_tests tests/cpu/unit/common_data_size_test.cpp)
 mnos_add_cpu_test(mnos_cpu_register_flags_unit_tests tests/cpu/unit/register_flags_test.cpp)
 mnos_add_cpu_test(mnos_cpu_instruction_unit_tests tests/cpu/unit/instruction_test.cpp)
+mnos_add_cpu_test(mnos_cpu_decoder_unit_tests tests/cpu/unit/decoder_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_integration_tests tests/cpu/integration/executor_program_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_error_integration_tests tests/cpu/integration/executor_error_test.cpp)
+mnos_add_cpu_test(mnos_cpu_byte_executor_integration_tests tests/cpu/integration/byte_executor_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_chaos_tests tests/cpu/chaos/executor_chaos_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_executor_fuzz_tests tests/cpu/fuzz/memory_executor_fuzz_test.cpp)
 

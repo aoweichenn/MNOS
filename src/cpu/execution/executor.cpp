@@ -84,6 +84,20 @@ StepResult Executor::step(
     return this->step_with_memory(state, program, &memory_bus, trace);
 }
 
+StepResult Executor::step(CpuState& state, const ExecutableImage& image, ExecutionTrace* const trace)
+{
+    return this->step_image_with_memory(state, image, nullptr, trace);
+}
+
+StepResult Executor::step(
+    CpuState& state,
+    const ExecutableImage& image,
+    MemoryBus& memory_bus,
+    ExecutionTrace* const trace)
+{
+    return this->step_image_with_memory(state, image, &memory_bus, trace);
+}
+
 std::size_t Executor::run(
     CpuState& state,
     const Program& program,
@@ -103,6 +117,25 @@ std::size_t Executor::run(
     return this->run_with_memory(state, program, &memory_bus, max_steps, trace);
 }
 
+std::size_t Executor::run(
+    CpuState& state,
+    const ExecutableImage& image,
+    const std::size_t max_steps,
+    ExecutionTrace* const trace)
+{
+    return this->run_image_with_memory(state, image, nullptr, max_steps, trace);
+}
+
+std::size_t Executor::run(
+    CpuState& state,
+    const ExecutableImage& image,
+    MemoryBus& memory_bus,
+    const std::size_t max_steps,
+    ExecutionTrace* const trace)
+{
+    return this->run_image_with_memory(state, image, &memory_bus, max_steps, trace);
+}
+
 StepResult Executor::step_with_memory(
     CpuState& state,
     const Program& program,
@@ -116,7 +149,11 @@ StepResult Executor::step_with_memory(
 
     const InstructionPointer rip_before = state.rip();
     const Instruction& instruction = program.instruction_at(rip_before);
-    this->execute_instruction(state, program, memory_bus, instruction);
+    const ExecutionContext context{
+        &program,
+        nullptr,
+        rip_before + CPU_STATE_NEXT_INSTRUCTION_OFFSET};
+    this->execute_instruction(state, memory_bus, instruction, context);
     ++this->cycle_count_;
 
     if (trace != nullptr)
@@ -126,6 +163,40 @@ StepResult Executor::step_with_memory(
             rip_before,
             state.rip(),
             instruction.opcode(),
+            state.is_halted()});
+    }
+
+    if (state.is_halted())
+    {
+        return StepResult::HALTED;
+    }
+    return StepResult::EXECUTED;
+}
+
+StepResult Executor::step_image_with_memory(
+    CpuState& state,
+    const ExecutableImage& image,
+    MemoryBus* const memory_bus,
+    ExecutionTrace* const trace)
+{
+    if (state.is_halted())
+    {
+        return StepResult::HALTED;
+    }
+
+    const InstructionPointer rip_before = state.rip();
+    const DecodedInstruction decoded_instruction = this->decoder_.decode(image, rip_before);
+    const ExecutionContext context{nullptr, &image, decoded_instruction.next_rip};
+    this->execute_instruction(state, memory_bus, decoded_instruction.instruction, context);
+    ++this->cycle_count_;
+
+    if (trace != nullptr)
+    {
+        trace->push_back(ExecutionTraceEntry{
+            this->cycle_count_,
+            decoded_instruction.start_rip,
+            state.rip(),
+            decoded_instruction.instruction.opcode(),
             state.is_halted()});
     }
 
@@ -158,44 +229,70 @@ std::size_t Executor::run_with_memory(
     return executed_steps;
 }
 
+std::size_t Executor::run_image_with_memory(
+    CpuState& state,
+    const ExecutableImage& image,
+    MemoryBus* const memory_bus,
+    const std::size_t max_steps,
+    ExecutionTrace* const trace)
+{
+    std::size_t executed_steps = 0;
+    while (!state.is_halted() && executed_steps < max_steps)
+    {
+        static_cast<void>(this->step_image_with_memory(state, image, memory_bus, trace));
+        ++executed_steps;
+    }
+
+    if (!state.is_halted())
+    {
+        throw std::runtime_error{EXECUTOR_MAX_STEPS_EXCEEDED_MESSAGE};
+    }
+
+    return executed_steps;
+}
+
 void Executor::execute_instruction(
     CpuState& state,
-    const Program& program,
     MemoryBus* const memory_bus,
-    const Instruction& instruction)
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     switch (instruction.opcode())
     {
     case Opcode::MOV:
-        this->execute_mov(state, memory_bus, instruction);
+        this->execute_mov(state, memory_bus, instruction, context);
         return;
     case Opcode::ADD:
-        this->execute_add(state, memory_bus, instruction);
+        this->execute_add(state, memory_bus, instruction, context);
         return;
     case Opcode::SUB:
-        this->execute_sub(state, memory_bus, instruction);
+        this->execute_sub(state, memory_bus, instruction, context);
         return;
     case Opcode::CMP:
-        this->execute_cmp(state, memory_bus, instruction);
+        this->execute_cmp(state, memory_bus, instruction, context);
         return;
     case Opcode::JMP:
-        this->execute_jmp(state, program, memory_bus, instruction);
+        this->execute_jmp(state, memory_bus, instruction, context);
         return;
     case Opcode::JE:
-        this->execute_je(state, program, memory_bus, instruction);
+        this->execute_je(state, memory_bus, instruction, context);
         return;
     case Opcode::JNE:
-        this->execute_jne(state, program, memory_bus, instruction);
+        this->execute_jne(state, memory_bus, instruction, context);
         return;
     case Opcode::HLT:
-        this->execute_hlt(state);
+        this->execute_hlt(state, context);
         return;
     case Opcode::COUNT:
         throw std::logic_error{EXECUTOR_INVALID_OPCODE_MESSAGE};
     }
 }
 
-void Executor::execute_mov(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
+void Executor::execute_mov(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     this->require_at_most_one_memory_operand(instruction);
     this->write_operand(
@@ -203,10 +300,14 @@ void Executor::execute_mov(CpuState& state, MemoryBus* const memory_bus, const I
         memory_bus,
         instruction.first_operand(),
         this->read_operand(state, memory_bus, instruction.second_operand()));
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
-void Executor::execute_add(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
+void Executor::execute_add(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     this->require_at_most_one_memory_operand(instruction);
     const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
@@ -214,10 +315,14 @@ void Executor::execute_add(CpuState& state, MemoryBus* const memory_bus, const I
     const Qword result = left + right;
     this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_add(state.flags(), left, right, result);
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
-void Executor::execute_sub(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
+void Executor::execute_sub(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     this->require_at_most_one_memory_operand(instruction);
     const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
@@ -225,59 +330,63 @@ void Executor::execute_sub(CpuState& state, MemoryBus* const memory_bus, const I
     const Qword result = left - right;
     this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
-void Executor::execute_cmp(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
+void Executor::execute_cmp(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     this->require_at_most_one_memory_operand(instruction);
     const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
     const Qword right = this->read_operand(state, memory_bus, instruction.second_operand());
     const Qword result = left - right;
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
 void Executor::execute_jmp(
     CpuState& state,
-    const Program& program,
     MemoryBus* const memory_bus,
-    const Instruction& instruction)
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
-    this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
+    this->jump_to(state, context, this->read_operand(state, memory_bus, instruction.first_operand()));
 }
 
 void Executor::execute_je(
     CpuState& state,
-    const Program& program,
     MemoryBus* const memory_bus,
-    const Instruction& instruction)
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     if (state.flags().read(FlagId::ZF))
     {
-        this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
+        this->jump_to(state, context, this->read_operand(state, memory_bus, instruction.first_operand()));
         return;
     }
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
 void Executor::execute_jne(
     CpuState& state,
-    const Program& program,
     MemoryBus* const memory_bus,
-    const Instruction& instruction)
+    const Instruction& instruction,
+    const ExecutionContext& context)
 {
     if (!state.flags().read(FlagId::ZF))
     {
-        this->jump_to(state, program, this->read_operand(state, memory_bus, instruction.first_operand()));
+        this->jump_to(state, context, this->read_operand(state, memory_bus, instruction.first_operand()));
         return;
     }
-    state.advance_rip();
+    this->set_next_rip(state, context);
 }
 
-void Executor::execute_hlt(CpuState& state) const noexcept
+void Executor::execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept
 {
-    state.advance_rip();
+    this->set_next_rip(state, context);
     state.halt();
 }
 
@@ -356,11 +465,26 @@ MemoryBus& Executor::require_memory_bus(MemoryBus* const memory_bus) const
 
 Address64 Executor::calculate_effective_address(const CpuState& state, const Operand& operand) const
 {
-    const Qword base_address = state.registers().read(operand.memory_base_register());
+    if (operand.memory_has_absolute_address())
+    {
+        return operand.memory_absolute_address();
+    }
+
+    Qword effective_address = Qword{0};
+    if (operand.memory_has_base_register())
+    {
+        effective_address += state.registers().read(operand.memory_base_register());
+    }
+
+    if (operand.memory_has_index_register())
+    {
+        effective_address += state.registers().read(operand.memory_index_register()) * operand.memory_scale();
+    }
+
     const Qword displacement = static_cast<Qword>(operand.memory_displacement());
 
     // x86-64 effective address addition wraps in the address width before memory range checks.
-    return base_address + displacement;
+    return effective_address + displacement;
 }
 
 void Executor::require_at_most_one_memory_operand(const Instruction& instruction) const
@@ -371,12 +495,23 @@ void Executor::require_at_most_one_memory_operand(const Instruction& instruction
     }
 }
 
-void Executor::jump_to(CpuState& state, const Program& program, const InstructionPointer target) const
+void Executor::set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept
 {
-    if (!program.contains_rip(target))
+    state.set_rip(context.next_rip);
+}
+
+void Executor::jump_to(CpuState& state, const ExecutionContext& context, const InstructionPointer target) const
+{
+    if (context.program != nullptr && !context.program->contains_rip(target))
     {
         throw std::out_of_range{EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE};
     }
+
+    if (context.image != nullptr && !context.image->contains_rip(target))
+    {
+        throw std::out_of_range{EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE};
+    }
+
     state.set_rip(target);
 }
 }
