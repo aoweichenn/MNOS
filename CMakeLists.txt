@@ -107,10 +107,12 @@ set(
         src/cpu/memory/memory_model.cpp
         src/cpu/memory/paging.cpp
         src/cpu/memory/tlb.cpp
+        src/cpu/memory/tlb_shootdown.cpp
         src/cpu/memory/page_table_walker.cpp
         src/cpu/memory/page_table_builder.cpp
         src/cpu/memory/mmu.cpp
         src/cpu/system/core_topology.cpp
+        src/cpu/system/apic.cpp
         src/cpu/system/privilege.cpp
         src/cpu/system/interrupt_vector.cpp
         src/cpu/system/descriptor_tables.cpp
@@ -146,6 +148,8 @@ set(
         src/os/platform/machine.cpp
         src/os/proc/process.cpp
         src/os/sched/round_robin_scheduler.cpp
+        src/os/sched/sleep_queue.cpp
+        src/os/sched/wait_queue.cpp
         src/os/sched/thread_state.cpp
         src/os/sched/thread_context.cpp
 )
@@ -245,6 +249,8 @@ mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_s
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_model_unit_tests tests/cpu/unit/memory_model_test.cpp)
 mnos_add_cpu_test(mnos_cpu_paging_unit_tests tests/cpu/unit/paging_test.cpp)
+mnos_add_cpu_test(mnos_cpu_apic_unit_tests tests/cpu/unit/apic_test.cpp)
+mnos_add_cpu_test(mnos_cpu_tlb_shootdown_unit_tests tests/cpu/unit/tlb_shootdown_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_integration_tests tests/cpu/integration/executor_program_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_error_integration_tests tests/cpu/integration/executor_error_test.cpp)
 mnos_add_cpu_test(mnos_cpu_byte_executor_integration_tests tests/cpu/integration/byte_executor_test.cpp)
@@ -258,10 +264,13 @@ mnos_add_os_test(mnos_os_page_fault_handler_unit_tests tests/os/unit/page_fault_
 mnos_add_os_test(mnos_os_kernel_boot_context_unit_tests tests/os/unit/kernel_boot_context_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_unit_tests tests/os/unit/thread_context_test.cpp)
 mnos_add_os_test(mnos_os_process_scheduler_unit_tests tests/os/unit/process_scheduler_test.cpp)
+mnos_add_os_test(mnos_os_stage7_sched_unit_tests tests/os/unit/stage7_sched_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
+mnos_add_os_test(mnos_os_stage7_integration_tests tests/os/integration/stage7_integration_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
 mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
+mnos_add_os_test(mnos_os_stage7_chaos_tests tests/os/chaos/stage7_scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz_test.cpp)
 mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
 

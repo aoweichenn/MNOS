@@ -43,6 +43,10 @@ inline constexpr Qword PAGE_FAULT_ERROR_WRITE_BIT = Qword{1} << 1;
 inline constexpr Qword PAGE_FAULT_ERROR_USER_BIT = Qword{1} << 2;
 inline constexpr Qword PAGE_FAULT_ERROR_RESERVED_BIT = Qword{1} << 3;
 inline constexpr Qword PAGE_FAULT_ERROR_INSTRUCTION_FETCH_BIT = Qword{1} << 4;
+inline constexpr std::uint16_t PROCESS_CONTEXT_ID_KERNEL_VALUE = std::uint16_t{0};
+inline constexpr std::uint16_t PROCESS_CONTEXT_ID_BIT_COUNT = std::uint16_t{12};
+inline constexpr std::uint16_t PROCESS_CONTEXT_ID_MAX_VALUE =
+    static_cast<std::uint16_t>((std::uint16_t{1} << PROCESS_CONTEXT_ID_BIT_COUNT) - std::uint16_t{1});
 
 enum class MemoryAccessKind : std::uint8_t
 {
@@ -77,6 +81,39 @@ enum class PageTableLevel : std::uint8_t
 
 inline constexpr std::size_t PAGE_TABLE_LEVEL_ENUM_COUNT = static_cast<std::size_t>(PageTableLevel::COUNT);
 
+enum class Cr3TlbFlushMode : std::uint8_t
+{
+    FLUSH_CURRENT_CONTEXT,
+    PRESERVE_CONTEXT,
+};
+
+class ProcessContextId final
+{
+public:
+    using value_type = std::uint16_t;
+
+    constexpr ProcessContextId() noexcept = default;
+    explicit constexpr ProcessContextId(value_type value) noexcept : value_(value)
+    {
+    }
+
+    [[nodiscard]] static constexpr ProcessContextId kernel() noexcept
+    {
+        return ProcessContextId{PROCESS_CONTEXT_ID_KERNEL_VALUE};
+    }
+
+    [[nodiscard]] constexpr value_type value() const noexcept
+    {
+        return this->value_;
+    }
+
+    [[nodiscard]] constexpr bool operator==(const ProcessContextId& other) const noexcept = default;
+
+private:
+    value_type value_ = PROCESS_CONTEXT_ID_KERNEL_VALUE;
+};
+
+[[nodiscard]] bool is_process_context_id_valid(ProcessContextId context_id) noexcept;
 [[nodiscard]] bool is_memory_access_kind_valid(MemoryAccessKind kind) noexcept;
 [[nodiscard]] std::size_t memory_access_kind_to_index(MemoryAccessKind kind) noexcept;
 [[nodiscard]] std::string_view memory_access_kind_to_name(MemoryAccessKind kind) noexcept;
@@ -172,6 +209,11 @@ public:
 
     [[nodiscard]] Address64 cr3() const noexcept;
     void load_cr3(Address64 root_table_address);
+    void load_cr3(Address64 root_table_address, ProcessContextId context_id, Cr3TlbFlushMode flush_mode);
+
+    [[nodiscard]] bool process_context_id_enabled() const noexcept;
+    void set_process_context_id_enabled(bool enabled) noexcept;
+    [[nodiscard]] ProcessContextId process_context_id() const noexcept;
 
     [[nodiscard]] Address64 page_fault_linear_address() const noexcept;
     void set_page_fault_linear_address(Address64 address) noexcept;
@@ -190,7 +232,9 @@ private:
     Address64 cr3_ = Address64{0};
     Address64 page_fault_linear_address_ = Address64{0};
     Qword generation_ = Qword{0};
+    ProcessContextId process_context_id_;
     bool enabled_ = false;
+    bool process_context_id_enabled_ = false;
     bool write_protect_enabled_ = true;
     bool execute_disable_enabled_ = true;
 };

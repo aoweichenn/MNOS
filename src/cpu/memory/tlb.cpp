@@ -38,12 +38,47 @@ void TranslationLookasideBuffer::invalidate_page(const Address64 linear_address)
     }
 }
 
+void TranslationLookasideBuffer::invalidate_page(
+    const Address64 linear_address,
+    const ProcessContextId context_id) noexcept
+{
+    for (Entry& entry : this->entries_)
+    {
+        if (entry.valid && entry.context_id == context_id && entry.translation.contains(linear_address))
+        {
+            entry.valid = false;
+            --this->size_;
+        }
+    }
+}
+
+void TranslationLookasideBuffer::invalidate_context(const ProcessContextId context_id) noexcept
+{
+    for (Entry& entry : this->entries_)
+    {
+        if (entry.valid && entry.context_id == context_id)
+        {
+            entry.valid = false;
+            --this->size_;
+        }
+    }
+}
+
 PageTranslation* TranslationLookasideBuffer::lookup(
     const Address64 linear_address,
     const Qword paging_generation) noexcept
 {
+    return this->lookup(linear_address, paging_generation, ProcessContextId::kernel());
+}
+
+PageTranslation* TranslationLookasideBuffer::lookup(
+    const Address64 linear_address,
+    const Qword paging_generation,
+    const ProcessContextId context_id) noexcept
+{
     Entry& entry = this->entries_[slot_index(linear_address)];
-    if (!entry.valid || entry.paging_generation != paging_generation || !entry.translation.contains(linear_address))
+    if (!entry.valid || entry.paging_generation != paging_generation || entry.context_id != context_id ||
+        !entry.translation.contains(linear_address))
     {
         return nullptr;
     }
@@ -54,8 +89,17 @@ const PageTranslation* TranslationLookasideBuffer::lookup(
     const Address64 linear_address,
     const Qword paging_generation) const noexcept
 {
+    return this->lookup(linear_address, paging_generation, ProcessContextId::kernel());
+}
+
+const PageTranslation* TranslationLookasideBuffer::lookup(
+    const Address64 linear_address,
+    const Qword paging_generation,
+    const ProcessContextId context_id) const noexcept
+{
     const Entry& entry = this->entries_[slot_index(linear_address)];
-    if (!entry.valid || entry.paging_generation != paging_generation || !entry.translation.contains(linear_address))
+    if (!entry.valid || entry.paging_generation != paging_generation || entry.context_id != context_id ||
+        !entry.translation.contains(linear_address))
     {
         return nullptr;
     }
@@ -64,6 +108,14 @@ const PageTranslation* TranslationLookasideBuffer::lookup(
 
 void TranslationLookasideBuffer::insert(PageTranslation translation, const Qword paging_generation) noexcept
 {
+    this->insert(translation, paging_generation, ProcessContextId::kernel());
+}
+
+void TranslationLookasideBuffer::insert(
+    PageTranslation translation,
+    const Qword paging_generation,
+    const ProcessContextId context_id) noexcept
+{
     Entry& entry = this->entries_[slot_index(translation.virtual_page_base())];
     if (!entry.valid)
     {
@@ -71,6 +123,7 @@ void TranslationLookasideBuffer::insert(PageTranslation translation, const Qword
     }
     entry.translation = translation;
     entry.paging_generation = paging_generation;
+    entry.context_id = context_id;
     entry.valid = true;
 }
 

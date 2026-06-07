@@ -17,6 +17,10 @@ class MemoryManagementUnit final
 public:
     [[nodiscard]] TranslationLookasideBuffer& tlb() noexcept;
     [[nodiscard]] const TranslationLookasideBuffer& tlb() const noexcept;
+    void flush_tlb() noexcept;
+    void flush_tlb_context(ProcessContextId context_id) noexcept;
+    void invalidate_page(Address64 linear_address) noexcept;
+    void invalidate_page(Address64 linear_address, ProcessContextId context_id) noexcept;
 
     [[nodiscard]] Address64 translate(
         MemoryBus& memory_bus,

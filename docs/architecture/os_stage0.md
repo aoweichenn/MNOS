@@ -1,11 +1,11 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
 BootContext   kernel 启动资源视图
-Kernel        启动状态机
+Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown 编排
 Address/Page  物理/虚拟地址和 page 工具
 ThreadContext CPU 状态 + kernel stack + 线程状态
 ```
@@ -117,17 +117,30 @@ MFENCE             内存序屏障 ISA 钩子
 X86 TSO            每核心 store buffer、load forwarding、fence/drain、locked CAS/fetch-add
 ```
 
+Stage 7 已经完成第一版中断/抢占/TLB shootdown 底座：
+
+```text
+Local APIC/IOAPIC  per-core timer、IPI、external IRQ route/mask/unmask
+Timer interrupt    Kernel tick 递增、唤醒 sleepers、触发 round-robin preempt
+SleepQueue         按 tick 排序的非拥有 sleep queue，过期后交给 scheduler wake
+WaitQueue          事件等待/唤醒队列，不绑定具体 scheduler 策略
+PCID               PagingState 支持 12-bit x86 PCID 和 CR3 flush/preserve 模式
+INVLPG             真实 byte encoding 0F 01 /7 m，ring0 下失效当前 PCID 的 TLB page
+TLB shootdown      request/take/apply/ack 控制器，配合 tlb-shootdown IPI
+Scheduler handoff  记录 source core、target core、thread id，并发送 reschedule IPI
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. timer interrupt + local APIC/IOAPIC 教学模型
-2. 抢占式 context switch 和 sleep/wait 队列
-3. IPI、INVLPG/PCID、TLB shootdown
-4. 用户态 loader、内核/用户地址布局、COW fork
-5. cache/pipeline/perf counter
-6. fs/network/HPC/AI 路线
+1. cache/pipeline/perf counter
+2. per-core run queue、真实 SMP scheduler 和负载迁移
+3. 用户态 loader、内核/用户地址布局、COW fork
+4. signal/event/futex 风格等待语义
+5. fs/block device/network
+6. HPC/SIMD/AI 路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

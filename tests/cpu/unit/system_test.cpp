@@ -188,6 +188,12 @@ TEST(SystemTrapFrameTest, StoresTrapMetadataAndOptionalErrorCode)
         cpu_system::interrupt_vector_to_name(cpu_system::InterruptVector::syscall_compat()),
         Eq(std::string_view{"syscall"}));
     EXPECT_THAT(
+        cpu_system::interrupt_vector_to_name(cpu_system::InterruptVector::tlb_shootdown()),
+        Eq(std::string_view{"tlb-shootdown"}));
+    EXPECT_THAT(
+        cpu_system::interrupt_vector_to_name(cpu_system::InterruptVector::reschedule()),
+        Eq(std::string_view{"reschedule"}));
+    EXPECT_THAT(
         cpu_system::interrupt_vector_to_name(cpu_system::InterruptVector{0x55}),
         Eq(std::string_view{"interrupt"}));
 

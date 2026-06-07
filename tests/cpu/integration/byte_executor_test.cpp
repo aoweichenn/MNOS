@@ -59,6 +59,11 @@ constexpr cpu::Qword TEST_STAGE6_COMPARE_VALUE = cpu::Qword{10};
 constexpr cpu::Qword TEST_STAGE6_EXCHANGE_VALUE = cpu::Qword{42};
 constexpr cpu::Qword TEST_STAGE6_ADD_VALUE = cpu::Qword{5};
 constexpr std::size_t TEST_STAGE6_ATOMIC_BYTE_PROGRAM_STEP_COUNT = 8;
+constexpr std::size_t TEST_STAGE7_INVLPG_BYTE_PROGRAM_STEP_COUNT = 3;
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_LINEAR_PAGE = cpu::Address64{0x4000};
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_PHYSICAL_FRAME = cpu::Address64{0xA000};
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_LEAF_ENTRY = cpu::Address64{0xB000};
+constexpr cpu_memory::ProcessContextId TEST_STAGE7_PCID{19};
 }
 
 TEST(ByteExecutorTest, RunsDecodedByteProgramThroughMemoryAndBranching)
@@ -302,6 +307,39 @@ TEST(ByteExecutorTest, ExecutesStage6AtomicByteImage)
     EXPECT_THAT(memory.read_qword(TEST_MEMORY_STORED_ADDRESS), Eq(TEST_STAGE6_EXCHANGE_VALUE + TEST_STAGE6_ADD_VALUE));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RCX), Eq(TEST_STAGE6_EXCHANGE_VALUE));
     EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
+}
+
+TEST(ByteExecutorTest, ExecutesStage7InvlpgByteImage)
+{
+    cpu::ExecutableImage image{
+        0x48, 0xB8, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 0x4000
+        0x0F, 0x01, 0x38,                                           // INVLPG [RAX]
+        0xF4};                                                      // HLT
+    cpu::CpuState state;
+    state.paging().set_process_context_id_enabled(true);
+    state.paging().load_cr3(
+        TEST_STAGE4_ROOT_TABLE,
+        TEST_STAGE7_PCID,
+        cpu_memory::Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT);
+    cpu::Executor executor;
+    executor.mmu().tlb().insert(
+        cpu_memory::PageTranslation{
+            TEST_STAGE7_INVLPG_LINEAR_PAGE,
+            TEST_STAGE7_INVLPG_PHYSICAL_FRAME,
+            cpu_memory::PAGE_SIZE_4K_BYTES,
+            cpu_memory::PagePermissions::kernel_read_write_execute(),
+            TEST_STAGE7_INVLPG_LEAF_ENTRY,
+            false},
+        state.paging().generation(),
+        TEST_STAGE7_PCID);
+
+    const std::size_t executed_steps = executor.run(state, image);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_STAGE7_INVLPG_BYTE_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_EQ(
+        executor.mmu().tlb().lookup(TEST_STAGE7_INVLPG_LINEAR_PAGE, state.paging().generation(), TEST_STAGE7_PCID),
+        nullptr);
 }
 
 TEST(ByteExecutorTest, RaisesStage4ExecuteDisablePageFaultBeforeExecutingImageInstruction)

@@ -43,6 +43,8 @@ int main()
     const std::size_t executed_steps = executor.run(state, bootstrap_image, boot_context.memory_bus());
 
     std::cout << "MNOS emulator bootstrap: kernel=" << (os_kernel.is_booted() ? "booted" : "not-booted")
+              << ", stage7=" << (os_kernel.has_stage7_services() ? "ready" : "not-ready")
+              << ", cores=" << os_kernel.bootstrap_processor_count()
               << ", " << cpu::opcode_to_assembly_name(cpu::Opcode::HLT)
               << ", RAX=" << state.registers().read(cpu::RegisterId::RAX)
               << ", RBX=" << state.registers().read(cpu::RegisterId::RBX)

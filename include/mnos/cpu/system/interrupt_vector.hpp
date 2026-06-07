@@ -14,6 +14,8 @@ inline constexpr std::uint8_t INTERRUPT_VECTOR_GENERAL_PROTECTION_VALUE = 13;
 inline constexpr std::uint8_t INTERRUPT_VECTOR_PAGE_FAULT_VALUE = 14;
 inline constexpr std::uint8_t INTERRUPT_VECTOR_TIMER_VALUE = 32;
 inline constexpr std::uint8_t INTERRUPT_VECTOR_SYSCALL_COMPAT_VALUE = 0x80;
+inline constexpr std::uint8_t INTERRUPT_VECTOR_TLB_SHOOTDOWN_VALUE = 0xF0;
+inline constexpr std::uint8_t INTERRUPT_VECTOR_RESCHEDULE_VALUE = 0xF1;
 
 class InterruptVector final
 {
@@ -58,6 +60,16 @@ public:
     [[nodiscard]] static constexpr InterruptVector syscall_compat() noexcept
     {
         return InterruptVector{INTERRUPT_VECTOR_SYSCALL_COMPAT_VALUE};
+    }
+
+    [[nodiscard]] static constexpr InterruptVector tlb_shootdown() noexcept
+    {
+        return InterruptVector{INTERRUPT_VECTOR_TLB_SHOOTDOWN_VALUE};
+    }
+
+    [[nodiscard]] static constexpr InterruptVector reschedule() noexcept
+    {
+        return InterruptVector{INTERRUPT_VECTOR_RESCHEDULE_VALUE};
     }
 
     [[nodiscard]] constexpr value_type value() const noexcept

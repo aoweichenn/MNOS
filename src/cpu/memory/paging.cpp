@@ -14,6 +14,10 @@ constexpr const char* PAGING_INVALID_TABLE_LEVEL_MESSAGE = "page table level is 
 constexpr const char* PAGING_PML4_LEAF_MESSAGE = "pml4 cannot be used as a leaf page table level";
 constexpr const char* PAGING_ADDRESS_ALIGNMENT_MESSAGE = "paging address is not aligned to the required page size";
 constexpr const char* PAGING_CR3_ALIGNMENT_MESSAGE = "paging cr3 root table address must be 4KiB aligned";
+constexpr const char* PAGING_PCID_DISABLED_NON_KERNEL_MESSAGE =
+    "paging pcid must be enabled before loading a non-kernel process context id";
+constexpr const char* PAGING_PCID_OUT_OF_RANGE_MESSAGE = "paging process context id exceeds the x86-64 pcid range";
+constexpr const char* PAGING_INVALID_CR3_FLUSH_MODE_MESSAGE = "paging cr3 tlb flush mode is invalid";
 constexpr const char* PAGING_PAGE_FAULT_MESSAGE = "x86-64 page fault";
 constexpr mnos::cpu::Address64 PAGING_CANONICAL_SIGN_BIT = mnos::cpu::Address64{1} << 47;
 constexpr mnos::cpu::Address64 PAGING_CANONICAL_HIGH_MASK = mnos::cpu::Address64{0xFFFF'0000'0000'0000ULL};
@@ -114,6 +118,11 @@ void require_aligned_address(const mnos::cpu::Address64 address, const mnos::cpu
 
 namespace mnos::cpu::memory
 {
+bool is_process_context_id_valid(const ProcessContextId context_id) noexcept
+{
+    return context_id.value() <= PROCESS_CONTEXT_ID_MAX_VALUE;
+}
+
 bool is_memory_access_kind_valid(const MemoryAccessKind kind) noexcept
 {
     return MemoryAccessKindCatalog::contains(kind);
@@ -469,12 +478,65 @@ Address64 PagingState::cr3() const noexcept
 
 void PagingState::load_cr3(const Address64 root_table_address)
 {
+    this->load_cr3(
+        root_table_address,
+        ProcessContextId::kernel(),
+        Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT);
+}
+
+void PagingState::load_cr3(
+    const Address64 root_table_address,
+    const ProcessContextId context_id,
+    const Cr3TlbFlushMode flush_mode)
+{
     if (!is_aligned_to_page_size(root_table_address, PAGE_SIZE_4K_BYTES))
     {
         throw std::out_of_range{PAGING_CR3_ALIGNMENT_MESSAGE};
     }
+    if (!is_process_context_id_valid(context_id))
+    {
+        throw std::out_of_range{PAGING_PCID_OUT_OF_RANGE_MESSAGE};
+    }
+    if (!this->process_context_id_enabled_ && context_id != ProcessContextId::kernel())
+    {
+        throw std::logic_error{PAGING_PCID_DISABLED_NON_KERNEL_MESSAGE};
+    }
+    if (flush_mode != Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT && flush_mode != Cr3TlbFlushMode::PRESERVE_CONTEXT)
+    {
+        throw std::out_of_range{PAGING_INVALID_CR3_FLUSH_MODE_MESSAGE};
+    }
+
     this->cr3_ = root_table_address;
+    this->process_context_id_ = context_id;
+    if (flush_mode == Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT)
+    {
+        this->bump_generation();
+    }
+}
+
+bool PagingState::process_context_id_enabled() const noexcept
+{
+    return this->process_context_id_enabled_;
+}
+
+void PagingState::set_process_context_id_enabled(const bool enabled) noexcept
+{
+    if (this->process_context_id_enabled_ == enabled)
+    {
+        return;
+    }
+
+    this->process_context_id_enabled_ = enabled;
+    if (!this->process_context_id_enabled_)
+    {
+        this->process_context_id_ = ProcessContextId::kernel();
+    }
     this->bump_generation();
+}
+
+ProcessContextId PagingState::process_context_id() const noexcept
+{
+    return this->process_context_id_;
 }
 
 Address64 PagingState::page_fault_linear_address() const noexcept

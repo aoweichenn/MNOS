@@ -182,6 +182,7 @@ private:
         const Instruction& instruction,
         const ExecutionContext& context);
     void execute_mfence(CpuState& state, const ExecutionContext& context) const noexcept;
+    void execute_invlpg(CpuState& state, const Instruction& instruction, const ExecutionContext& context);
     void execute_push(
         CpuState& state,
         MemoryBus* memory_bus,

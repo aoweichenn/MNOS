@@ -1,6 +1,6 @@
 # C++ 与 MNOS 学习问题合集
 
-这份文档把 C++ 语言规则和当前 x86-64 Stage 0..6 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT/TrapFrame/CoreTopology/LOCK` 等当前主线术语。
+这份文档把 C++ 语言规则和当前 x86-64 Stage 0..7 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT/TrapFrame/CoreTopology/LOCK/APIC/INVLPG` 等当前主线术语。
 
 ## 1. 编译期常量和运行时常量
 
@@ -65,11 +65,11 @@ immediate
 memory(base/index/scale/displacement/absolute + data size)
 ```
 
-`Operand` 使用 `std::variant`，是为了把合法 payload 绑定到类型上，而不是用一堆松散字段。Stage 6 的 `CMPXCHG/XADD` 仍复用同一套 `Operand`，避免原子指令另建一套重复表示。
+`Operand` 使用 `std::variant`，是为了把合法 payload 绑定到类型上，而不是用一堆松散字段。Stage 6 的 `CMPXCHG/XADD` 和 Stage 7 的 `INVLPG` 仍复用同一套 `Operand`，避免原子和 TLB 指令另建一套重复表示。
 
 ## 5. RIP 和 Program
 
-真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址；Stage 2 在同一套语义上加入栈、条件码和更多整数指令；Stage 3 加入 `INT/SYSCALL/SYSRET/IRET` 和 trapframe；Stage 6 加入 `LOCK CMPXCHG/XADD` 和 `MFENCE`。
+真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址；Stage 2 在同一套语义上加入栈、条件码和更多整数指令；Stage 3 加入 `INT/SYSCALL/SYSRET/IRET` 和 trapframe；Stage 6 加入 `LOCK CMPXCHG/XADD` 和 `MFENCE`；Stage 7 加入 `INVLPG`、APIC timer/IPI 和 TLB shootdown。
 
 当前 byte image 路径是：
 
@@ -115,7 +115,22 @@ MFENCE
 
 `CMPXCHG` 用 `RAX` 和目的值比较，成功则写入 source，失败则把目的值写回 `RAX`，并按一次减法更新 `RFLAGS`。`XADD` 会把目的值和 source 相加，source 得到旧目的值，目的位置得到加法结果。`LOCK` 当前只允许内存目的操作数，这符合真实 x86-64 的核心约束，也避免学习者误以为寄存器上的 `LOCK` 有意义。
 
-## 8. TrapFrame 是什么？
+## 8. PCID、INVLPG 和 TLB shootdown 是什么？
+
+TLB 是 CPU 缓存虚拟地址到物理地址翻译结果的结构。现代 OS 修改页表后，不能只改内存里的 page table，还要让相关核心丢掉旧翻译。
+
+当前 Stage 7 建模：
+
+```text
+ProcessContextId        12-bit x86 PCID，区分不同地址空间的 TLB entry
+INVLPG m                失效当前 PCID 下覆盖 m 线性地址的 TLB page
+TlbShootdownRequest     source core -> target core 的失效请求
+tlb-shootdown IPI       通知目标核心本地 apply 并 ack
+```
+
+这让学习者能看到现代内核为什么需要“改页表 + 本地 INVLPG + 远端 shootdown IPI”，而不是把页表当普通 map 改完就结束。
+
+## 9. TrapFrame 是什么？
 
 现代 OS 不是直接“调用内核函数”，而是 CPU 先把硬件现场保存起来，再跳到内核入口。当前 Stage 3 用 `TrapFrame` 表达：
 
@@ -132,7 +147,23 @@ optional error code
 
 `INT/INT3` 通过 IDT 进入 handler，`IRET` 从 `TrapFrame` 恢复；`SYSCALL` 保存 `RCX/R11` 并进入 syscall entry，`SYSRET` 返回。`ThreadContext` 可以保存最后一次 pending trapframe 的快照；Stage 5 已把这条路径接到 scheduler、syscall ABI 和 page fault handler 的第一版 OS 底座。
 
-## 9. DataSize
+## 10. APIC timer 为什么重要？
+
+协作式调度只在 syscall/yield 时切换线程；现代 OS 需要 timer interrupt 抢占正在运行的线程。
+
+Stage 7 的路径是：
+
+```text
+LocalApicTimer tick
+  -> timer interrupt
+  -> Kernel scheduler tick
+  -> SleepQueue 唤醒过期线程
+  -> RoundRobinScheduler preempt/yield current
+```
+
+IOAPIC 负责外部 IRQ 路由，IPI 负责核心之间的通知。当前项目把这些做成确定性教学模型，后续才能自然扩展到 per-core run queue、负载迁移和真实设备中断。
+
+## 11. DataSize
 
 x86-64 常用数据宽度：
 
@@ -145,7 +176,7 @@ QWORD  64 bit
 
 当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；Stage 2 已加入 r/m8、r/m16、r/m32 source 宽度和 `MOVSX/MOVZX/MOVSXD`。后续 MMU/page fault 阶段会把这些访问接入地址转换和异常流。
 
-## 10. 为什么热路径不用复杂模式？
+## 12. 为什么热路径不用复杂模式？
 
 `Executor` 是性能热点。每条指令都走虚函数和堆对象，会让后续性能研究失真。
 
@@ -161,7 +192,7 @@ ExecutionTrace 可选
 
 Strategy、Adapter、Builder 等模式应该放在 ISA decoder、设备、平台配置、调度策略这些变化边界上，而不是塞进每条指令执行。
 
-## 11. 下一阶段学习重点
+## 13. 下一阶段学习重点
 
 ```text
 x86-64 instruction byte encoding
@@ -171,7 +202,7 @@ RIP-relative addressing
 IDT/GDT/TSS/trapframe
 4-level paging + page fault
 LOCK/atomic and x86 TSO
-timer/APIC/IPI/TLB shootdown
-TLB/cache
+timer/APIC/IPI/INVLPG/TLB shootdown
+cache/pipeline/perf counter
 SSE/AVX performance path
 ```

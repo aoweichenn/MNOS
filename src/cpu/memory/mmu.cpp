@@ -62,6 +62,28 @@ const TranslationLookasideBuffer& MemoryManagementUnit::tlb() const noexcept
     return this->tlb_;
 }
 
+void MemoryManagementUnit::flush_tlb() noexcept
+{
+    this->tlb_.clear();
+}
+
+void MemoryManagementUnit::flush_tlb_context(const ProcessContextId context_id) noexcept
+{
+    this->tlb_.invalidate_context(context_id);
+}
+
+void MemoryManagementUnit::invalidate_page(const Address64 linear_address) noexcept
+{
+    this->tlb_.invalidate_page(linear_address);
+}
+
+void MemoryManagementUnit::invalidate_page(
+    const Address64 linear_address,
+    const ProcessContextId context_id) noexcept
+{
+    this->tlb_.invalidate_page(linear_address, context_id);
+}
+
 Address64 MemoryManagementUnit::translate(
     MemoryBus& memory_bus,
     PagingState& paging_state,
@@ -172,7 +194,8 @@ Address64 MemoryManagementUnit::translate_enabled(
     const Address64 linear_address,
     const MemoryAccessKind access_kind)
 {
-    if (PageTranslation* const cached_translation = this->tlb_.lookup(linear_address, paging_state.generation()))
+    if (PageTranslation* const cached_translation =
+            this->tlb_.lookup(linear_address, paging_state.generation(), paging_state.process_context_id()))
     {
         this->ensure_cached_access_allowed(
             paging_state,
@@ -194,7 +217,7 @@ Address64 MemoryManagementUnit::translate_enabled(
         access_kind,
         privilege_level);
     const Address64 physical_address = translation.translate(linear_address);
-    this->tlb_.insert(translation, paging_state.generation());
+    this->tlb_.insert(translation, paging_state.generation(), paging_state.process_context_id());
     return physical_address;
 }
 

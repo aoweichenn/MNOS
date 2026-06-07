@@ -27,6 +27,7 @@ public:
     [[nodiscard]] static Instruction make_cmpxchg(Operand destination, Operand source, bool locked = false) noexcept;
     [[nodiscard]] static Instruction make_xadd(Operand destination, Operand source, bool locked = false) noexcept;
     [[nodiscard]] static Instruction make_mfence() noexcept;
+    [[nodiscard]] static Instruction make_invlpg(Operand address) noexcept;
     [[nodiscard]] static Instruction make_push(Operand source) noexcept;
     [[nodiscard]] static Instruction make_pop(Operand destination) noexcept;
     [[nodiscard]] static Instruction make_call(Operand target) noexcept;

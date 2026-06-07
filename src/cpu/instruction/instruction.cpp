@@ -125,6 +125,11 @@ Instruction Instruction::make_mfence() noexcept
     return Instruction{Opcode::MFENCE, Operand::none(), Operand::none()};
 }
 
+Instruction Instruction::make_invlpg(Operand address) noexcept
+{
+    return Instruction{Opcode::INVLPG, std::move(address), Operand::none()};
+}
+
 Instruction Instruction::make_push(Operand source) noexcept
 {
     return Instruction{Opcode::PUSH, std::move(source), Operand::none()};

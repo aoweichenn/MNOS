@@ -118,6 +118,11 @@ constexpr cpu::Qword TEST_STAGE6_COMPARE_VALUE = cpu::Qword{10};
 constexpr cpu::Qword TEST_STAGE6_EXCHANGE_VALUE = cpu::Qword{42};
 constexpr cpu::Qword TEST_STAGE6_ADD_VALUE = cpu::Qword{5};
 constexpr cpu::Qword TEST_STAGE6_XADD_EXPECTED_VALUE = cpu::Qword{47};
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_LINEAR_PAGE = cpu::Address64{0x4000};
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_PHYSICAL_FRAME = cpu::Address64{0xA000};
+constexpr cpu::Address64 TEST_STAGE7_INVLPG_LEAF_ENTRY = cpu::Address64{0xB000};
+constexpr cpu_memory::ProcessContextId TEST_STAGE7_PCID{17};
+constexpr cpu::SignedQword TEST_STAGE7_ZERO_DISPLACEMENT = cpu::SignedQword{0};
 
 void map_stage4_instruction_page(cpu_memory::PageTableBuilder& builder)
 {
@@ -694,6 +699,71 @@ TEST(ExecutorProgramTest, ExecutesStage6XaddMfenceAndRejectsInvalidLock)
     EXPECT_THROW(
         static_cast<void>(executor.step(invalid_state, invalid_lock_program, memory_bus)),
         std::logic_error);
+}
+
+TEST(ExecutorProgramTest, ExecutesStage7InvlpgForCurrentPcid)
+{
+    cpu::Program program{
+        cpu::Instruction::make_invlpg(
+            cpu::Operand::mem(cpu::RegisterId::RAX, TEST_STAGE7_ZERO_DISPLACEMENT, cpu::DataSize::BYTE)),
+        cpu::Instruction::make_hlt(),
+    };
+    cpu::CpuState state;
+    state.paging().set_process_context_id_enabled(true);
+    state.paging().load_cr3(
+        TEST_STAGE4_ROOT_TABLE,
+        TEST_STAGE7_PCID,
+        cpu_memory::Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT);
+    state.registers().write(cpu::RegisterId::RAX, TEST_STAGE7_INVLPG_LINEAR_PAGE);
+    cpu::Executor executor;
+    executor.mmu().tlb().insert(
+        cpu_memory::PageTranslation{
+            TEST_STAGE7_INVLPG_LINEAR_PAGE,
+            TEST_STAGE7_INVLPG_PHYSICAL_FRAME,
+            cpu_memory::PAGE_SIZE_4K_BYTES,
+            cpu_memory::PagePermissions::kernel_read_write_execute(),
+            TEST_STAGE7_INVLPG_LEAF_ENTRY,
+            false},
+        state.paging().generation(),
+        TEST_STAGE7_PCID);
+
+    EXPECT_THAT(executor.step(state, program), Eq(cpu::StepResult::EXECUTED));
+
+    EXPECT_EQ(
+        executor.mmu().tlb().lookup(TEST_STAGE7_INVLPG_LINEAR_PAGE, state.paging().generation(), TEST_STAGE7_PCID),
+        nullptr);
+    EXPECT_THAT(state.rip(), Eq(cpu::InstructionPointer{1}));
+}
+
+TEST(ExecutorProgramTest, RaisesGeneralProtectionForUserModeInvlpg)
+{
+    cpu::Program program{
+        cpu::Instruction::make_invlpg(
+            cpu::Operand::mem(cpu::RegisterId::RAX, TEST_STAGE7_ZERO_DISPLACEMENT, cpu::DataSize::BYTE)),
+        cpu::Instruction::make_hlt(),
+    };
+    cpu_system::TrapController trap_controller;
+    trap_controller.idt().set_gate(
+        cpu_system::InterruptVector::general_protection(),
+        cpu_system::InterruptGate::interrupt_gate(
+            static_cast<cpu::Address64>(TEST_STAGE4_PAGE_FAULT_HANDLER_RIP),
+            cpu_system::PrivilegeLevel::RING0));
+    trap_controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_STAGE4_KERNEL_STACK_TOP);
+
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.registers().write(cpu::RegisterId::RAX, TEST_STAGE7_INVLPG_LINEAR_PAGE);
+    state.registers().write(cpu::RegisterId::RSP, TEST_STAGE4_USER_STACK_TOP);
+    cpu::Executor executor;
+    executor.attach_trap_controller(trap_controller);
+
+    EXPECT_THAT(executor.step(state, program), Eq(cpu::StepResult::EXECUTED));
+
+    ASSERT_TRUE(state.has_pending_trap());
+    EXPECT_THAT(state.pending_trap().vector(), Eq(cpu_system::InterruptVector::general_protection()));
+    EXPECT_THAT(state.pending_trap().error_code(), Eq(cpu::Qword{0}));
+    EXPECT_THAT(state.rip(), Eq(static_cast<cpu::InstructionPointer>(TEST_STAGE4_PAGE_FAULT_HANDLER_RIP)));
+    EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING0));
 }
 
 TEST(ExecutorProgramTest, RaisesStage4PageFaultThroughTrapController)

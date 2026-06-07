@@ -24,6 +24,7 @@ enum class Opcode : std::uint8_t
     CMPXCHG,
     XADD,
     MFENCE,
+    INVLPG,
     PUSH,
     POP,
     CALL,

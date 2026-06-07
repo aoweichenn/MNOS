@@ -50,14 +50,14 @@ constexpr std::array<OpcodeCase, cpu::OPCODE_COUNT> OPCODE_CASES{
     OpcodeCase{cpu::Opcode::OR, 10, "OR"},        OpcodeCase{cpu::Opcode::XOR, 11, "XOR"},
     OpcodeCase{cpu::Opcode::TEST, 12, "TEST"},    OpcodeCase{cpu::Opcode::CMPXCHG, 13, "CMPXCHG"},
     OpcodeCase{cpu::Opcode::XADD, 14, "XADD"},    OpcodeCase{cpu::Opcode::MFENCE, 15, "MFENCE"},
-    OpcodeCase{cpu::Opcode::PUSH, 16, "PUSH"},    OpcodeCase{cpu::Opcode::POP, 17, "POP"},
-    OpcodeCase{cpu::Opcode::CALL, 18, "CALL"},    OpcodeCase{cpu::Opcode::RET, 19, "RET"},
-    OpcodeCase{cpu::Opcode::JMP, 20, "JMP"},      OpcodeCase{cpu::Opcode::JE, 21, "JE"},
-    OpcodeCase{cpu::Opcode::JNE, 22, "JNE"},      OpcodeCase{cpu::Opcode::JCC, 23, "JCC"},
-    OpcodeCase{cpu::Opcode::SETCC, 24, "SETCC"},  OpcodeCase{cpu::Opcode::CMOVCC, 25, "CMOVCC"},
-    OpcodeCase{cpu::Opcode::INT, 26, "INT"},      OpcodeCase{cpu::Opcode::SYSCALL, 27, "SYSCALL"},
-    OpcodeCase{cpu::Opcode::SYSRET, 28, "SYSRET"}, OpcodeCase{cpu::Opcode::IRET, 29, "IRET"},
-    OpcodeCase{cpu::Opcode::HLT, 30, "HLT"}};
+    OpcodeCase{cpu::Opcode::INVLPG, 16, "INVLPG"}, OpcodeCase{cpu::Opcode::PUSH, 17, "PUSH"},
+    OpcodeCase{cpu::Opcode::POP, 18, "POP"},      OpcodeCase{cpu::Opcode::CALL, 19, "CALL"},
+    OpcodeCase{cpu::Opcode::RET, 20, "RET"},      OpcodeCase{cpu::Opcode::JMP, 21, "JMP"},
+    OpcodeCase{cpu::Opcode::JE, 22, "JE"},        OpcodeCase{cpu::Opcode::JNE, 23, "JNE"},
+    OpcodeCase{cpu::Opcode::JCC, 24, "JCC"},      OpcodeCase{cpu::Opcode::SETCC, 25, "SETCC"},
+    OpcodeCase{cpu::Opcode::CMOVCC, 26, "CMOVCC"}, OpcodeCase{cpu::Opcode::INT, 27, "INT"},
+    OpcodeCase{cpu::Opcode::SYSCALL, 28, "SYSCALL"}, OpcodeCase{cpu::Opcode::SYSRET, 29, "SYSRET"},
+    OpcodeCase{cpu::Opcode::IRET, 30, "IRET"},    OpcodeCase{cpu::Opcode::HLT, 31, "HLT"}};
 
 struct ConditionCodeCase
 {
@@ -262,6 +262,12 @@ TEST(InstructionTest, FactoryFunctionsCreateExpectedShapes)
     const cpu::Instruction mfence = cpu::Instruction::make_mfence();
     EXPECT_THAT(mfence.opcode(), Eq(cpu::Opcode::MFENCE));
     EXPECT_TRUE(mfence.first_operand().is_none());
+
+    const cpu::Instruction invlpg =
+        cpu::Instruction::make_invlpg(cpu::Operand::mem(cpu::RegisterId::RAX, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::BYTE));
+    EXPECT_THAT(invlpg.opcode(), Eq(cpu::Opcode::INVLPG));
+    EXPECT_TRUE(invlpg.first_operand().is_memory());
+    EXPECT_TRUE(invlpg.second_operand().is_none());
 
     const cpu::Instruction push = cpu::Instruction::make_push(cpu::Operand::reg(cpu::RegisterId::RAX));
     EXPECT_THAT(push.opcode(), Eq(cpu::Opcode::PUSH));

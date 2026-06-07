@@ -45,6 +45,7 @@ private:
             "CMPXCHG",
             "XADD",
             "MFENCE",
+            "INVLPG",
             "PUSH",
             "POP",
             "CALL",

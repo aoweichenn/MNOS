@@ -28,6 +28,7 @@ constexpr const char* EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE =
     "executor INT instruction requires an 8-bit vector immediate";
 constexpr const char* EXECUTOR_PAGING_MEMORY_BUS_REQUIRED_MESSAGE =
     "executor paging requires a memory bus";
+constexpr mnos::cpu::Qword EXECUTOR_GENERAL_PROTECTION_ERROR_CODE = mnos::cpu::Qword{0};
 constexpr mnos::cpu::Qword EXECUTOR_ONE_BIT = mnos::cpu::Qword{1};
 constexpr mnos::cpu::Qword EXECUTOR_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
 constexpr mnos::cpu::Qword EXECUTOR_WORD_MASK = mnos::cpu::Qword{0xFFFF};
@@ -440,6 +441,9 @@ void Executor::execute_instruction(
     case Opcode::MFENCE:
         this->execute_mfence(state, context);
         return;
+    case Opcode::INVLPG:
+        this->execute_invlpg(state, instruction, context);
+        return;
     case Opcode::PUSH:
         this->execute_push(state, memory_bus, instruction, context);
         return;
@@ -727,6 +731,24 @@ void Executor::execute_xadd(
 
 void Executor::execute_mfence(CpuState& state, const ExecutionContext& context) const noexcept
 {
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_invlpg(CpuState& state, const Instruction& instruction, const ExecutionContext& context)
+{
+    this->require_memory_operand(instruction.first_operand());
+    if (state.privilege_level() != system::PrivilegeLevel::RING0)
+    {
+        static_cast<void>(this->require_trap_controller().raise_exception(
+            state,
+            system::InterruptVector::general_protection(),
+            EXECUTOR_GENERAL_PROTECTION_ERROR_CODE));
+        return;
+    }
+
+    this->mmu_.invalidate_page(
+        this->calculate_effective_address(state, instruction.first_operand()),
+        state.paging().process_context_id());
     this->set_next_rip(state, context);
 }
 

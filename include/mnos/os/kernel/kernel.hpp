@@ -5,6 +5,8 @@
 #include <deque>
 #include <optional>
 
+#include <mnos/cpu/memory/tlb_shootdown.hpp>
+#include <mnos/cpu/system/apic.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/syscall.hpp>
 #include <mnos/os/mm/address_space.hpp>
@@ -12,6 +14,7 @@
 #include <mnos/os/mm/physical_page_allocator.hpp>
 #include <mnos/os/proc/process.hpp>
 #include <mnos/os/sched/round_robin_scheduler.hpp>
+#include <mnos/os/sched/sleep_queue.hpp>
 
 namespace mnos::os::kernel
 {
@@ -20,6 +23,29 @@ inline constexpr std::uint64_t KERNEL_MIN_BOOTABLE_PAGE_COUNT = KERNEL_RESERVED_
 inline constexpr std::uint64_t KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT = std::uint64_t{8};
 inline constexpr mm::AddressValue KERNEL_DEFAULT_THREAD_STACK_BASE = mm::AddressValue{0x7000'0000};
 inline constexpr mm::AddressValue KERNEL_THREAD_STACK_STRIDE = mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{16};
+inline constexpr sched::SchedulerTick KERNEL_STAGE7_DEFAULT_TIMER_INTERVAL_TICKS = sched::SchedulerTick{1};
+inline constexpr std::uint64_t KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE = std::uint64_t{1};
+
+class SchedulerHandoff final
+{
+public:
+    SchedulerHandoff(
+        std::uint64_t sequence,
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        sched::ThreadId thread_id) noexcept;
+
+    [[nodiscard]] std::uint64_t sequence() const noexcept;
+    [[nodiscard]] cpu::system::CoreId source_core() const noexcept;
+    [[nodiscard]] cpu::system::CoreId target_core() const noexcept;
+    [[nodiscard]] sched::ThreadId thread_id() const noexcept;
+
+private:
+    std::uint64_t sequence_;
+    cpu::system::CoreId source_core_;
+    cpu::system::CoreId target_core_;
+    sched::ThreadId thread_id_;
+};
 
 class Kernel final
 {
@@ -35,6 +61,7 @@ public:
     [[nodiscard]] std::uint64_t physical_page_count() const noexcept;
     [[nodiscard]] std::uint32_t bootstrap_processor_count() const noexcept;
     [[nodiscard]] bool has_stage5_services() const noexcept;
+    [[nodiscard]] bool has_stage7_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -42,6 +69,12 @@ public:
     [[nodiscard]] const mm::AddressSpace& kernel_address_space() const;
     [[nodiscard]] sched::RoundRobinScheduler& scheduler() noexcept;
     [[nodiscard]] const sched::RoundRobinScheduler& scheduler() const noexcept;
+    [[nodiscard]] cpu::system::ApicSystem& apic_system();
+    [[nodiscard]] const cpu::system::ApicSystem& apic_system() const;
+    [[nodiscard]] sched::SleepQueue& sleep_queue() noexcept;
+    [[nodiscard]] const sched::SleepQueue& sleep_queue() const noexcept;
+    [[nodiscard]] cpu::memory::TlbShootdownController& tlb_shootdown_controller() noexcept;
+    [[nodiscard]] const cpu::memory::TlbShootdownController& tlb_shootdown_controller() const noexcept;
 
     [[nodiscard]] proc::Process& create_process();
     [[nodiscard]] sched::ThreadContext& create_thread(proc::Process& process);
@@ -56,21 +89,52 @@ public:
     [[nodiscard]] mm::PageFaultResult handle_page_fault(sched::ThreadContext& thread);
     [[nodiscard]] mm::PageFaultResult handle_page_fault(proc::Process& process, sched::ThreadContext& thread);
     [[nodiscard]] SyscallResult dispatch_syscall(sched::ThreadContext& thread);
+    [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
+    [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
+    [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
+    [[nodiscard]] sched::ThreadContext* sleep_current_until(sched::SchedulerTick wake_tick);
+    [[nodiscard]] sched::ThreadContext* sleep_current_for(sched::SchedulerTick duration_ticks);
+    [[nodiscard]] std::size_t wake_sleepers();
+    [[nodiscard]] const cpu::memory::TlbShootdownRequest& request_tlb_shootdown_page(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        cpu::Address64 linear_address,
+        std::optional<cpu::memory::ProcessContextId> context_id = std::nullopt);
+    [[nodiscard]] const cpu::memory::TlbShootdownRequest& request_tlb_shootdown_all(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        std::optional<cpu::memory::ProcessContextId> context_id = std::nullopt);
+    [[nodiscard]] const SchedulerHandoff& request_scheduler_handoff(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        sched::ThreadContext& thread);
+    [[nodiscard]] std::size_t scheduler_handoff_count() const noexcept;
+    [[nodiscard]] const SchedulerHandoff& scheduler_handoff_at(std::size_t index) const;
 
 private:
     [[nodiscard]] mm::AddressSpace create_address_space(std::uint64_t table_arena_page_count);
     [[nodiscard]] mm::VirtualAddress next_kernel_stack_bottom() noexcept;
     void require_booted() const;
     void require_stage5_services() const;
+    void require_stage7_services() const;
+    void configure_stage7_services();
+    void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;
+    [[nodiscard]] std::uint64_t next_scheduler_handoff_sequence() noexcept;
 
     BootContext* boot_context_;
     std::optional<mm::PhysicalPageAllocator> physical_page_allocator_;
     std::optional<mm::AddressSpace> kernel_address_space_;
+    std::optional<cpu::system::ApicSystem> apic_system_;
     sched::RoundRobinScheduler scheduler_;
+    sched::SleepQueue sleep_queue_;
+    cpu::memory::TlbShootdownController tlb_shootdown_controller_;
     std::deque<proc::Process> processes_;
+    std::deque<SchedulerHandoff> scheduler_handoffs_;
     proc::ProcessId::value_type next_process_id_value_ = proc::PROCESS_ID_FIRST_USER_VALUE;
     sched::ThreadId::value_type next_thread_id_value_ = sched::THREAD_ID_FIRST_KERNEL_VALUE;
+    std::uint64_t next_scheduler_handoff_sequence_ = KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE;
     mm::AddressValue next_kernel_stack_bottom_value_ = KERNEL_DEFAULT_THREAD_STACK_BASE;
+    sched::SchedulerTick scheduler_tick_count_ = sched::SchedulerTick{0};
     bool booted_ = false;
 };
 }

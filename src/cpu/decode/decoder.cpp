@@ -27,6 +27,7 @@ constexpr std::uint8_t X86_REX_X_MASK = 0x02;
 constexpr std::uint8_t X86_REX_B_MASK = 0x01;
 constexpr std::uint8_t X86_REX_EXTENDED_REGISTER_OFFSET = 8;
 constexpr std::uint8_t X86_OPCODE_ESCAPE = 0x0F;
+constexpr std::uint8_t X86_OPCODE_SYSTEM_GROUP = 0x01;
 constexpr std::uint8_t X86_OPCODE_HLT = 0xF4;
 constexpr std::uint8_t X86_OPCODE_RET_NEAR = 0xC3;
 constexpr std::uint8_t X86_OPCODE_INT3 = 0xCC;
@@ -110,6 +111,7 @@ constexpr std::uint8_t X86_GROUP5_CALL_EXTENSION = 2;
 constexpr std::uint8_t X86_GROUP5_PUSH_EXTENSION = 6;
 constexpr std::uint8_t X86_MFENCE_EXTENSION = 6;
 constexpr std::uint8_t X86_MFENCE_RM_FIELD = 0;
+constexpr std::uint8_t X86_INVLPG_EXTENSION = 7;
 constexpr std::uint8_t X86_POP_RM64_EXTENSION = 0;
 constexpr std::size_t X86_REGISTER_COUNT = 16;
 
@@ -811,6 +813,16 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
             require_unlocked(prefixes.locked);
             require_rex_w(rex);
             instruction = Instruction::make_sysret();
+        }
+        else if (escaped_opcode == X86_OPCODE_SYSTEM_GROUP)
+        {
+            require_unlocked(prefixes.locked);
+            const ModRmByte modrm = read_modrm(cursor);
+            if (modrm.mod == X86_MODRM_MOD_REGISTER || modrm.reg != X86_INVLPG_EXTENSION)
+            {
+                throw DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
+            }
+            instruction = Instruction::make_invlpg(decode_rm_operand(cursor, modrm, rex, DataSize::BYTE));
         }
         else if (escaped_opcode >= X86_OPCODE_JCC_REL32_MIN && escaped_opcode <= X86_OPCODE_JCC_REL32_MAX)
         {

@@ -429,6 +429,14 @@ TEST(DecoderTest, DecodesStage6AtomicAndFenceForms)
         decoder.decode(cpu::ExecutableImage{0x0F, 0xAE, 0xF0}, TEST_RIP_ZERO);
     EXPECT_THAT(mfence.instruction.opcode(), Eq(cpu::Opcode::MFENCE));
     EXPECT_THAT(mfence.next_rip, Eq(cpu::InstructionPointer{3}));
+
+    const cpu::DecodedInstruction invlpg =
+        decoder.decode(cpu::ExecutableImage{0x0F, 0x01, 0x78, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(invlpg.instruction.opcode(), Eq(cpu::Opcode::INVLPG));
+    EXPECT_TRUE(invlpg.instruction.first_operand().is_memory());
+    EXPECT_THAT(invlpg.instruction.first_operand().memory_base_register(), Eq(cpu::RegisterId::RAX));
+    EXPECT_THAT(invlpg.instruction.first_operand().memory_displacement(), Eq(TEST_DISPLACEMENT_VALUE));
+    EXPECT_THAT(invlpg.next_rip, Eq(cpu::InstructionPointer{4}));
 }
 
 TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
@@ -447,6 +455,9 @@ TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x8D, 0xC0}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(
         static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0xA0}, TEST_RIP_ZERO)),
+        cpu::DecodeError);
+    EXPECT_THROW(
+        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0x01, 0xF8}, TEST_RIP_ZERO)),
         cpu::DecodeError);
     EXPECT_THROW(
         static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x81, 0xD0, 0x01, 0x00, 0x00, 0x00}, TEST_RIP_ZERO)),
