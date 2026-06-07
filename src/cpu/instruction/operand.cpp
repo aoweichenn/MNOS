@@ -12,6 +12,7 @@ namespace
 constexpr std::string_view OPERAND_KIND_ASSEMBLY_NAME_INVALID_TEXT = "<invalid>";
 constexpr const char* OPERAND_ACCESS_INVALID_KIND_MESSAGE = "operand kind does not match requested payload";
 constexpr const char* OPERAND_REGISTER_INVALID_ID_MESSAGE = "operand register id is invalid";
+constexpr const char* OPERAND_REGISTER_INVALID_DATA_SIZE_MESSAGE = "operand register data size is invalid";
 constexpr const char* OPERAND_MEMORY_INVALID_BASE_REGISTER_MESSAGE = "operand memory base register id is invalid";
 constexpr const char* OPERAND_MEMORY_INVALID_INDEX_REGISTER_MESSAGE = "operand memory index register id is invalid";
 constexpr const char* OPERAND_MEMORY_INVALID_DATA_SIZE_MESSAGE = "operand memory data size is invalid";
@@ -220,8 +221,17 @@ Operand Operand::none() noexcept
 
 Operand Operand::reg(const RegisterId id)
 {
+    return Operand::reg(id, DataSize::QWORD);
+}
+
+Operand Operand::reg(const RegisterId id, const DataSize data_size)
+{
     OperandValidator::require_register_id(id, OPERAND_REGISTER_INVALID_ID_MESSAGE);
-    return Operand{RegisterPayload{id}};
+    if (!is_data_size_valid(data_size))
+    {
+        throw std::out_of_range{OPERAND_REGISTER_INVALID_DATA_SIZE_MESSAGE};
+    }
+    return Operand{RegisterPayload{id, data_size}};
 }
 
 Operand Operand::imm(const SignedQword value) noexcept
@@ -289,6 +299,11 @@ bool Operand::is_memory() const noexcept
 RegisterId Operand::register_id() const
 {
     return this->payload<RegisterPayload>().id;
+}
+
+DataSize Operand::register_data_size() const
+{
+    return this->payload<RegisterPayload>().data_size;
 }
 
 SignedQword Operand::immediate_value() const

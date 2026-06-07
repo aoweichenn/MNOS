@@ -25,8 +25,10 @@ constexpr cpu::SignedQword TEST_LOOP_TARGET = cpu::SignedQword{0};
 constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = 128;
 constexpr cpu::Address64 TEST_MEMORY_BASE_ADDRESS = cpu::Address64{16};
+constexpr cpu::Address64 TEST_STACK_TOP_ADDRESS = cpu::Address64{64};
 constexpr cpu::SignedQword TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SignedQword{16};
 constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
+constexpr cpu::Qword TEST_INVALID_RETURN_TARGET = cpu::Qword{4};
 }
 
 TEST(ExecutorErrorTest, RejectsInvalidJumpTarget)
@@ -51,6 +53,41 @@ TEST(ExecutorErrorTest, RejectsMemoryOperandWithoutBus)
     cpu::Executor executor;
 
     EXPECT_THROW(static_cast<void>(executor.step(memory_source_state, memory_source_program)), std::logic_error);
+}
+
+TEST(ExecutorErrorTest, RejectsStackInstructionsWithoutBus)
+{
+    cpu::Program push_program{
+        cpu::Instruction::make_push(cpu::Operand::imm(TEST_PROGRAM_INITIAL_VALUE)),
+    };
+    cpu::CpuState push_state;
+    push_state.registers().write(cpu::RegisterId::RSP, TEST_STACK_TOP_ADDRESS);
+    cpu::Executor executor;
+    EXPECT_THROW(static_cast<void>(executor.step(push_state, push_program)), std::logic_error);
+
+    cpu::Program ret_program{
+        cpu::Instruction::make_ret(),
+    };
+    cpu::CpuState ret_state;
+    ret_state.registers().write(cpu::RegisterId::RSP, TEST_STACK_TOP_ADDRESS);
+    executor.reset();
+    EXPECT_THROW(static_cast<void>(executor.step(ret_state, ret_program)), std::logic_error);
+}
+
+TEST(ExecutorErrorTest, RejectsInvalidRetTarget)
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    memory.write_qword(TEST_STACK_TOP_ADDRESS, TEST_INVALID_RETURN_TARGET);
+    cpu::Program ret_program{
+        cpu::Instruction::make_ret(),
+        cpu::Instruction::make_hlt(),
+    };
+    cpu::CpuState ret_state;
+    ret_state.registers().write(cpu::RegisterId::RSP, TEST_STACK_TOP_ADDRESS);
+    cpu::Executor executor;
+
+    EXPECT_THROW(static_cast<void>(executor.step(ret_state, ret_program, memory_bus)), std::out_of_range);
 }
 
 TEST(ExecutorErrorTest, RejectsMemoryToMemoryInstruction)

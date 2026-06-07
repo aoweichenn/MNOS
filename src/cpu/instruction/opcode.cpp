@@ -30,12 +30,28 @@ private:
     inline static constexpr auto OPCODE_NAMES = mnos::core::make_enum_name_table<mnos::cpu::Opcode>(
         std::array<std::string_view, mnos::cpu::OPCODE_COUNT>{
             "MOV",
+            "MOVSX",
+            "MOVZX",
+            "LEA",
             "ADD",
             "SUB",
             "CMP",
+            "INC",
+            "DEC",
+            "AND",
+            "OR",
+            "XOR",
+            "TEST",
+            "PUSH",
+            "POP",
+            "CALL",
+            "RET",
             "JMP",
             "JE",
             "JNE",
+            "JCC",
+            "SETCC",
+            "CMOVCC",
             "HLT"},
         OPCODE_ASSEMBLY_NAME_INVALID_TEXT);
 };

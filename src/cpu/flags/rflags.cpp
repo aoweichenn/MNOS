@@ -1,3 +1,5 @@
+#include <bit>
+
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/flags/rflags.hpp>
 
@@ -5,6 +7,7 @@ namespace
 {
 constexpr mnos::cpu::Qword RFLAGS_RAW_EMPTY_BITS = mnos::cpu::Qword{0};
 constexpr mnos::cpu::Qword RFLAGS_RAW_ONE_BIT = mnos::cpu::Qword{1};
+constexpr mnos::cpu::Qword RFLAGS_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
 constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1};
 
 [[nodiscard]] mnos::cpu::Qword make_flag_mask(const mnos::cpu::FlagId id)
@@ -15,6 +18,12 @@ constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::cpu::DATA_SIZE_QWORD_B
 [[nodiscard]] constexpr mnos::cpu::Qword make_qword_sign_mask() noexcept
 {
     return RFLAGS_RAW_ONE_BIT << RFLAGS_QWORD_SIGN_BIT_INDEX;
+}
+
+[[nodiscard]] bool has_even_low_byte_parity(const mnos::cpu::Qword value) noexcept
+{
+    const auto bit_count = static_cast<unsigned>(std::popcount(value & RFLAGS_LOW_BYTE_MASK));
+    return bit_count % 2U == 0U;
 }
 }
 
@@ -49,6 +58,12 @@ void Rflags::update_zero_sign_from_qword(const Qword result) noexcept
     // 从结果中更新对应的 ZF 和 SF
     this->write(FlagId::ZF, result == Qword{0});
     this->write(FlagId::SF, (result & make_qword_sign_mask()) != Qword{0});
+}
+
+void Rflags::update_zero_sign_parity_from_qword(const Qword result) noexcept
+{
+    this->update_zero_sign_from_qword(result);
+    this->write(FlagId::PF, has_even_low_byte_parity(result));
 }
 
 Qword Rflags::raw_bits() const noexcept

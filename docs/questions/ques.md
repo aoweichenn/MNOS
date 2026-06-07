@@ -1,6 +1,6 @@
 # C++ 与 MNOS 学习问题合集
 
-这份文档把 C++ 语言规则和当前 x86-64 Stage 0/1 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT` 等当前主线术语。
+这份文档把 C++ 语言规则和当前 x86-64 Stage 0/1/2 模型连起来。示例使用 `RIP/RFLAGS/Operand/MOV/HLT` 等当前主线术语。
 
 ## 1. 编译期常量和运行时常量
 
@@ -69,29 +69,32 @@ memory(base/index/scale/displacement/absolute + data size)
 
 ## 5. RIP 和 Program
 
-真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址。
+真实 x86-64 的 `RIP` 是字节地址，指令长度可变。Stage 0 的 `Program` 仍然是对象指令数组，`RIP` 表示当前对象指令槽位；Stage 1 新增 `ExecutableImage`，`RIP` 表示当前 byte 地址；Stage 2 在同一套语义上加入栈、条件码和更多整数指令。
 
-当前 Stage 1 路径是：
+当前 byte image 路径是：
 
 ```text
 RIP -> ExecutableImage 取 byte -> variable-length decoder -> Instruction -> Executor
 ```
 
-对象路径和 byte 路径复用同一套 `Instruction` 执行语义，这样可以先稳定 RFLAGS、内存和跳转，再逐步扩展更多 x86-64 编码。
+对象路径和 byte 路径复用同一套 `Instruction` 执行语义，这样可以先稳定 RFLAGS、内存、栈和跳转，再逐步扩展更多 x86-64 编码。
 
 ## 6. RFLAGS
 
 x86-64 普通整数指令会更新隐式状态位：
 
 ```text
-ADD/SUB/CMP -> CF/ZF/SF/OF
-JE/JNE      -> 读取 ZF
+ADD/SUB/CMP      -> CF/PF/ZF/SF/OF
+INC/DEC          -> PF/ZF/SF/OF，保留 CF
+AND/OR/XOR/TEST  -> PF/ZF/SF，清 CF/OF
+Jcc/SETcc/CMOVcc -> 读取条件码
 ```
 
-当前 `Rflags` 先建模：
+当前 `Rflags` 建模：
 
 ```text
 CF Carry
+PF Parity
 ZF Zero
 SF Sign
 OF Overflow
@@ -110,7 +113,7 @@ DWORD  32 bit
 QWORD  64 bit
 ```
 
-当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；后续会继续扩展 BYTE/WORD/DWORD load/store、符号扩展和更多 opcode 宽度规则。
+当前内存读写按小端序实现。Stage 1 已经支持 QWORD 级 ModRM/SIB/RIP-relative 访问；Stage 2 已加入 r/m8、r/m16、r/m32 source 宽度和 `MOVSX/MOVZX/MOVSXD`。后续 MMU/page fault 阶段会把这些访问接入地址转换和异常流。
 
 ## 8. 为什么热路径不用复杂模式？
 
@@ -135,7 +138,6 @@ x86-64 instruction byte encoding
 REX prefix
 ModRM/SIB
 RIP-relative addressing
-CALL/RET/PUSH/POP
 exception/syscall/interrupt
 4-level paging
 TLB/cache

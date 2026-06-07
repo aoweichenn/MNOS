@@ -9,12 +9,28 @@ namespace mnos::cpu
 enum class Opcode : std::uint8_t
 {
     MOV,
+    MOVSX,
+    MOVZX,
+    LEA,
     ADD,
     SUB,
     CMP,
+    INC,
+    DEC,
+    AND,
+    OR,
+    XOR,
+    TEST,
+    PUSH,
+    POP,
+    CALL,
+    RET,
     JMP,
     JE,
     JNE,
+    JCC,
+    SETCC,
+    CMOVCC,
     HLT,
     COUNT
 };

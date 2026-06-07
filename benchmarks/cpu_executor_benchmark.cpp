@@ -26,6 +26,8 @@ constexpr cpu::SignedQword BENCHMARK_INCREMENT_VALUE = cpu::SignedQword{41};
 constexpr cpu::SignedQword BENCHMARK_MEMORY_BASE_VALUE = cpu::SignedQword{128};
 constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
 constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
+constexpr std::size_t BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
+constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -59,6 +61,19 @@ constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
         0x48, 0xB8, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 41
         0x48, 0x89, 0x45, 0x20,                                     // MOV [RBP + 32], RAX
         0x48, 0x8B, 0x5D, 0x20,                                     // MOV RBX, [RBP + 32]
+        0xF4};                                                      // HLT
+}
+
+[[nodiscard]] cpu::ExecutableImage make_stage2_image()
+{
+    return cpu::ExecutableImage{
+        0x48, 0xBD, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 32
+        0x48, 0xB8, 0xF0, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 0xF0F0
+        0x48, 0x81, 0xE0, 0x0F, 0x0F, 0x00, 0x00,                   // AND RAX, 0x0F0F
+        0x0F, 0x94, 0xC3,                                           // SETE BL
+        0x48, 0x0F, 0x44, 0xCB,                                     // CMOVE RCX, RBX
+        0x48, 0x0F, 0xB6, 0x55, 0x00,                               // MOVZX RDX, BYTE [RBP]
+        0x48, 0x0F, 0xBE, 0x75, 0x01,                               // MOVSX RSI, BYTE [RBP + 1]
         0xF4};                                                      // HLT
 }
 
@@ -120,6 +135,27 @@ static void BM_CPUExecutorByteImageMemoryProgram(benchmark::State& state)
     set_instruction_items_processed(state, BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT);
 }
 
+static void BM_CPUExecutorStage2ByteImageProgram(benchmark::State& state)
+{
+    const cpu::ExecutableImage image = make_stage2_image();
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::CpuState cpu_state;
+        cpu::PhysicalMemory memory(BENCHMARK_MEMORY_SIZE_BYTES);
+        memory.write_byte(BENCHMARK_STAGE2_LOAD_ADDRESS, cpu::Byte{0xF0});
+        memory.write_byte(BENCHMARK_STAGE2_LOAD_ADDRESS + cpu::Address64{1}, cpu::Byte{0x80});
+        cpu::MemoryBus memory_bus{memory};
+        cpu::Executor executor;
+        benchmark::DoNotOptimize(executor.run(cpu_state, image, memory_bus));
+        benchmark::DoNotOptimize(cpu_state.registers().read(cpu::RegisterId::RSI));
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT);
+}
+
 BENCHMARK(BM_CPUExecutorRegisterProgram);
 BENCHMARK(BM_CPUExecutorMemoryProgram);
 BENCHMARK(BM_CPUExecutorByteImageMemoryProgram);
+BENCHMARK(BM_CPUExecutorStage2ByteImageProgram);

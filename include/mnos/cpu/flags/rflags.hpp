@@ -12,6 +12,7 @@ public:
     void write(FlagId id, bool value);
     void clear_status_flags() noexcept;
     void update_zero_sign_from_qword(Qword result) noexcept;
+    void update_zero_sign_parity_from_qword(Qword result) noexcept;
     [[nodiscard]] Qword raw_bits() const noexcept;
 
 private:

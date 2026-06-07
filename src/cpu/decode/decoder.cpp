@@ -2,6 +2,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 #include <mnos/cpu/decode/decoder.hpp>
@@ -22,23 +23,52 @@ constexpr std::uint8_t X86_REX_B_MASK = 0x01;
 constexpr std::uint8_t X86_REX_EXTENDED_REGISTER_OFFSET = 8;
 constexpr std::uint8_t X86_OPCODE_ESCAPE = 0x0F;
 constexpr std::uint8_t X86_OPCODE_HLT = 0xF4;
+constexpr std::uint8_t X86_OPCODE_RET_NEAR = 0xC3;
+constexpr std::uint8_t X86_OPCODE_CALL_REL32 = 0xE8;
 constexpr std::uint8_t X86_OPCODE_JMP_REL8 = 0xEB;
 constexpr std::uint8_t X86_OPCODE_JMP_REL32 = 0xE9;
-constexpr std::uint8_t X86_OPCODE_JE_REL8 = 0x74;
-constexpr std::uint8_t X86_OPCODE_JNE_REL8 = 0x75;
-constexpr std::uint8_t X86_OPCODE_JE_REL32 = 0x84;
-constexpr std::uint8_t X86_OPCODE_JNE_REL32 = 0x85;
+constexpr std::uint8_t X86_OPCODE_JCC_REL8_MIN = 0x70;
+constexpr std::uint8_t X86_OPCODE_JCC_REL8_MAX = 0x7F;
+constexpr std::uint8_t X86_OPCODE_JCC_REL32_MIN = 0x80;
+constexpr std::uint8_t X86_OPCODE_JCC_REL32_MAX = 0x8F;
+constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MIN = 0x40;
+constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MAX = 0x4F;
+constexpr std::uint8_t X86_OPCODE_SETCC_RM8_MIN = 0x90;
+constexpr std::uint8_t X86_OPCODE_SETCC_RM8_MAX = 0x9F;
+constexpr std::uint8_t X86_OPCODE_MOVZX_R64_RM8 = 0xB6;
+constexpr std::uint8_t X86_OPCODE_MOVZX_R64_RM16 = 0xB7;
+constexpr std::uint8_t X86_OPCODE_MOVSX_R64_RM8 = 0xBE;
+constexpr std::uint8_t X86_OPCODE_MOVSX_R64_RM16 = 0xBF;
+constexpr std::uint8_t X86_OPCODE_CONDITION_MASK = 0x0F;
+constexpr std::uint8_t X86_OPCODE_PUSH_R64_MIN = 0x50;
+constexpr std::uint8_t X86_OPCODE_PUSH_R64_MAX = 0x57;
+constexpr std::uint8_t X86_OPCODE_POP_R64_MIN = 0x58;
+constexpr std::uint8_t X86_OPCODE_POP_R64_MAX = 0x5F;
+constexpr std::uint8_t X86_OPCODE_PUSH_IMM32 = 0x68;
+constexpr std::uint8_t X86_OPCODE_PUSH_IMM8 = 0x6A;
+constexpr std::uint8_t X86_OPCODE_POP_RM64 = 0x8F;
+constexpr std::uint8_t X86_OPCODE_MOVSXD_R64_RM32 = 0x63;
 constexpr std::uint8_t X86_OPCODE_MOV_R64_IMM64_MIN = 0xB8;
 constexpr std::uint8_t X86_OPCODE_MOV_R64_IMM64_MAX = 0xBF;
 constexpr std::uint8_t X86_OPCODE_MOV_RM64_R64 = 0x89;
 constexpr std::uint8_t X86_OPCODE_MOV_R64_RM64 = 0x8B;
+constexpr std::uint8_t X86_OPCODE_LEA_R64_M = 0x8D;
 constexpr std::uint8_t X86_OPCODE_ADD_RM64_R64 = 0x01;
 constexpr std::uint8_t X86_OPCODE_ADD_R64_RM64 = 0x03;
+constexpr std::uint8_t X86_OPCODE_OR_RM64_R64 = 0x09;
+constexpr std::uint8_t X86_OPCODE_OR_R64_RM64 = 0x0B;
+constexpr std::uint8_t X86_OPCODE_AND_RM64_R64 = 0x21;
+constexpr std::uint8_t X86_OPCODE_AND_R64_RM64 = 0x23;
 constexpr std::uint8_t X86_OPCODE_SUB_RM64_R64 = 0x29;
 constexpr std::uint8_t X86_OPCODE_SUB_R64_RM64 = 0x2B;
+constexpr std::uint8_t X86_OPCODE_XOR_RM64_R64 = 0x31;
+constexpr std::uint8_t X86_OPCODE_XOR_R64_RM64 = 0x33;
 constexpr std::uint8_t X86_OPCODE_CMP_RM64_R64 = 0x39;
 constexpr std::uint8_t X86_OPCODE_CMP_R64_RM64 = 0x3B;
+constexpr std::uint8_t X86_OPCODE_TEST_RM64_R64 = 0x85;
 constexpr std::uint8_t X86_OPCODE_GROUP1_RM64_IMM32 = 0x81;
+constexpr std::uint8_t X86_OPCODE_GROUP3_RM64 = 0xF7;
+constexpr std::uint8_t X86_OPCODE_GROUP5_RM64 = 0xFF;
 constexpr std::uint8_t X86_MODRM_MOD_SHIFT = 6;
 constexpr std::uint8_t X86_MODRM_REG_SHIFT = 3;
 constexpr std::uint8_t X86_MODRM_FIELD_MASK = 0b111;
@@ -55,8 +85,17 @@ constexpr std::uint8_t X86_SIB_FIELD_MASK = 0b111;
 constexpr std::uint8_t X86_SIB_INDEX_NONE = 0b100;
 constexpr std::uint8_t X86_SIB_BASE_NONE = 0b101;
 constexpr std::uint8_t X86_GROUP1_ADD_EXTENSION = 0;
+constexpr std::uint8_t X86_GROUP1_OR_EXTENSION = 1;
+constexpr std::uint8_t X86_GROUP1_AND_EXTENSION = 4;
 constexpr std::uint8_t X86_GROUP1_SUB_EXTENSION = 5;
+constexpr std::uint8_t X86_GROUP1_XOR_EXTENSION = 6;
 constexpr std::uint8_t X86_GROUP1_CMP_EXTENSION = 7;
+constexpr std::uint8_t X86_GROUP3_TEST_EXTENSION = 0;
+constexpr std::uint8_t X86_GROUP5_INC_EXTENSION = 0;
+constexpr std::uint8_t X86_GROUP5_DEC_EXTENSION = 1;
+constexpr std::uint8_t X86_GROUP5_CALL_EXTENSION = 2;
+constexpr std::uint8_t X86_GROUP5_PUSH_EXTENSION = 6;
+constexpr std::uint8_t X86_POP_RM64_EXTENSION = 0;
 constexpr std::size_t X86_REGISTER_COUNT = 16;
 
 struct RexPrefix
@@ -81,18 +120,25 @@ struct SibByte
     std::uint8_t base = 0;
 };
 
-enum class AluInstructionKind : std::uint8_t
+enum class BinaryInstructionKind : std::uint8_t
 {
+    MOV,
     ADD,
     SUB,
-    CMP
+    CMP,
+    AND,
+    OR,
+    XOR,
+    TEST
 };
 
-enum class JumpInstructionKind : std::uint8_t
+enum class UnaryInstructionKind : std::uint8_t
 {
-    JMP,
-    JE,
-    JNE
+    INC,
+    DEC,
+    PUSH,
+    POP,
+    CALL
 };
 
 class DecodeCursor
@@ -270,7 +316,8 @@ void require_rex_w(const RexPrefix& rex)
 [[nodiscard]] mnos::cpu::Operand make_memory_operand_from_sib(
     DecodeCursor& cursor,
     const ModRmByte& modrm,
-    const RexPrefix& rex)
+    const RexPrefix& rex,
+    const mnos::cpu::DataSize data_size)
 {
     const SibByte sib = read_sib(cursor);
     const bool has_index = sib.index != X86_SIB_INDEX_NONE || rex.x;
@@ -288,12 +335,12 @@ void require_rex_w(const RexPrefix& rex)
             decode_register(sib.index, rex.x),
             sib_scale_to_multiplier(sib.scale),
             displacement,
-            mnos::cpu::DataSize::QWORD);
+            data_size);
     }
 
     if (has_base)
     {
-        return mnos::cpu::Operand::mem(decode_register(sib.base, rex.b), displacement, mnos::cpu::DataSize::QWORD);
+        return mnos::cpu::Operand::mem(decode_register(sib.base, rex.b), displacement, data_size);
     }
 
     if (has_index)
@@ -303,22 +350,26 @@ void require_rex_w(const RexPrefix& rex)
                 decode_register(sib.index, rex.x),
                 sib_scale_to_multiplier(sib.scale),
                 displacement),
-            mnos::cpu::DataSize::QWORD);
+            data_size);
     }
 
-    return mnos::cpu::Operand::absolute_mem(static_cast<mnos::cpu::Address64>(displacement), mnos::cpu::DataSize::QWORD);
+    return mnos::cpu::Operand::absolute_mem(static_cast<mnos::cpu::Address64>(displacement), data_size);
 }
 
-[[nodiscard]] mnos::cpu::Operand decode_rm64_operand(DecodeCursor& cursor, const ModRmByte& modrm, const RexPrefix& rex)
+[[nodiscard]] mnos::cpu::Operand decode_rm_operand(
+    DecodeCursor& cursor,
+    const ModRmByte& modrm,
+    const RexPrefix& rex,
+    const mnos::cpu::DataSize data_size)
 {
     if (modrm.mod == X86_MODRM_MOD_REGISTER)
     {
-        return mnos::cpu::Operand::reg(decode_register(modrm.rm, rex.b));
+        return mnos::cpu::Operand::reg(decode_register(modrm.rm, rex.b), data_size);
     }
 
     if (modrm.rm == X86_MODRM_RM_SIB)
     {
-        return make_memory_operand_from_sib(cursor, modrm, rex);
+        return make_memory_operand_from_sib(cursor, modrm, rex, data_size);
     }
 
     if (modrm.mod == X86_MODRM_MOD_NO_DISPLACEMENT && modrm.rm == X86_MODRM_RM_RIP_RELATIVE)
@@ -326,13 +377,21 @@ void require_rex_w(const RexPrefix& rex)
         const mnos::cpu::SignedQword displacement = static_cast<mnos::cpu::SignedQword>(cursor.read_i32());
         const mnos::cpu::Address64 address =
             cursor.rip() + static_cast<mnos::cpu::Address64>(displacement);
-        return mnos::cpu::Operand::absolute_mem(address, mnos::cpu::DataSize::QWORD);
+        return mnos::cpu::Operand::absolute_mem(address, data_size);
     }
 
     return mnos::cpu::Operand::mem(
         decode_register(modrm.rm, rex.b),
         read_modrm_displacement(cursor, modrm),
-        mnos::cpu::DataSize::QWORD);
+        data_size);
+}
+
+[[nodiscard]] mnos::cpu::Operand decode_reg_operand(
+    const std::uint8_t encoded,
+    const RexPrefix& rex,
+    const mnos::cpu::DataSize data_size)
+{
+    return mnos::cpu::Operand::reg(decode_register(encoded, rex.r), data_size);
 }
 
 [[nodiscard]] mnos::cpu::InstructionPointer relative_target(
@@ -342,36 +401,186 @@ void require_rex_w(const RexPrefix& rex)
     return next_rip + static_cast<mnos::cpu::InstructionPointer>(displacement);
 }
 
-[[nodiscard]] mnos::cpu::Instruction make_alu_instruction(
-    const AluInstructionKind kind,
+[[nodiscard]] mnos::cpu::Instruction make_binary_instruction(
+    const BinaryInstructionKind kind,
     mnos::cpu::Operand destination,
     mnos::cpu::Operand source)
 {
     switch (kind)
     {
-    case AluInstructionKind::ADD:
+    case BinaryInstructionKind::MOV:
+        return mnos::cpu::Instruction::make_mov(std::move(destination), std::move(source));
+    case BinaryInstructionKind::ADD:
         return mnos::cpu::Instruction::make_add(std::move(destination), std::move(source));
-    case AluInstructionKind::SUB:
+    case BinaryInstructionKind::SUB:
         return mnos::cpu::Instruction::make_sub(std::move(destination), std::move(source));
-    case AluInstructionKind::CMP:
+    case BinaryInstructionKind::CMP:
         return mnos::cpu::Instruction::make_cmp(std::move(destination), std::move(source));
+    case BinaryInstructionKind::AND:
+        return mnos::cpu::Instruction::make_and(std::move(destination), std::move(source));
+    case BinaryInstructionKind::OR:
+        return mnos::cpu::Instruction::make_or(std::move(destination), std::move(source));
+    case BinaryInstructionKind::XOR:
+        return mnos::cpu::Instruction::make_xor(std::move(destination), std::move(source));
+    case BinaryInstructionKind::TEST:
+        return mnos::cpu::Instruction::make_test(std::move(destination), std::move(source));
     }
 }
 
-[[nodiscard]] mnos::cpu::Instruction make_jump_instruction(
-    const JumpInstructionKind kind,
+[[nodiscard]] mnos::cpu::Instruction make_unary_instruction(
+    const UnaryInstructionKind kind,
+    mnos::cpu::Operand operand)
+{
+    switch (kind)
+    {
+    case UnaryInstructionKind::INC:
+        return mnos::cpu::Instruction::make_inc(std::move(operand));
+    case UnaryInstructionKind::DEC:
+        return mnos::cpu::Instruction::make_dec(std::move(operand));
+    case UnaryInstructionKind::PUSH:
+        return mnos::cpu::Instruction::make_push(std::move(operand));
+    case UnaryInstructionKind::POP:
+        return mnos::cpu::Instruction::make_pop(std::move(operand));
+    case UnaryInstructionKind::CALL:
+        return mnos::cpu::Instruction::make_call(std::move(operand));
+    }
+}
+
+[[nodiscard]] mnos::cpu::ConditionCode condition_from_opcode(const std::uint8_t opcode) noexcept
+{
+    return static_cast<mnos::cpu::ConditionCode>(opcode & X86_OPCODE_CONDITION_MASK);
+}
+
+[[nodiscard]] mnos::cpu::Instruction make_conditional_jump_instruction(
+    const mnos::cpu::ConditionCode condition,
     const mnos::cpu::InstructionPointer target)
 {
     const auto immediate = static_cast<mnos::cpu::SignedQword>(target);
-    switch (kind)
+    if (condition == mnos::cpu::ConditionCode::E)
     {
-    case JumpInstructionKind::JMP:
-        return mnos::cpu::Instruction::make_jmp(mnos::cpu::Operand::imm(immediate));
-    case JumpInstructionKind::JE:
         return mnos::cpu::Instruction::make_je(mnos::cpu::Operand::imm(immediate));
-    case JumpInstructionKind::JNE:
+    }
+
+    if (condition == mnos::cpu::ConditionCode::NE)
+    {
         return mnos::cpu::Instruction::make_jne(mnos::cpu::Operand::imm(immediate));
     }
+
+    return mnos::cpu::Instruction::make_jcc(condition, mnos::cpu::Operand::imm(immediate));
+}
+
+[[nodiscard]] mnos::cpu::Instruction make_unconditional_jump_instruction(
+    const mnos::cpu::InstructionPointer target)
+{
+    return mnos::cpu::Instruction::make_jmp(
+        mnos::cpu::Operand::imm(static_cast<mnos::cpu::SignedQword>(target)));
+}
+
+[[nodiscard]] bool rm_operand_is_destination_opcode(const std::uint8_t opcode) noexcept
+{
+    return opcode == X86_OPCODE_MOV_RM64_R64 || opcode == X86_OPCODE_ADD_RM64_R64 ||
+        opcode == X86_OPCODE_OR_RM64_R64 || opcode == X86_OPCODE_AND_RM64_R64 ||
+        opcode == X86_OPCODE_SUB_RM64_R64 || opcode == X86_OPCODE_XOR_RM64_R64 ||
+        opcode == X86_OPCODE_CMP_RM64_R64 || opcode == X86_OPCODE_TEST_RM64_R64;
+}
+
+[[nodiscard]] std::optional<BinaryInstructionKind> binary_kind_from_opcode(const std::uint8_t opcode) noexcept
+{
+    switch (opcode)
+    {
+    case X86_OPCODE_MOV_RM64_R64:
+    case X86_OPCODE_MOV_R64_RM64:
+        return BinaryInstructionKind::MOV;
+    case X86_OPCODE_ADD_RM64_R64:
+    case X86_OPCODE_ADD_R64_RM64:
+        return BinaryInstructionKind::ADD;
+    case X86_OPCODE_OR_RM64_R64:
+    case X86_OPCODE_OR_R64_RM64:
+        return BinaryInstructionKind::OR;
+    case X86_OPCODE_AND_RM64_R64:
+    case X86_OPCODE_AND_R64_RM64:
+        return BinaryInstructionKind::AND;
+    case X86_OPCODE_SUB_RM64_R64:
+    case X86_OPCODE_SUB_R64_RM64:
+        return BinaryInstructionKind::SUB;
+    case X86_OPCODE_XOR_RM64_R64:
+    case X86_OPCODE_XOR_R64_RM64:
+        return BinaryInstructionKind::XOR;
+    case X86_OPCODE_CMP_RM64_R64:
+    case X86_OPCODE_CMP_R64_RM64:
+        return BinaryInstructionKind::CMP;
+    case X86_OPCODE_TEST_RM64_R64:
+        return BinaryInstructionKind::TEST;
+    default:
+        break;
+    }
+
+    return std::nullopt;
+}
+
+[[nodiscard]] mnos::cpu::Instruction make_group1_instruction(
+    const std::uint8_t extension,
+    mnos::cpu::Operand destination,
+    mnos::cpu::Operand immediate)
+{
+    if (extension == X86_GROUP1_ADD_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_add(std::move(destination), std::move(immediate));
+    }
+
+    if (extension == X86_GROUP1_OR_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_or(std::move(destination), std::move(immediate));
+    }
+
+    if (extension == X86_GROUP1_AND_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_and(std::move(destination), std::move(immediate));
+    }
+
+    if (extension == X86_GROUP1_SUB_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_sub(std::move(destination), std::move(immediate));
+    }
+
+    if (extension == X86_GROUP1_XOR_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_xor(std::move(destination), std::move(immediate));
+    }
+
+    if (extension == X86_GROUP1_CMP_EXTENSION)
+    {
+        return mnos::cpu::Instruction::make_cmp(std::move(destination), std::move(immediate));
+    }
+
+    throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
+}
+
+[[nodiscard]] mnos::cpu::Instruction make_group5_instruction(
+    const std::uint8_t extension,
+    mnos::cpu::Operand operand)
+{
+    if (extension == X86_GROUP5_INC_EXTENSION)
+    {
+        return make_unary_instruction(UnaryInstructionKind::INC, std::move(operand));
+    }
+
+    if (extension == X86_GROUP5_DEC_EXTENSION)
+    {
+        return make_unary_instruction(UnaryInstructionKind::DEC, std::move(operand));
+    }
+
+    if (extension == X86_GROUP5_CALL_EXTENSION)
+    {
+        return make_unary_instruction(UnaryInstructionKind::CALL, std::move(operand));
+    }
+
+    if (extension == X86_GROUP5_PUSH_EXTENSION)
+    {
+        return make_unary_instruction(UnaryInstructionKind::PUSH, std::move(operand));
+    }
+
+    throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
 }
 }
 
@@ -392,6 +601,34 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
     {
         instruction = Instruction::make_hlt();
     }
+    else if (opcode == X86_OPCODE_RET_NEAR)
+    {
+        instruction = Instruction::make_ret();
+    }
+    else if (opcode >= X86_OPCODE_PUSH_R64_MIN && opcode <= X86_OPCODE_PUSH_R64_MAX)
+    {
+        const RegisterId source = decode_register(opcode - X86_OPCODE_PUSH_R64_MIN, rex.b);
+        instruction = Instruction::make_push(Operand::reg(source));
+    }
+    else if (opcode >= X86_OPCODE_POP_R64_MIN && opcode <= X86_OPCODE_POP_R64_MAX)
+    {
+        const RegisterId destination = decode_register(opcode - X86_OPCODE_POP_R64_MIN, rex.b);
+        instruction = Instruction::make_pop(Operand::reg(destination));
+    }
+    else if (opcode == X86_OPCODE_PUSH_IMM8)
+    {
+        instruction = Instruction::make_push(Operand::imm(static_cast<SignedQword>(cursor.read_i8())));
+    }
+    else if (opcode == X86_OPCODE_PUSH_IMM32)
+    {
+        instruction = Instruction::make_push(Operand::imm(static_cast<SignedQword>(cursor.read_i32())));
+    }
+    else if (opcode == X86_OPCODE_CALL_REL32)
+    {
+        const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
+        instruction = Instruction::make_call(
+            Operand::imm(static_cast<SignedQword>(relative_target(cursor.rip(), displacement))));
+    }
     else if (opcode >= X86_OPCODE_MOV_R64_IMM64_MIN && opcode <= X86_OPCODE_MOV_R64_IMM64_MAX)
     {
         require_rex_w(rex);
@@ -400,89 +637,149 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
             Operand::reg(destination),
             Operand::imm(qword_to_signed_immediate(cursor.read_u64())));
     }
-    else if (opcode == X86_OPCODE_MOV_RM64_R64 || opcode == X86_OPCODE_MOV_R64_RM64 ||
-             opcode == X86_OPCODE_ADD_RM64_R64 || opcode == X86_OPCODE_ADD_R64_RM64 ||
-             opcode == X86_OPCODE_SUB_RM64_R64 || opcode == X86_OPCODE_SUB_R64_RM64 ||
-             opcode == X86_OPCODE_CMP_RM64_R64 || opcode == X86_OPCODE_CMP_R64_RM64)
+    else if (opcode == X86_OPCODE_MOVSXD_R64_RM32)
     {
         require_rex_w(rex);
         const ModRmByte modrm = read_modrm(cursor);
-        Operand rm_operand = decode_rm64_operand(cursor, modrm, rex);
-        Operand reg_operand = Operand::reg(decode_register(modrm.reg, rex.r));
+        instruction = Instruction::make_movsx(
+            decode_reg_operand(modrm.reg, rex, DataSize::QWORD),
+            decode_rm_operand(cursor, modrm, rex, DataSize::DWORD));
+    }
+    else if (opcode == X86_OPCODE_LEA_R64_M)
+    {
+        require_rex_w(rex);
+        const ModRmByte modrm = read_modrm(cursor);
+        Operand source = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
+        if (!source.is_memory())
+        {
+            throw DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
+        }
+        instruction = Instruction::make_lea(decode_reg_operand(modrm.reg, rex, DataSize::QWORD), std::move(source));
+    }
+    else if (const std::optional<BinaryInstructionKind> decoded_kind = binary_kind_from_opcode(opcode);
+             decoded_kind.has_value())
+    {
+        require_rex_w(rex);
+        const ModRmByte modrm = read_modrm(cursor);
+        Operand rm_operand = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
+        Operand reg_operand = decode_reg_operand(modrm.reg, rex, DataSize::QWORD);
 
-        if (opcode == X86_OPCODE_MOV_RM64_R64)
+        if (rm_operand_is_destination_opcode(opcode))
         {
-            instruction = Instruction::make_mov(std::move(rm_operand), std::move(reg_operand));
-        }
-        else if (opcode == X86_OPCODE_MOV_R64_RM64)
-        {
-            instruction = Instruction::make_mov(std::move(reg_operand), std::move(rm_operand));
-        }
-        else if (opcode == X86_OPCODE_ADD_RM64_R64 || opcode == X86_OPCODE_SUB_RM64_R64 ||
-                 opcode == X86_OPCODE_CMP_RM64_R64)
-        {
-            const AluInstructionKind decoded_kind = opcode == X86_OPCODE_ADD_RM64_R64
-                ? AluInstructionKind::ADD
-                : (opcode == X86_OPCODE_SUB_RM64_R64 ? AluInstructionKind::SUB : AluInstructionKind::CMP);
-            instruction = make_alu_instruction(decoded_kind, std::move(rm_operand), std::move(reg_operand));
+            instruction = make_binary_instruction(decoded_kind.value(), std::move(rm_operand), std::move(reg_operand));
         }
         else
         {
-            const AluInstructionKind decoded_kind = opcode == X86_OPCODE_ADD_R64_RM64
-                ? AluInstructionKind::ADD
-                : (opcode == X86_OPCODE_SUB_R64_RM64 ? AluInstructionKind::SUB : AluInstructionKind::CMP);
-            instruction = make_alu_instruction(decoded_kind, std::move(reg_operand), std::move(rm_operand));
+            instruction = make_binary_instruction(decoded_kind.value(), std::move(reg_operand), std::move(rm_operand));
         }
     }
     else if (opcode == X86_OPCODE_GROUP1_RM64_IMM32)
     {
         require_rex_w(rex);
         const ModRmByte modrm = read_modrm(cursor);
-        Operand destination = decode_rm64_operand(cursor, modrm, rex);
+        Operand destination = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
         Operand immediate = Operand::imm(static_cast<SignedQword>(cursor.read_i32()));
-
-        if (modrm.reg == X86_GROUP1_ADD_EXTENSION)
-        {
-            instruction = Instruction::make_add(std::move(destination), std::move(immediate));
-        }
-        else if (modrm.reg == X86_GROUP1_SUB_EXTENSION)
-        {
-            instruction = Instruction::make_sub(std::move(destination), std::move(immediate));
-        }
-        else if (modrm.reg == X86_GROUP1_CMP_EXTENSION)
-        {
-            instruction = Instruction::make_cmp(std::move(destination), std::move(immediate));
-        }
-        else
+        instruction = make_group1_instruction(modrm.reg, std::move(destination), std::move(immediate));
+    }
+    else if (opcode == X86_OPCODE_GROUP3_RM64)
+    {
+        require_rex_w(rex);
+        const ModRmByte modrm = read_modrm(cursor);
+        if (modrm.reg != X86_GROUP3_TEST_EXTENSION)
         {
             throw DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
         }
+
+        Operand left = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
+        Operand immediate = Operand::imm(static_cast<SignedQword>(cursor.read_i32()));
+        instruction = Instruction::make_test(std::move(left), std::move(immediate));
     }
-    else if (opcode == X86_OPCODE_JMP_REL8 || opcode == X86_OPCODE_JE_REL8 || opcode == X86_OPCODE_JNE_REL8)
+    else if (opcode == X86_OPCODE_GROUP5_RM64)
+    {
+        require_rex_w(rex);
+        const ModRmByte modrm = read_modrm(cursor);
+        Operand operand = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
+        instruction = make_group5_instruction(modrm.reg, std::move(operand));
+    }
+    else if (opcode == X86_OPCODE_POP_RM64)
+    {
+        require_rex_w(rex);
+        const ModRmByte modrm = read_modrm(cursor);
+        if (modrm.reg != X86_POP_RM64_EXTENSION)
+        {
+            throw DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
+        }
+
+        instruction = Instruction::make_pop(decode_rm_operand(cursor, modrm, rex, DataSize::QWORD));
+    }
+    else if (opcode >= X86_OPCODE_JCC_REL8_MIN && opcode <= X86_OPCODE_JCC_REL8_MAX)
     {
         const SignedQword displacement = static_cast<SignedQword>(cursor.read_i8());
-        const JumpInstructionKind decoded_kind = opcode == X86_OPCODE_JMP_REL8
-            ? JumpInstructionKind::JMP
-            : (opcode == X86_OPCODE_JE_REL8 ? JumpInstructionKind::JE : JumpInstructionKind::JNE);
-        instruction = make_jump_instruction(decoded_kind, relative_target(cursor.rip(), displacement));
+        instruction = make_conditional_jump_instruction(
+            condition_from_opcode(opcode),
+            relative_target(cursor.rip(), displacement));
     }
     else if (opcode == X86_OPCODE_JMP_REL32)
     {
         const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
-        instruction = make_jump_instruction(JumpInstructionKind::JMP, relative_target(cursor.rip(), displacement));
+        instruction = make_unconditional_jump_instruction(relative_target(cursor.rip(), displacement));
+    }
+    else if (opcode == X86_OPCODE_JMP_REL8)
+    {
+        const SignedQword displacement = static_cast<SignedQword>(cursor.read_i8());
+        instruction = make_unconditional_jump_instruction(relative_target(cursor.rip(), displacement));
     }
     else if (opcode == X86_OPCODE_ESCAPE)
     {
         const std::uint8_t escaped_opcode = cursor.read_u8();
-        if (escaped_opcode != X86_OPCODE_JE_REL32 && escaped_opcode != X86_OPCODE_JNE_REL32)
+        if (escaped_opcode >= X86_OPCODE_JCC_REL32_MIN && escaped_opcode <= X86_OPCODE_JCC_REL32_MAX)
+        {
+            const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
+            instruction = make_conditional_jump_instruction(
+                condition_from_opcode(escaped_opcode),
+                relative_target(cursor.rip(), displacement));
+        }
+        else if (escaped_opcode >= X86_OPCODE_CMOVCC_R64_RM64_MIN && escaped_opcode <= X86_OPCODE_CMOVCC_R64_RM64_MAX)
+        {
+            require_rex_w(rex);
+            const ModRmByte modrm = read_modrm(cursor);
+            instruction = Instruction::make_cmovcc(
+                condition_from_opcode(escaped_opcode),
+                decode_reg_operand(modrm.reg, rex, DataSize::QWORD),
+                decode_rm_operand(cursor, modrm, rex, DataSize::QWORD));
+        }
+        else if (escaped_opcode >= X86_OPCODE_SETCC_RM8_MIN && escaped_opcode <= X86_OPCODE_SETCC_RM8_MAX)
+        {
+            const ModRmByte modrm = read_modrm(cursor);
+            instruction = Instruction::make_setcc(
+                condition_from_opcode(escaped_opcode),
+                decode_rm_operand(cursor, modrm, rex, DataSize::BYTE));
+        }
+        else if (escaped_opcode == X86_OPCODE_MOVZX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVZX_R64_RM16 ||
+                 escaped_opcode == X86_OPCODE_MOVSX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVSX_R64_RM16)
+        {
+            require_rex_w(rex);
+            const DataSize source_size =
+                escaped_opcode == X86_OPCODE_MOVZX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVSX_R64_RM8
+                ? DataSize::BYTE
+                : DataSize::WORD;
+            const ModRmByte modrm = read_modrm(cursor);
+            Operand destination = decode_reg_operand(modrm.reg, rex, DataSize::QWORD);
+            Operand source = decode_rm_operand(cursor, modrm, rex, source_size);
+
+            if (escaped_opcode == X86_OPCODE_MOVZX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVZX_R64_RM16)
+            {
+                instruction = Instruction::make_movzx(std::move(destination), std::move(source));
+            }
+            else
+            {
+                instruction = Instruction::make_movsx(std::move(destination), std::move(source));
+            }
+        }
+        else
         {
             throw DecodeError{DECODER_UNSUPPORTED_OPCODE_MESSAGE};
         }
-
-        const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
-        const JumpInstructionKind decoded_kind =
-            escaped_opcode == X86_OPCODE_JE_REL32 ? JumpInstructionKind::JE : JumpInstructionKind::JNE;
-        instruction = make_jump_instruction(decoded_kind, relative_target(cursor.rip(), displacement));
     }
     else
     {

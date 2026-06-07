@@ -14,15 +14,65 @@ constexpr const char* EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE =
     "executor destination operand must be a register or memory";
 constexpr const char* EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE =
     "executor binary instruction cannot use two memory operands";
+constexpr const char* EXECUTOR_REGISTER_OPERAND_REQUIRED_MESSAGE = "executor instruction requires a register operand";
+constexpr const char* EXECUTOR_MEMORY_OPERAND_REQUIRED_MESSAGE = "executor instruction requires a memory operand";
 constexpr const char* EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE = "executor jump target is out of program range";
 constexpr const char* EXECUTOR_INVALID_OPCODE_MESSAGE = "executor received invalid opcode sentinel";
+constexpr const char* EXECUTOR_INVALID_CONDITION_CODE_MESSAGE = "executor received invalid condition code sentinel";
+constexpr const char* EXECUTOR_INVALID_DATA_SIZE_MESSAGE = "executor data size is invalid";
 constexpr mnos::cpu::Qword EXECUTOR_ONE_BIT = mnos::cpu::Qword{1};
+constexpr mnos::cpu::Qword EXECUTOR_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
+constexpr mnos::cpu::Qword EXECUTOR_WORD_MASK = mnos::cpu::Qword{0xFFFF};
+constexpr mnos::cpu::Qword EXECUTOR_DWORD_MASK = mnos::cpu::Qword{0xFFFF'FFFF};
+constexpr mnos::cpu::Qword EXECUTOR_SETCC_FALSE_VALUE = mnos::cpu::Qword{0};
+constexpr mnos::cpu::Qword EXECUTOR_SETCC_TRUE_VALUE = mnos::cpu::Qword{1};
+constexpr mnos::cpu::Qword EXECUTOR_STACK_SLOT_BYTES =
+    static_cast<mnos::cpu::Qword>(mnos::cpu::DATA_SIZE_QWORD_BYTES);
 constexpr mnos::cpu::Qword EXECUTOR_QWORD_SIGN_MASK =
     EXECUTOR_ONE_BIT << (mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
 
 [[nodiscard]] bool has_qword_sign_bit(const mnos::cpu::Qword value) noexcept
 {
     return (value & EXECUTOR_QWORD_SIGN_MASK) != mnos::cpu::Qword{0};
+}
+
+[[nodiscard]] mnos::cpu::Qword mask_for_data_size(const mnos::cpu::DataSize size)
+{
+    switch (size)
+    {
+    case mnos::cpu::DataSize::BYTE:
+        return EXECUTOR_LOW_BYTE_MASK;
+    case mnos::cpu::DataSize::WORD:
+        return EXECUTOR_WORD_MASK;
+    case mnos::cpu::DataSize::DWORD:
+        return EXECUTOR_DWORD_MASK;
+    case mnos::cpu::DataSize::QWORD:
+        return ~mnos::cpu::Qword{0};
+    case mnos::cpu::DataSize::COUNT:
+        break;
+    }
+
+    throw std::logic_error{EXECUTOR_INVALID_DATA_SIZE_MESSAGE};
+}
+
+[[nodiscard]] std::size_t sign_bit_index_for_data_size(const mnos::cpu::DataSize size)
+{
+    return mnos::cpu::data_size_to_bits(size) - std::size_t{1};
+}
+
+[[nodiscard]] mnos::cpu::Qword sign_extend_value(
+    const mnos::cpu::Qword value,
+    const mnos::cpu::DataSize source_size)
+{
+    const mnos::cpu::Qword value_mask = mask_for_data_size(source_size);
+    const mnos::cpu::Qword masked_value = value & value_mask;
+    const mnos::cpu::Qword sign_mask = EXECUTOR_ONE_BIT << sign_bit_index_for_data_size(source_size);
+    if ((masked_value & sign_mask) == mnos::cpu::Qword{0})
+    {
+        return masked_value;
+    }
+
+    return masked_value | ~value_mask;
 }
 
 class ArithmeticFlagUpdater
@@ -34,7 +84,7 @@ public:
         const mnos::cpu::Qword right,
         const mnos::cpu::Qword result) noexcept
     {
-        flags.update_zero_sign_from_qword(result);
+        flags.update_zero_sign_parity_from_qword(result);
         flags.write(mnos::cpu::FlagId::CF, result < left);
         flags.write(
             mnos::cpu::FlagId::OF,
@@ -48,12 +98,41 @@ public:
         const mnos::cpu::Qword right,
         const mnos::cpu::Qword result) noexcept
     {
-        flags.update_zero_sign_from_qword(result);
+        flags.update_zero_sign_parity_from_qword(result);
         flags.write(mnos::cpu::FlagId::CF, left < right);
         flags.write(
             mnos::cpu::FlagId::OF,
             has_qword_sign_bit(left) != has_qword_sign_bit(right) &&
                 has_qword_sign_bit(result) != has_qword_sign_bit(left));
+    }
+
+    static void update_inc(
+        mnos::cpu::Rflags& flags,
+        const mnos::cpu::Qword left,
+        const mnos::cpu::Qword result) noexcept
+    {
+        flags.update_zero_sign_parity_from_qword(result);
+        flags.write(mnos::cpu::FlagId::OF, !has_qword_sign_bit(left) && has_qword_sign_bit(result));
+    }
+
+    static void update_dec(
+        mnos::cpu::Rflags& flags,
+        const mnos::cpu::Qword left,
+        const mnos::cpu::Qword result) noexcept
+    {
+        flags.update_zero_sign_parity_from_qword(result);
+        flags.write(mnos::cpu::FlagId::OF, has_qword_sign_bit(left) && !has_qword_sign_bit(result));
+    }
+};
+
+class LogicalFlagUpdater
+{
+public:
+    static void update(mnos::cpu::Rflags& flags, const mnos::cpu::Qword result) noexcept
+    {
+        flags.update_zero_sign_parity_from_qword(result);
+        flags.write(mnos::cpu::FlagId::CF, false);
+        flags.write(mnos::cpu::FlagId::OF, false);
     }
 };
 }
@@ -262,6 +341,15 @@ void Executor::execute_instruction(
     case Opcode::MOV:
         this->execute_mov(state, memory_bus, instruction, context);
         return;
+    case Opcode::MOVSX:
+        this->execute_movsx(state, memory_bus, instruction, context);
+        return;
+    case Opcode::MOVZX:
+        this->execute_movzx(state, memory_bus, instruction, context);
+        return;
+    case Opcode::LEA:
+        this->execute_lea(state, instruction, context);
+        return;
     case Opcode::ADD:
         this->execute_add(state, memory_bus, instruction, context);
         return;
@@ -271,6 +359,36 @@ void Executor::execute_instruction(
     case Opcode::CMP:
         this->execute_cmp(state, memory_bus, instruction, context);
         return;
+    case Opcode::INC:
+        this->execute_inc(state, memory_bus, instruction, context);
+        return;
+    case Opcode::DEC:
+        this->execute_dec(state, memory_bus, instruction, context);
+        return;
+    case Opcode::AND:
+        this->execute_and(state, memory_bus, instruction, context);
+        return;
+    case Opcode::OR:
+        this->execute_or(state, memory_bus, instruction, context);
+        return;
+    case Opcode::XOR:
+        this->execute_xor(state, memory_bus, instruction, context);
+        return;
+    case Opcode::TEST:
+        this->execute_test(state, memory_bus, instruction, context);
+        return;
+    case Opcode::PUSH:
+        this->execute_push(state, memory_bus, instruction, context);
+        return;
+    case Opcode::POP:
+        this->execute_pop(state, memory_bus, instruction, context);
+        return;
+    case Opcode::CALL:
+        this->execute_call(state, memory_bus, instruction, context);
+        return;
+    case Opcode::RET:
+        this->execute_ret(state, memory_bus, context);
+        return;
     case Opcode::JMP:
         this->execute_jmp(state, memory_bus, instruction, context);
         return;
@@ -279,6 +397,15 @@ void Executor::execute_instruction(
         return;
     case Opcode::JNE:
         this->execute_jne(state, memory_bus, instruction, context);
+        return;
+    case Opcode::JCC:
+        this->execute_jcc(state, memory_bus, instruction, context);
+        return;
+    case Opcode::SETCC:
+        this->execute_setcc(state, memory_bus, instruction, context);
+        return;
+    case Opcode::CMOVCC:
+        this->execute_cmovcc(state, memory_bus, instruction, context);
         return;
     case Opcode::HLT:
         this->execute_hlt(state, context);
@@ -300,6 +427,46 @@ void Executor::execute_mov(
         memory_bus,
         instruction.first_operand(),
         this->read_operand(state, memory_bus, instruction.second_operand()));
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_movsx(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_register_operand(instruction.first_operand());
+    const Qword source = this->read_operand(state, memory_bus, instruction.second_operand());
+    const DataSize source_size = instruction.second_operand().is_register()
+        ? instruction.second_operand().register_data_size()
+        : instruction.second_operand().memory_data_size();
+    this->write_register_operand(state, instruction.first_operand(), sign_extend_value(source, source_size));
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_movzx(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_register_operand(instruction.first_operand());
+    this->write_register_operand(
+        state,
+        instruction.first_operand(),
+        this->read_operand(state, memory_bus, instruction.second_operand()));
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_lea(CpuState& state, const Instruction& instruction, const ExecutionContext& context)
+{
+    this->require_register_operand(instruction.first_operand());
+    this->require_memory_operand(instruction.second_operand());
+    this->write_register_operand(
+        state,
+        instruction.first_operand(),
+        this->calculate_effective_address(state, instruction.second_operand()));
     this->set_next_rip(state, context);
 }
 
@@ -347,6 +514,127 @@ void Executor::execute_cmp(
     this->set_next_rip(state, context);
 }
 
+void Executor::execute_inc(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword result = left + EXECUTOR_ONE_BIT;
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    ArithmeticFlagUpdater::update_inc(state.flags(), left, result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_dec(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword result = left - EXECUTOR_ONE_BIT;
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    ArithmeticFlagUpdater::update_dec(state.flags(), left, result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_and(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    const Qword result =
+        this->read_operand(state, memory_bus, instruction.first_operand()) &
+        this->read_operand(state, memory_bus, instruction.second_operand());
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    LogicalFlagUpdater::update(state.flags(), result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_or(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    const Qword result =
+        this->read_operand(state, memory_bus, instruction.first_operand()) |
+        this->read_operand(state, memory_bus, instruction.second_operand());
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    LogicalFlagUpdater::update(state.flags(), result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_xor(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    const Qword result =
+        this->read_operand(state, memory_bus, instruction.first_operand()) ^
+        this->read_operand(state, memory_bus, instruction.second_operand());
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    LogicalFlagUpdater::update(state.flags(), result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_test(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    const Qword result =
+        this->read_operand(state, memory_bus, instruction.first_operand()) &
+        this->read_operand(state, memory_bus, instruction.second_operand());
+    LogicalFlagUpdater::update(state.flags(), result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_push(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->push_qword(state, memory_bus, this->read_operand(state, memory_bus, instruction.first_operand()));
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_pop(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->write_operand(state, memory_bus, instruction.first_operand(), this->pop_qword(state, memory_bus));
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_call(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    const Qword target = this->read_operand(state, memory_bus, instruction.first_operand());
+    this->push_qword(state, memory_bus, context.next_rip);
+    this->jump_to(state, context, target);
+}
+
+void Executor::execute_ret(CpuState& state, MemoryBus* const memory_bus, const ExecutionContext& context)
+{
+    this->jump_to(state, context, this->pop_qword(state, memory_bus));
+}
+
 void Executor::execute_jmp(
     CpuState& state,
     MemoryBus* const memory_bus,
@@ -384,6 +672,53 @@ void Executor::execute_jne(
     this->set_next_rip(state, context);
 }
 
+void Executor::execute_jcc(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    if (this->evaluate_condition(state, instruction.condition_code()))
+    {
+        this->jump_to(state, context, this->read_operand(state, memory_bus, instruction.first_operand()));
+        return;
+    }
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_setcc(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->write_operand(
+        state,
+        memory_bus,
+        instruction.first_operand(),
+        this->evaluate_condition(state, instruction.condition_code()) ? EXECUTOR_SETCC_TRUE_VALUE
+                                                                      : EXECUTOR_SETCC_FALSE_VALUE);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_cmovcc(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_register_operand(instruction.first_operand());
+    this->require_at_most_one_memory_operand(instruction);
+    if (this->evaluate_condition(state, instruction.condition_code()))
+    {
+        this->write_register_operand(
+            state,
+            instruction.first_operand(),
+            this->read_operand(state, memory_bus, instruction.second_operand()));
+    }
+    this->set_next_rip(state, context);
+}
+
 void Executor::execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept
 {
     this->set_next_rip(state, context);
@@ -394,7 +729,7 @@ Qword Executor::read_operand(const CpuState& state, MemoryBus* const memory_bus,
 {
     if (operand.is_register())
     {
-        return state.registers().read(operand.register_id());
+        return this->read_register_operand(state, operand);
     }
 
     if (operand.is_immediate())
@@ -418,7 +753,7 @@ void Executor::write_operand(
 {
     if (operand.is_register())
     {
-        state.registers().write(operand.register_id(), value);
+        this->write_register_operand(state, operand, value);
         return;
     }
 
@@ -429,6 +764,25 @@ void Executor::write_operand(
     }
 
     throw std::logic_error{EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE};
+}
+
+Qword Executor::read_register_operand(const CpuState& state, const Operand& operand) const
+{
+    return state.registers().read(operand.register_id()) & mask_for_data_size(operand.register_data_size());
+}
+
+void Executor::write_register_operand(CpuState& state, const Operand& operand, const Qword value) const
+{
+    const DataSize data_size = operand.register_data_size();
+    const Qword value_mask = mask_for_data_size(data_size);
+    if (data_size == DataSize::QWORD || data_size == DataSize::DWORD)
+    {
+        state.registers().write(operand.register_id(), value & value_mask);
+        return;
+    }
+
+    const Qword preserved_bits = state.registers().read(operand.register_id()) & ~value_mask;
+    state.registers().write(operand.register_id(), preserved_bits | (value & value_mask));
 }
 
 Qword Executor::read_memory_operand(
@@ -451,6 +805,21 @@ void Executor::write_memory_operand(
         this->calculate_effective_address(state, operand),
         operand.memory_data_size(),
         value);
+}
+
+void Executor::push_qword(CpuState& state, MemoryBus* const memory_bus, const Qword value) const
+{
+    const Qword stack_pointer = state.registers().read(RegisterId::RSP) - EXECUTOR_STACK_SLOT_BYTES;
+    state.registers().write(RegisterId::RSP, stack_pointer);
+    this->require_memory_bus(memory_bus).write(stack_pointer, DataSize::QWORD, value);
+}
+
+Qword Executor::pop_qword(CpuState& state, MemoryBus* const memory_bus) const
+{
+    const Qword stack_pointer = state.registers().read(RegisterId::RSP);
+    const Qword value = this->require_memory_bus(memory_bus).read(stack_pointer, DataSize::QWORD);
+    state.registers().write(RegisterId::RSP, stack_pointer + EXECUTOR_STACK_SLOT_BYTES);
+    return value;
 }
 
 MemoryBus& Executor::require_memory_bus(MemoryBus* const memory_bus) const
@@ -487,11 +856,76 @@ Address64 Executor::calculate_effective_address(const CpuState& state, const Ope
     return effective_address + displacement;
 }
 
+bool Executor::evaluate_condition(const CpuState& state, const ConditionCode condition) const
+{
+    const bool carry = state.flags().read(FlagId::CF);
+    const bool parity = state.flags().read(FlagId::PF);
+    const bool zero = state.flags().read(FlagId::ZF);
+    const bool sign = state.flags().read(FlagId::SF);
+    const bool overflow = state.flags().read(FlagId::OF);
+
+    switch (condition)
+    {
+    case ConditionCode::O:
+        return overflow;
+    case ConditionCode::NO:
+        return !overflow;
+    case ConditionCode::B:
+        return carry;
+    case ConditionCode::AE:
+        return !carry;
+    case ConditionCode::E:
+        return zero;
+    case ConditionCode::NE:
+        return !zero;
+    case ConditionCode::BE:
+        return carry || zero;
+    case ConditionCode::A:
+        return !carry && !zero;
+    case ConditionCode::S:
+        return sign;
+    case ConditionCode::NS:
+        return !sign;
+    case ConditionCode::P:
+        return parity;
+    case ConditionCode::NP:
+        return !parity;
+    case ConditionCode::L:
+        return sign != overflow;
+    case ConditionCode::GE:
+        return sign == overflow;
+    case ConditionCode::LE:
+        return zero || (sign != overflow);
+    case ConditionCode::G:
+        return !zero && (sign == overflow);
+    case ConditionCode::COUNT:
+        break;
+    }
+
+    throw std::logic_error{EXECUTOR_INVALID_CONDITION_CODE_MESSAGE};
+}
+
 void Executor::require_at_most_one_memory_operand(const Instruction& instruction) const
 {
     if (instruction.first_operand().is_memory() && instruction.second_operand().is_memory())
     {
         throw std::logic_error{EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE};
+    }
+}
+
+void Executor::require_register_operand(const Operand& operand) const
+{
+    if (!operand.is_register())
+    {
+        throw std::logic_error{EXECUTOR_REGISTER_OPERAND_REQUIRED_MESSAGE};
+    }
+}
+
+void Executor::require_memory_operand(const Operand& operand) const
+{
+    if (!operand.is_memory())
+    {
+        throw std::logic_error{EXECUTOR_MEMORY_OPERAND_REQUIRED_MESSAGE};
     }
 }
 

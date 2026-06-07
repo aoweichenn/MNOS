@@ -79,6 +79,7 @@ class Operand
 public:
     [[nodiscard]] static Operand none() noexcept;
     [[nodiscard]] static Operand reg(RegisterId id);
+    [[nodiscard]] static Operand reg(RegisterId id, DataSize data_size);
     [[nodiscard]] static Operand imm(SignedQword value) noexcept;
     [[nodiscard]] static Operand mem(MemoryAddress address, DataSize data_size);
     [[nodiscard]] static Operand mem(RegisterId base_register, SignedQword displacement, DataSize data_size);
@@ -97,6 +98,7 @@ public:
     [[nodiscard]] bool is_memory() const noexcept;
 
     [[nodiscard]] RegisterId register_id() const;
+    [[nodiscard]] DataSize register_data_size() const;
     [[nodiscard]] SignedQword immediate_value() const;
     [[nodiscard]] const MemoryAddress& memory_address() const;
     [[nodiscard]] RegisterId memory_base_register() const;
@@ -113,6 +115,7 @@ private:
     struct RegisterPayload
     {
         RegisterId id;
+        DataSize data_size;
     };
 
     struct ImmediatePayload

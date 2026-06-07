@@ -105,6 +105,20 @@ private:
         MemoryBus* memory_bus,
         const Instruction& instruction,
         const ExecutionContext& context);
+    void execute_movsx(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_movzx(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_lea(
+        CpuState& state,
+        const Instruction& instruction,
+        const ExecutionContext& context);
     void execute_add(
         CpuState& state,
         MemoryBus* memory_bus,
@@ -120,6 +134,52 @@ private:
         MemoryBus* memory_bus,
         const Instruction& instruction,
         const ExecutionContext& context);
+    void execute_inc(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_dec(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_and(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_or(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_xor(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_test(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_push(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_pop(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_call(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_ret(CpuState& state, MemoryBus* memory_bus, const ExecutionContext& context);
     void execute_jmp(
         CpuState& state,
         MemoryBus* memory_bus,
@@ -135,18 +195,40 @@ private:
         MemoryBus* memory_bus,
         const Instruction& instruction,
         const ExecutionContext& context);
+    void execute_jcc(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_setcc(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_cmovcc(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
     void execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept;
 
     [[nodiscard]] Qword read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
     void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
+    [[nodiscard]] Qword read_register_operand(const CpuState& state, const Operand& operand) const;
+    void write_register_operand(CpuState& state, const Operand& operand, Qword value) const;
     [[nodiscard]] Qword read_memory_operand(
         const CpuState& state,
         MemoryBus* memory_bus,
         const Operand& operand) const;
     void write_memory_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
+    void push_qword(CpuState& state, MemoryBus* memory_bus, Qword value) const;
+    [[nodiscard]] Qword pop_qword(CpuState& state, MemoryBus* memory_bus) const;
     [[nodiscard]] MemoryBus& require_memory_bus(MemoryBus* memory_bus) const;
     [[nodiscard]] Address64 calculate_effective_address(const CpuState& state, const Operand& operand) const;
+    [[nodiscard]] bool evaluate_condition(const CpuState& state, ConditionCode condition) const;
     void require_at_most_one_memory_operand(const Instruction& instruction) const;
+    void require_register_operand(const Operand& operand) const;
+    void require_memory_operand(const Operand& operand) const;
     void set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept;
     void jump_to(CpuState& state, const ExecutionContext& context, InstructionPointer target) const;
 

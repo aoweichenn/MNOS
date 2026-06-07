@@ -9,6 +9,7 @@ namespace mnos::cpu
 enum class FlagId : std::uint8_t
 {
     CF,    // Carry Flag
+    PF,    // Parity Flag
     ZF,    // Zero Flag
     SF,    // Sign Flag
     OF,    // Overflow Flag
@@ -17,6 +18,7 @@ enum class FlagId : std::uint8_t
 
 inline constexpr std::size_t FLAG_ID_COUNT = static_cast<std::size_t>(FlagId::COUNT);
 inline constexpr std::size_t FLAG_ID_CF_BIT_INDEX = 0;
+inline constexpr std::size_t FLAG_ID_PF_BIT_INDEX = 2;
 inline constexpr std::size_t FLAG_ID_ZF_BIT_INDEX = 6;
 inline constexpr std::size_t FLAG_ID_SF_BIT_INDEX = 7;
 inline constexpr std::size_t FLAG_ID_OF_BIT_INDEX = 11;

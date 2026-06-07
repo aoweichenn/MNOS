@@ -7,6 +7,7 @@
 
 #include <mnos/cpu/decode/decoder.hpp>
 #include <mnos/cpu/flags/id.hpp>
+#include <mnos/cpu/instruction/condition_code.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/register/id.hpp>
 
@@ -233,6 +234,148 @@ TEST(DecoderTest, DecodesRelativeBranches)
     EXPECT_THAT(jmp_rel32.instruction.first_operand().immediate_value(), Eq(TEST_JMP_REL32_FORWARD_TARGET));
 }
 
+TEST(DecoderTest, DecodesStackControlAndLeaForms)
+{
+    cpu::Decoder decoder;
+
+    const cpu::DecodedInstruction push_rax = decoder.decode(cpu::ExecutableImage{0x50}, TEST_RIP_ZERO);
+    EXPECT_THAT(push_rax.instruction.opcode(), Eq(cpu::Opcode::PUSH));
+    EXPECT_THAT(push_rax.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+
+    const cpu::DecodedInstruction push_r8 = decoder.decode(cpu::ExecutableImage{0x41, 0x50}, TEST_RIP_ZERO);
+    EXPECT_THAT(push_r8.instruction.first_operand().register_id(), Eq(cpu::RegisterId::R8));
+
+    const cpu::DecodedInstruction push_imm32 =
+        decoder.decode(cpu::ExecutableImage{0x68, 0x2A, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(push_imm32.instruction.opcode(), Eq(cpu::Opcode::PUSH));
+    EXPECT_THAT(push_imm32.instruction.first_operand().immediate_value(), Eq(TEST_IMMEDIATE_VALUE));
+
+    const cpu::DecodedInstruction pop_mem =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x8F, 0x45, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(pop_mem.instruction.opcode(), Eq(cpu::Opcode::POP));
+    EXPECT_TRUE(pop_mem.instruction.first_operand().is_memory());
+    EXPECT_THAT(pop_mem.instruction.first_operand().memory_base_register(), Eq(cpu::RegisterId::RBP));
+
+    const cpu::DecodedInstruction call_rel32 =
+        decoder.decode(cpu::ExecutableImage{0xE8, 0x05, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(call_rel32.instruction.opcode(), Eq(cpu::Opcode::CALL));
+    EXPECT_THAT(call_rel32.instruction.first_operand().immediate_value(), Eq(cpu::SignedQword{10}));
+
+    const cpu::DecodedInstruction ret = decoder.decode(cpu::ExecutableImage{0xC3}, TEST_RIP_ZERO);
+    EXPECT_THAT(ret.instruction.opcode(), Eq(cpu::Opcode::RET));
+
+    const cpu::DecodedInstruction call_rax =
+        decoder.decode(cpu::ExecutableImage{0x48, 0xFF, 0xD0}, TEST_RIP_ZERO);
+    EXPECT_THAT(call_rax.instruction.opcode(), Eq(cpu::Opcode::CALL));
+    EXPECT_THAT(call_rax.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+
+    const cpu::DecodedInstruction push_mem =
+        decoder.decode(cpu::ExecutableImage{0x48, 0xFF, 0x75, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(push_mem.instruction.opcode(), Eq(cpu::Opcode::PUSH));
+    EXPECT_TRUE(push_mem.instruction.first_operand().is_memory());
+
+    const cpu::DecodedInstruction lea =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x8D, 0x44, 0x8D, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(lea.instruction.opcode(), Eq(cpu::Opcode::LEA));
+    EXPECT_THAT(lea.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+    EXPECT_THAT(lea.instruction.second_operand().memory_base_register(), Eq(cpu::RegisterId::RBP));
+    EXPECT_THAT(lea.instruction.second_operand().memory_index_register(), Eq(cpu::RegisterId::RCX));
+    EXPECT_THAT(lea.instruction.second_operand().memory_scale(), Eq(cpu::MEMORY_ADDRESS_SCALE_4));
+}
+
+TEST(DecoderTest, DecodesLogicalIncDecAndExtensionLoadForms)
+{
+    cpu::Decoder decoder;
+
+    const cpu::DecodedInstruction and_reg =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x21, 0xD8}, TEST_RIP_ZERO);
+    EXPECT_THAT(and_reg.instruction.opcode(), Eq(cpu::Opcode::AND));
+    EXPECT_THAT(and_reg.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+
+    const cpu::DecodedInstruction or_reg =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x0B, 0xD8}, TEST_RIP_ZERO);
+    EXPECT_THAT(or_reg.instruction.opcode(), Eq(cpu::Opcode::OR));
+    EXPECT_THAT(or_reg.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RBX));
+
+    const cpu::DecodedInstruction or_imm =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x81, 0xC8, 0x2A, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(or_imm.instruction.opcode(), Eq(cpu::Opcode::OR));
+    EXPECT_THAT(or_imm.instruction.second_operand().immediate_value(), Eq(TEST_IMMEDIATE_VALUE));
+
+    const cpu::DecodedInstruction xor_reg =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x33, 0xD8}, TEST_RIP_ZERO);
+    EXPECT_THAT(xor_reg.instruction.opcode(), Eq(cpu::Opcode::XOR));
+    EXPECT_THAT(xor_reg.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RBX));
+
+    const cpu::DecodedInstruction xor_imm =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x81, 0xF0, 0x0F, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(xor_imm.instruction.opcode(), Eq(cpu::Opcode::XOR));
+
+    const cpu::DecodedInstruction test_reg =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x85, 0xD8}, TEST_RIP_ZERO);
+    EXPECT_THAT(test_reg.instruction.opcode(), Eq(cpu::Opcode::TEST));
+
+    const cpu::DecodedInstruction test_imm =
+        decoder.decode(cpu::ExecutableImage{0x48, 0xF7, 0xC0, 0x2A, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(test_imm.instruction.opcode(), Eq(cpu::Opcode::TEST));
+    EXPECT_THAT(test_imm.instruction.second_operand().immediate_value(), Eq(TEST_IMMEDIATE_VALUE));
+
+    const cpu::DecodedInstruction inc_mem =
+        decoder.decode(cpu::ExecutableImage{0x48, 0xFF, 0x45, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(inc_mem.instruction.opcode(), Eq(cpu::Opcode::INC));
+    EXPECT_TRUE(inc_mem.instruction.first_operand().is_memory());
+
+    const cpu::DecodedInstruction dec_rax =
+        decoder.decode(cpu::ExecutableImage{0x48, 0xFF, 0xC8}, TEST_RIP_ZERO);
+    EXPECT_THAT(dec_rax.instruction.opcode(), Eq(cpu::Opcode::DEC));
+    EXPECT_THAT(dec_rax.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+
+    const cpu::DecodedInstruction movzx_byte =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x0F, 0xB6, 0x45, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(movzx_byte.instruction.opcode(), Eq(cpu::Opcode::MOVZX));
+    EXPECT_THAT(movzx_byte.instruction.second_operand().memory_data_size(), Eq(cpu::DataSize::BYTE));
+
+    const cpu::DecodedInstruction movsx_word =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x0F, 0xBF, 0x5D, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(movsx_word.instruction.opcode(), Eq(cpu::Opcode::MOVSX));
+    EXPECT_THAT(movsx_word.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RBX));
+    EXPECT_THAT(movsx_word.instruction.second_operand().memory_data_size(), Eq(cpu::DataSize::WORD));
+
+    const cpu::DecodedInstruction movsxd =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x63, 0x45, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(movsxd.instruction.opcode(), Eq(cpu::Opcode::MOVSX));
+    EXPECT_THAT(movsxd.instruction.second_operand().memory_data_size(), Eq(cpu::DataSize::DWORD));
+}
+
+TEST(DecoderTest, DecodesConditionCodeOperations)
+{
+    cpu::Decoder decoder;
+
+    const cpu::DecodedInstruction jo_rel8 = decoder.decode(cpu::ExecutableImage{0x70, 0x03, 0xF4}, TEST_RIP_ZERO);
+    EXPECT_THAT(jo_rel8.instruction.opcode(), Eq(cpu::Opcode::JCC));
+    EXPECT_THAT(jo_rel8.instruction.condition_code(), Eq(cpu::ConditionCode::O));
+    EXPECT_THAT(jo_rel8.instruction.first_operand().immediate_value(), Eq(TEST_REL8_FORWARD_TARGET));
+
+    const cpu::DecodedInstruction jg_rel32 =
+        decoder.decode(cpu::ExecutableImage{0x0F, 0x8F, 0x05, 0x00, 0x00, 0x00}, TEST_RIP_ZERO);
+    EXPECT_THAT(jg_rel32.instruction.opcode(), Eq(cpu::Opcode::JCC));
+    EXPECT_THAT(jg_rel32.instruction.condition_code(), Eq(cpu::ConditionCode::G));
+    EXPECT_THAT(jg_rel32.instruction.first_operand().immediate_value(), Eq(TEST_REL32_FORWARD_TARGET));
+
+    const cpu::DecodedInstruction setg_mem =
+        decoder.decode(cpu::ExecutableImage{0x0F, 0x9F, 0x45, 0x08}, TEST_RIP_ZERO);
+    EXPECT_THAT(setg_mem.instruction.opcode(), Eq(cpu::Opcode::SETCC));
+    EXPECT_THAT(setg_mem.instruction.condition_code(), Eq(cpu::ConditionCode::G));
+    EXPECT_THAT(setg_mem.instruction.first_operand().memory_data_size(), Eq(cpu::DataSize::BYTE));
+
+    const cpu::DecodedInstruction cmovl =
+        decoder.decode(cpu::ExecutableImage{0x48, 0x0F, 0x4C, 0xC3}, TEST_RIP_ZERO);
+    EXPECT_THAT(cmovl.instruction.opcode(), Eq(cpu::Opcode::CMOVCC));
+    EXPECT_THAT(cmovl.instruction.condition_code(), Eq(cpu::ConditionCode::L));
+    EXPECT_THAT(cmovl.instruction.first_operand().register_id(), Eq(cpu::RegisterId::RAX));
+    EXPECT_THAT(cmovl.instruction.second_operand().register_id(), Eq(cpu::RegisterId::RBX));
+}
+
 TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
 {
     cpu::Decoder decoder;
@@ -242,10 +385,20 @@ TEST(DecoderTest, RejectsTruncatedUnsupportedAndMissingRexWForms)
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0xB8}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0xB8, 0x2A}, TEST_RIP_ZERO)), cpu::DecodeError);
+    EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x8D, 0x45, 0x00}, TEST_RIP_ZERO)), cpu::DecodeError);
+    EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0x44, 0xC3}, TEST_RIP_ZERO)), cpu::DecodeError);
+    EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0xB6, 0xC3}, TEST_RIP_ZERO)), cpu::DecodeError);
+    EXPECT_THROW(static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x8D, 0xC0}, TEST_RIP_ZERO)), cpu::DecodeError);
     EXPECT_THROW(
-        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0x80, 0x00, 0x00, 0x00, 0x00}, TEST_RIP_ZERO)),
+        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x0F, 0xA0}, TEST_RIP_ZERO)),
         cpu::DecodeError);
     EXPECT_THROW(
-        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x81, 0xC8, 0x01, 0x00, 0x00, 0x00}, TEST_RIP_ZERO)),
+        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x81, 0xD0, 0x01, 0x00, 0x00, 0x00}, TEST_RIP_ZERO)),
+        cpu::DecodeError);
+    EXPECT_THROW(
+        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0x8F, 0xC8}, TEST_RIP_ZERO)),
+        cpu::DecodeError);
+    EXPECT_THROW(
+        static_cast<void>(decoder.decode(cpu::ExecutableImage{0x48, 0xFF, 0xD8}, TEST_RIP_ZERO)),
         cpu::DecodeError);
 }

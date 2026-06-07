@@ -98,6 +98,7 @@ set(
         src/cpu/register/bank.cpp
         src/cpu/flags/id.cpp
         src/cpu/flags/rflags.cpp
+        src/cpu/instruction/condition_code.cpp
         src/cpu/instruction/opcode.cpp
         src/cpu/instruction/operand.cpp
         src/cpu/instruction/instruction.cpp
