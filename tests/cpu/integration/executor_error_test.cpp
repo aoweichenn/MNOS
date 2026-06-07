@@ -32,7 +32,7 @@ constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
 TEST(ExecutorErrorTest, RejectsInvalidJumpTarget)
 {
     cpu::Program invalid_jump_program{
-        cpu_support::make_jump_imm(cpu::Opcode::JMP, TEST_MEMORY_DISPLACEMENT),
+        cpu_support::make_jmp_imm(TEST_MEMORY_DISPLACEMENT),
     };
     cpu::CpuState invalid_jump_state;
     cpu::Executor executor;
@@ -114,7 +114,7 @@ TEST(ExecutorErrorTest, RejectsInvalidDestinationAndNoneOperandReads)
 TEST(ExecutorErrorTest, EnforcesMaxStepLimit)
 {
     cpu::Program loop_program{
-        cpu_support::make_jump_imm(cpu::Opcode::JMP, TEST_LOOP_TARGET),
+        cpu_support::make_jmp_imm(TEST_LOOP_TARGET),
     };
     cpu::CpuState loop_state;
     cpu::Executor executor;

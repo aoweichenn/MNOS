@@ -96,7 +96,7 @@ TEST(ExecutorProgramTest, RunsConditionalBranchProgram)
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
     program.push_back(cpu_support::make_cmp_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
-    program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JE, TEST_BRANCH_TARGET));
+    program.push_back(cpu_support::make_je_imm(TEST_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_EXECUTOR_EXPECTED_VALUE));
     program.push_back(cpu::Instruction::make_hlt());
@@ -117,7 +117,7 @@ TEST(ExecutorProgramTest, LetsJneFallThroughWhenZeroFlagIsSet)
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
     program.push_back(cpu_support::make_cmp_imm(cpu::RegisterId::RAX, TEST_PROGRAM_INITIAL_VALUE));
-    program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JNE, TEST_BRANCH_TARGET));
+    program.push_back(cpu_support::make_jne_imm(TEST_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBX, TEST_FALLTHROUGH_BRANCH_VALUE));
     program.push_back(cpu::Instruction::make_hlt());
 
@@ -133,9 +133,9 @@ TEST(ExecutorProgramTest, RunsUnconditionalJumpProgram)
 {
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
-    program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JMP, TEST_BRANCH_TARGET));
+    program.push_back(cpu_support::make_jmp_imm(TEST_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
-    program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JMP, TEST_JUMP_END_TARGET));
+    program.push_back(cpu_support::make_jmp_imm(TEST_JUMP_END_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
     program.push_back(cpu::Instruction::make_hlt());
@@ -228,7 +228,7 @@ TEST(ExecutorProgramTest, RunsArithmeticAgainstMemoryOperands)
     program.push_back(cpu::Instruction::make_cmp(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
         cpu::Operand::imm(TEST_MEMORY_ADD_EXPECTED_VALUE)));
-    program.push_back(cpu_support::make_jump_imm(cpu::Opcode::JE, TEST_MEMORY_BRANCH_TARGET));
+    program.push_back(cpu_support::make_je_imm(TEST_MEMORY_BRANCH_TARGET));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_SKIPPED_BRANCH_VALUE));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_EXECUTOR_EXPECTED_VALUE));
     program.push_back(cpu::Instruction::make_hlt());

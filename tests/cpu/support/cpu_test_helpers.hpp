@@ -1,11 +1,8 @@
 #pragma once
 
-#include <stdexcept>
-
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/instruction/instruction.hpp>
-#include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/register/id.hpp>
 
@@ -39,26 +36,19 @@ namespace cpu = mnos::cpu;
     return cpu::Instruction::make_cmp(cpu::Operand::reg(left), cpu::Operand::imm(right));
 }
 
-[[nodiscard]] inline cpu::Instruction make_jump_imm(const cpu::Opcode opcode, const cpu::SignedQword target)
+[[nodiscard]] inline cpu::Instruction make_jmp_imm(const cpu::SignedQword target)
 {
-    switch (opcode)
-    {
-    case cpu::Opcode::JMP:
-        return cpu::Instruction::make_jmp(cpu::Operand::imm(target));
-    case cpu::Opcode::JE:
-        return cpu::Instruction::make_je(cpu::Operand::imm(target));
-    case cpu::Opcode::JNE:
-        return cpu::Instruction::make_jne(cpu::Operand::imm(target));
-    case cpu::Opcode::MOV:
-    case cpu::Opcode::ADD:
-    case cpu::Opcode::SUB:
-    case cpu::Opcode::CMP:
-    case cpu::Opcode::HLT:
-    case cpu::Opcode::COUNT:
-        throw std::logic_error{"test helper requires a jump opcode"};
-    }
+    return cpu::Instruction::make_jmp(cpu::Operand::imm(target));
+}
 
-    throw std::logic_error{"test helper received unknown opcode"};
+[[nodiscard]] inline cpu::Instruction make_je_imm(const cpu::SignedQword target)
+{
+    return cpu::Instruction::make_je(cpu::Operand::imm(target));
+}
+
+[[nodiscard]] inline cpu::Instruction make_jne_imm(const cpu::SignedQword target)
+{
+    return cpu::Instruction::make_jne(cpu::Operand::imm(target));
 }
 
 [[nodiscard]] inline cpu::Operand make_mem(

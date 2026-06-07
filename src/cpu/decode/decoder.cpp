@@ -81,6 +81,20 @@ struct SibByte
     std::uint8_t base = 0;
 };
 
+enum class AluInstructionKind : std::uint8_t
+{
+    ADD,
+    SUB,
+    CMP
+};
+
+enum class JumpInstructionKind : std::uint8_t
+{
+    JMP,
+    JE,
+    JNE
+};
+
 class DecodeCursor
 {
 public:
@@ -329,53 +343,35 @@ void require_rex_w(const RexPrefix& rex)
 }
 
 [[nodiscard]] mnos::cpu::Instruction make_alu_instruction(
-    const mnos::cpu::Opcode opcode,
+    const AluInstructionKind kind,
     mnos::cpu::Operand destination,
     mnos::cpu::Operand source)
 {
-    switch (opcode)
+    switch (kind)
     {
-    case mnos::cpu::Opcode::ADD:
+    case AluInstructionKind::ADD:
         return mnos::cpu::Instruction::make_add(std::move(destination), std::move(source));
-    case mnos::cpu::Opcode::SUB:
+    case AluInstructionKind::SUB:
         return mnos::cpu::Instruction::make_sub(std::move(destination), std::move(source));
-    case mnos::cpu::Opcode::CMP:
+    case AluInstructionKind::CMP:
         return mnos::cpu::Instruction::make_cmp(std::move(destination), std::move(source));
-    case mnos::cpu::Opcode::MOV:
-    case mnos::cpu::Opcode::JMP:
-    case mnos::cpu::Opcode::JE:
-    case mnos::cpu::Opcode::JNE:
-    case mnos::cpu::Opcode::HLT:
-    case mnos::cpu::Opcode::COUNT:
-        throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_OPCODE_MESSAGE};
     }
-
-    throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_OPCODE_MESSAGE};
 }
 
 [[nodiscard]] mnos::cpu::Instruction make_jump_instruction(
-    const mnos::cpu::Opcode opcode,
+    const JumpInstructionKind kind,
     const mnos::cpu::InstructionPointer target)
 {
     const auto immediate = static_cast<mnos::cpu::SignedQword>(target);
-    switch (opcode)
+    switch (kind)
     {
-    case mnos::cpu::Opcode::JMP:
+    case JumpInstructionKind::JMP:
         return mnos::cpu::Instruction::make_jmp(mnos::cpu::Operand::imm(immediate));
-    case mnos::cpu::Opcode::JE:
+    case JumpInstructionKind::JE:
         return mnos::cpu::Instruction::make_je(mnos::cpu::Operand::imm(immediate));
-    case mnos::cpu::Opcode::JNE:
+    case JumpInstructionKind::JNE:
         return mnos::cpu::Instruction::make_jne(mnos::cpu::Operand::imm(immediate));
-    case mnos::cpu::Opcode::MOV:
-    case mnos::cpu::Opcode::ADD:
-    case mnos::cpu::Opcode::SUB:
-    case mnos::cpu::Opcode::CMP:
-    case mnos::cpu::Opcode::HLT:
-    case mnos::cpu::Opcode::COUNT:
-        throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_OPCODE_MESSAGE};
     }
-
-    throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_OPCODE_MESSAGE};
 }
 }
 
@@ -425,17 +421,17 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
         else if (opcode == X86_OPCODE_ADD_RM64_R64 || opcode == X86_OPCODE_SUB_RM64_R64 ||
                  opcode == X86_OPCODE_CMP_RM64_R64)
         {
-            const Opcode decoded_opcode = opcode == X86_OPCODE_ADD_RM64_R64
-                ? Opcode::ADD
-                : (opcode == X86_OPCODE_SUB_RM64_R64 ? Opcode::SUB : Opcode::CMP);
-            instruction = make_alu_instruction(decoded_opcode, std::move(rm_operand), std::move(reg_operand));
+            const AluInstructionKind decoded_kind = opcode == X86_OPCODE_ADD_RM64_R64
+                ? AluInstructionKind::ADD
+                : (opcode == X86_OPCODE_SUB_RM64_R64 ? AluInstructionKind::SUB : AluInstructionKind::CMP);
+            instruction = make_alu_instruction(decoded_kind, std::move(rm_operand), std::move(reg_operand));
         }
         else
         {
-            const Opcode decoded_opcode = opcode == X86_OPCODE_ADD_R64_RM64
-                ? Opcode::ADD
-                : (opcode == X86_OPCODE_SUB_R64_RM64 ? Opcode::SUB : Opcode::CMP);
-            instruction = make_alu_instruction(decoded_opcode, std::move(reg_operand), std::move(rm_operand));
+            const AluInstructionKind decoded_kind = opcode == X86_OPCODE_ADD_R64_RM64
+                ? AluInstructionKind::ADD
+                : (opcode == X86_OPCODE_SUB_R64_RM64 ? AluInstructionKind::SUB : AluInstructionKind::CMP);
+            instruction = make_alu_instruction(decoded_kind, std::move(reg_operand), std::move(rm_operand));
         }
     }
     else if (opcode == X86_OPCODE_GROUP1_RM64_IMM32)
@@ -465,15 +461,15 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
     else if (opcode == X86_OPCODE_JMP_REL8 || opcode == X86_OPCODE_JE_REL8 || opcode == X86_OPCODE_JNE_REL8)
     {
         const SignedQword displacement = static_cast<SignedQword>(cursor.read_i8());
-        const Opcode decoded_opcode = opcode == X86_OPCODE_JMP_REL8
-            ? Opcode::JMP
-            : (opcode == X86_OPCODE_JE_REL8 ? Opcode::JE : Opcode::JNE);
-        instruction = make_jump_instruction(decoded_opcode, relative_target(cursor.rip(), displacement));
+        const JumpInstructionKind decoded_kind = opcode == X86_OPCODE_JMP_REL8
+            ? JumpInstructionKind::JMP
+            : (opcode == X86_OPCODE_JE_REL8 ? JumpInstructionKind::JE : JumpInstructionKind::JNE);
+        instruction = make_jump_instruction(decoded_kind, relative_target(cursor.rip(), displacement));
     }
     else if (opcode == X86_OPCODE_JMP_REL32)
     {
         const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
-        instruction = make_jump_instruction(Opcode::JMP, relative_target(cursor.rip(), displacement));
+        instruction = make_jump_instruction(JumpInstructionKind::JMP, relative_target(cursor.rip(), displacement));
     }
     else if (opcode == X86_OPCODE_ESCAPE)
     {
@@ -484,8 +480,9 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
         }
 
         const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
-        const Opcode decoded_opcode = escaped_opcode == X86_OPCODE_JE_REL32 ? Opcode::JE : Opcode::JNE;
-        instruction = make_jump_instruction(decoded_opcode, relative_target(cursor.rip(), displacement));
+        const JumpInstructionKind decoded_kind =
+            escaped_opcode == X86_OPCODE_JE_REL32 ? JumpInstructionKind::JE : JumpInstructionKind::JNE;
+        instruction = make_jump_instruction(decoded_kind, relative_target(cursor.rip(), displacement));
     }
     else
     {
