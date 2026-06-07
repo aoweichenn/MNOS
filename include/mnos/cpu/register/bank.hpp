@@ -4,7 +4,7 @@
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/register/id.hpp>
 
-namespace mnos
+namespace mnos::cpu
 {
 inline constexpr std::size_t REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT = REGISTER_ID_GENERAL_REGISTER_COUNT;
 

@@ -2,7 +2,7 @@
 
 #include <mnos/cpu/instruction/instruction.hpp>
 
-namespace mnos
+namespace mnos::cpu
 {
 Instruction::Instruction(const Opcode opcode, Operand first_operand, Operand second_operand) noexcept :
     opcode_(opcode), first_operand_(std::move(first_operand)), second_operand_(std::move(second_operand))

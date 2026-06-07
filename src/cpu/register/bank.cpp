@@ -7,7 +7,7 @@ namespace
 constexpr const char* REGISTER_BANK_ACCESS_INVALID_ID_MESSAGE = "register bank invalid register id";
 }
 
-namespace mnos
+namespace mnos::cpu
 {
 UQWORD64 RegisterBank::read(const RegisterId id) const
 {

@@ -3,7 +3,7 @@
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/flags/id.hpp>
 
-namespace mnos
+namespace mnos::cpu
 {
 class Rflags
 {

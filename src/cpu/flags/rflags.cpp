@@ -3,22 +3,22 @@
 
 namespace
 {
-constexpr mnos::UQWORD64 RFLAGS_RAW_EMPTY_BITS = mnos::UQWORD64{0};
-constexpr mnos::UQWORD64 RFLAGS_RAW_ONE_BIT = mnos::UQWORD64{1};
-constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::DATA_SIZE_QWORD_BITS - std::size_t{1};
+constexpr mnos::cpu::UQWORD64 RFLAGS_RAW_EMPTY_BITS = mnos::cpu::UQWORD64{0};
+constexpr mnos::cpu::UQWORD64 RFLAGS_RAW_ONE_BIT = mnos::cpu::UQWORD64{1};
+constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1};
 
-[[nodiscard]] mnos::UQWORD64 make_flag_mask(const mnos::FlagId id)
+[[nodiscard]] mnos::cpu::UQWORD64 make_flag_mask(const mnos::cpu::FlagId id)
 {
-    return RFLAGS_RAW_ONE_BIT << mnos::flag_id_to_bit_index(id);
+    return RFLAGS_RAW_ONE_BIT << mnos::cpu::flag_id_to_bit_index(id);
 }
 
-[[nodiscard]] constexpr mnos::UQWORD64 make_qword_sign_mask() noexcept
+[[nodiscard]] constexpr mnos::cpu::UQWORD64 make_qword_sign_mask() noexcept
 {
     return RFLAGS_RAW_ONE_BIT << RFLAGS_QWORD_SIGN_BIT_INDEX;
 }
 }
 
-namespace mnos
+namespace mnos::cpu
 {
 bool Rflags::read(const FlagId id) const
 {

@@ -14,22 +14,24 @@
 #include <mnos/cpu/register/bank.hpp>
 #include <mnos/cpu/register/id.hpp>
 
+namespace cpu = mnos::cpu;
+
 namespace
 {
-constexpr auto TEST_INVALID_DATA_SIZE = static_cast<mnos::DataSize>(mnos::DATA_SIZE_KIND_COUNT);
-constexpr auto TEST_INVALID_REGISTER_ID = static_cast<mnos::RegisterId>(mnos::REGISTER_ID_GENERAL_REGISTER_COUNT);
-constexpr auto TEST_INVALID_FLAG_ID = static_cast<mnos::FlagId>(mnos::FLAG_ID_STATUS_FLAG_COUNT);
-constexpr auto TEST_INVALID_OPCODE = static_cast<mnos::Opcode>(mnos::OPCODE_INSTRUCTION_KIND_COUNT);
-constexpr auto TEST_INVALID_OPERAND_KIND = static_cast<mnos::OperandKind>(mnos::OPERAND_KIND_COUNT);
+constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_KIND_COUNT);
+constexpr auto TEST_INVALID_REGISTER_ID = static_cast<cpu::RegisterId>(cpu::REGISTER_ID_GENERAL_REGISTER_COUNT);
+constexpr auto TEST_INVALID_FLAG_ID = static_cast<cpu::FlagId>(cpu::FLAG_ID_STATUS_FLAG_COUNT);
+constexpr auto TEST_INVALID_OPCODE = static_cast<cpu::Opcode>(cpu::OPCODE_INSTRUCTION_KIND_COUNT);
+constexpr auto TEST_INVALID_OPERAND_KIND = static_cast<cpu::OperandKind>(cpu::OPERAND_KIND_COUNT);
 
-constexpr mnos::UQWORD64 TEST_REGISTER_VALUE = mnos::UQWORD64{0x1234ABCDULL};
-constexpr mnos::UQWORD64 TEST_SECOND_REGISTER_VALUE = mnos::UQWORD64{0xFEDCBA98ULL};
-constexpr mnos::SQWORD64 TEST_IMMEDIATE_VALUE = mnos::SQWORD64{-42};
-constexpr mnos::SQWORD64 TEST_MEMORY_DISPLACEMENT = mnos::SQWORD64{16};
-constexpr mnos::UQWORD64 TEST_ONE_BIT = mnos::UQWORD64{1};
-constexpr mnos::UQWORD64 TEST_QWORD_SIGN_MASK =
-    TEST_ONE_BIT << (mnos::DATA_SIZE_QWORD_BITS - std::size_t{1});
-constexpr mnos::UQWORD64 TEST_CF_MASK = TEST_ONE_BIT << mnos::FLAG_ID_CF_BIT_INDEX;
+constexpr cpu::UQWORD64 TEST_REGISTER_VALUE = cpu::UQWORD64{0x1234ABCDULL};
+constexpr cpu::UQWORD64 TEST_SECOND_REGISTER_VALUE = cpu::UQWORD64{0xFEDCBA98ULL};
+constexpr cpu::SQWORD64 TEST_IMMEDIATE_VALUE = cpu::SQWORD64{-42};
+constexpr cpu::SQWORD64 TEST_MEMORY_DISPLACEMENT = cpu::SQWORD64{16};
+constexpr cpu::UQWORD64 TEST_ONE_BIT = cpu::UQWORD64{1};
+constexpr cpu::UQWORD64 TEST_QWORD_SIGN_MASK =
+    TEST_ONE_BIT << (cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
+constexpr cpu::UQWORD64 TEST_CF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_CF_BIT_INDEX;
 
 void check(const bool condition, const std::string_view message)
 {
@@ -62,38 +64,38 @@ void test_data_size()
 {
     struct DataSizeCase
     {
-        mnos::DataSize size;
+        cpu::DataSize size;
         std::size_t bits;
         std::size_t bytes;
         std::string_view assembly_name;
     };
 
-    constexpr std::array<DataSizeCase, mnos::DATA_SIZE_KIND_COUNT> DATA_SIZE_CASES{
-        DataSizeCase{mnos::DataSize::BYTE, mnos::DATA_SIZE_BYTE_BITS, mnos::DATA_SIZE_BYTE_BYTES, "BYTE"},
-        DataSizeCase{mnos::DataSize::WORD, mnos::DATA_SIZE_WORD_BITS, mnos::DATA_SIZE_WORD_BYTES, "WORD"},
-        DataSizeCase{mnos::DataSize::DWORD, mnos::DATA_SIZE_DWORD_BITS, mnos::DATA_SIZE_DWORD_BYTES, "DWORD"},
-        DataSizeCase{mnos::DataSize::QWORD, mnos::DATA_SIZE_QWORD_BITS, mnos::DATA_SIZE_QWORD_BYTES, "QWORD"}};
+    constexpr std::array<DataSizeCase, cpu::DATA_SIZE_KIND_COUNT> DATA_SIZE_CASES{
+        DataSizeCase{cpu::DataSize::BYTE, cpu::DATA_SIZE_BYTE_BITS, cpu::DATA_SIZE_BYTE_BYTES, "BYTE"},
+        DataSizeCase{cpu::DataSize::WORD, cpu::DATA_SIZE_WORD_BITS, cpu::DATA_SIZE_WORD_BYTES, "WORD"},
+        DataSizeCase{cpu::DataSize::DWORD, cpu::DATA_SIZE_DWORD_BITS, cpu::DATA_SIZE_DWORD_BYTES, "DWORD"},
+        DataSizeCase{cpu::DataSize::QWORD, cpu::DATA_SIZE_QWORD_BITS, cpu::DATA_SIZE_QWORD_BYTES, "QWORD"}};
 
     for (const DataSizeCase test_case : DATA_SIZE_CASES)
     {
-        check(mnos::is_data_size_valid(test_case.size), "data size should be valid");
-        check(mnos::data_size_to_bits(test_case.size) == test_case.bits, "data size bits mismatch");
-        check(mnos::data_size_to_bytes(test_case.size) == test_case.bytes, "data size bytes mismatch");
-        check(mnos::data_size_to_assembly_name(test_case.size) == test_case.assembly_name,
+        check(cpu::is_data_size_valid(test_case.size), "data size should be valid");
+        check(cpu::data_size_to_bits(test_case.size) == test_case.bits, "data size bits mismatch");
+        check(cpu::data_size_to_bytes(test_case.size) == test_case.bytes, "data size bytes mismatch");
+        check(cpu::data_size_to_assembly_name(test_case.size) == test_case.assembly_name,
               "data size assembly name mismatch");
     }
 
-    check(!mnos::is_data_size_valid(TEST_INVALID_DATA_SIZE), "invalid data size should be rejected");
-    check(mnos::data_size_to_assembly_name(TEST_INVALID_DATA_SIZE) == "<invalid>",
+    check(!cpu::is_data_size_valid(TEST_INVALID_DATA_SIZE), "invalid data size should be rejected");
+    check(cpu::data_size_to_assembly_name(TEST_INVALID_DATA_SIZE) == "<invalid>",
           "invalid data size name should be stable");
     check_throws<std::out_of_range>(
         []() {
-            static_cast<void>(mnos::data_size_to_bits(TEST_INVALID_DATA_SIZE));
+            static_cast<void>(cpu::data_size_to_bits(TEST_INVALID_DATA_SIZE));
         },
         "invalid data size bits access");
     check_throws<std::out_of_range>(
         []() {
-            static_cast<void>(mnos::data_size_to_bytes(TEST_INVALID_DATA_SIZE));
+            static_cast<void>(cpu::data_size_to_bytes(TEST_INVALID_DATA_SIZE));
         },
         "invalid data size bytes access");
 }
@@ -102,39 +104,39 @@ void test_register_ids_and_bank()
 {
     struct RegisterCase
     {
-        mnos::RegisterId id;
+        cpu::RegisterId id;
         std::size_t index;
         std::string_view assembly_name;
     };
 
-    constexpr std::array<RegisterCase, mnos::REGISTER_ID_GENERAL_REGISTER_COUNT> REGISTER_CASES{
-        RegisterCase{mnos::RegisterId::RAX, 0, "RAX"},   RegisterCase{mnos::RegisterId::RBX, 1, "RBX"},
-        RegisterCase{mnos::RegisterId::RCX, 2, "RCX"},   RegisterCase{mnos::RegisterId::RDX, 3, "RDX"},
-        RegisterCase{mnos::RegisterId::RSI, 4, "RSI"},   RegisterCase{mnos::RegisterId::RDI, 5, "RDI"},
-        RegisterCase{mnos::RegisterId::RBP, 6, "RBP"},   RegisterCase{mnos::RegisterId::RSP, 7, "RSP"},
-        RegisterCase{mnos::RegisterId::R8, 8, "R8"},     RegisterCase{mnos::RegisterId::R9, 9, "R9"},
-        RegisterCase{mnos::RegisterId::R10, 10, "R10"},  RegisterCase{mnos::RegisterId::R11, 11, "R11"},
-        RegisterCase{mnos::RegisterId::R12, 12, "R12"},  RegisterCase{mnos::RegisterId::R13, 13, "R13"},
-        RegisterCase{mnos::RegisterId::R14, 14, "R14"},  RegisterCase{mnos::RegisterId::R15, 15, "R15"}};
+    constexpr std::array<RegisterCase, cpu::REGISTER_ID_GENERAL_REGISTER_COUNT> REGISTER_CASES{
+        RegisterCase{cpu::RegisterId::RAX, 0, "RAX"},   RegisterCase{cpu::RegisterId::RBX, 1, "RBX"},
+        RegisterCase{cpu::RegisterId::RCX, 2, "RCX"},   RegisterCase{cpu::RegisterId::RDX, 3, "RDX"},
+        RegisterCase{cpu::RegisterId::RSI, 4, "RSI"},   RegisterCase{cpu::RegisterId::RDI, 5, "RDI"},
+        RegisterCase{cpu::RegisterId::RBP, 6, "RBP"},   RegisterCase{cpu::RegisterId::RSP, 7, "RSP"},
+        RegisterCase{cpu::RegisterId::R8, 8, "R8"},     RegisterCase{cpu::RegisterId::R9, 9, "R9"},
+        RegisterCase{cpu::RegisterId::R10, 10, "R10"},  RegisterCase{cpu::RegisterId::R11, 11, "R11"},
+        RegisterCase{cpu::RegisterId::R12, 12, "R12"},  RegisterCase{cpu::RegisterId::R13, 13, "R13"},
+        RegisterCase{cpu::RegisterId::R14, 14, "R14"},  RegisterCase{cpu::RegisterId::R15, 15, "R15"}};
 
     for (const RegisterCase test_case : REGISTER_CASES)
     {
-        check(mnos::is_register_id_valid(test_case.id), "register id should be valid");
-        check(mnos::register_id_to_index(test_case.id) == test_case.index, "register index mismatch");
-        check(mnos::register_id_to_assembly_name(test_case.id) == test_case.assembly_name,
+        check(cpu::is_register_id_valid(test_case.id), "register id should be valid");
+        check(cpu::register_id_to_index(test_case.id) == test_case.index, "register index mismatch");
+        check(cpu::register_id_to_assembly_name(test_case.id) == test_case.assembly_name,
               "register assembly name mismatch");
     }
 
-    check(!mnos::is_register_id_valid(TEST_INVALID_REGISTER_ID), "invalid register id should be rejected");
-    check(mnos::register_id_to_assembly_name(TEST_INVALID_REGISTER_ID) == "<invalid>",
+    check(!cpu::is_register_id_valid(TEST_INVALID_REGISTER_ID), "invalid register id should be rejected");
+    check(cpu::register_id_to_assembly_name(TEST_INVALID_REGISTER_ID) == "<invalid>",
           "invalid register name should be stable");
 
-    mnos::RegisterBank bank;
-    check(bank.read(mnos::RegisterId::RAX) == mnos::UQWORD64{0}, "register bank should zero initialize");
-    bank.write(mnos::RegisterId::RAX, TEST_REGISTER_VALUE);
-    bank.write(mnos::RegisterId::R15, TEST_SECOND_REGISTER_VALUE);
-    check(bank.read(mnos::RegisterId::RAX) == TEST_REGISTER_VALUE, "register bank RAX read mismatch");
-    check(bank.read(mnos::RegisterId::R15) == TEST_SECOND_REGISTER_VALUE, "register bank R15 read mismatch");
+    cpu::RegisterBank bank;
+    check(bank.read(cpu::RegisterId::RAX) == cpu::UQWORD64{0}, "register bank should zero initialize");
+    bank.write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
+    bank.write(cpu::RegisterId::R15, TEST_SECOND_REGISTER_VALUE);
+    check(bank.read(cpu::RegisterId::RAX) == TEST_REGISTER_VALUE, "register bank RAX read mismatch");
+    check(bank.read(cpu::RegisterId::R15) == TEST_SECOND_REGISTER_VALUE, "register bank R15 read mismatch");
     check_throws<std::out_of_range>(
         [&bank]() {
             static_cast<void>(bank.read(TEST_INVALID_REGISTER_ID));
@@ -151,54 +153,54 @@ void test_flags()
 {
     struct FlagCase
     {
-        mnos::FlagId id;
+        cpu::FlagId id;
         std::size_t index;
         std::size_t bit_index;
         std::string_view assembly_name;
     };
 
-    constexpr std::array<FlagCase, mnos::FLAG_ID_STATUS_FLAG_COUNT> FLAG_CASES{
-        FlagCase{mnos::FlagId::CF, 0, mnos::FLAG_ID_CF_BIT_INDEX, "CF"},
-        FlagCase{mnos::FlagId::ZF, 1, mnos::FLAG_ID_ZF_BIT_INDEX, "ZF"},
-        FlagCase{mnos::FlagId::SF, 2, mnos::FLAG_ID_SF_BIT_INDEX, "SF"},
-        FlagCase{mnos::FlagId::OF, 3, mnos::FLAG_ID_OF_BIT_INDEX, "OF"}};
+    constexpr std::array<FlagCase, cpu::FLAG_ID_STATUS_FLAG_COUNT> FLAG_CASES{
+        FlagCase{cpu::FlagId::CF, 0, cpu::FLAG_ID_CF_BIT_INDEX, "CF"},
+        FlagCase{cpu::FlagId::ZF, 1, cpu::FLAG_ID_ZF_BIT_INDEX, "ZF"},
+        FlagCase{cpu::FlagId::SF, 2, cpu::FLAG_ID_SF_BIT_INDEX, "SF"},
+        FlagCase{cpu::FlagId::OF, 3, cpu::FLAG_ID_OF_BIT_INDEX, "OF"}};
 
     for (const FlagCase test_case : FLAG_CASES)
     {
-        check(mnos::is_flag_id_valid(test_case.id), "flag id should be valid");
-        check(mnos::flag_id_to_index(test_case.id) == test_case.index, "flag index mismatch");
-        check(mnos::flag_id_to_bit_index(test_case.id) == test_case.bit_index, "flag bit index mismatch");
-        check(mnos::flag_id_to_assembly_name(test_case.id) == test_case.assembly_name,
+        check(cpu::is_flag_id_valid(test_case.id), "flag id should be valid");
+        check(cpu::flag_id_to_index(test_case.id) == test_case.index, "flag index mismatch");
+        check(cpu::flag_id_to_bit_index(test_case.id) == test_case.bit_index, "flag bit index mismatch");
+        check(cpu::flag_id_to_assembly_name(test_case.id) == test_case.assembly_name,
               "flag assembly name mismatch");
     }
 
-    check(!mnos::is_flag_id_valid(TEST_INVALID_FLAG_ID), "invalid flag id should be rejected");
-    check(mnos::flag_id_to_assembly_name(TEST_INVALID_FLAG_ID) == "<invalid>",
+    check(!cpu::is_flag_id_valid(TEST_INVALID_FLAG_ID), "invalid flag id should be rejected");
+    check(cpu::flag_id_to_assembly_name(TEST_INVALID_FLAG_ID) == "<invalid>",
           "invalid flag name should be stable");
     check_throws<std::out_of_range>(
         []() {
-            static_cast<void>(mnos::flag_id_to_bit_index(TEST_INVALID_FLAG_ID));
+            static_cast<void>(cpu::flag_id_to_bit_index(TEST_INVALID_FLAG_ID));
         },
         "invalid flag bit index");
 
-    mnos::Rflags flags;
-    check(flags.raw_bits() == mnos::UQWORD64{0}, "rflags should zero initialize");
-    flags.write(mnos::FlagId::CF, true);
-    check(flags.read(mnos::FlagId::CF), "CF should be set");
+    cpu::Rflags flags;
+    check(flags.raw_bits() == cpu::UQWORD64{0}, "rflags should zero initialize");
+    flags.write(cpu::FlagId::CF, true);
+    check(flags.read(cpu::FlagId::CF), "CF should be set");
     check(flags.raw_bits() == TEST_CF_MASK, "CF raw bit mismatch");
-    flags.write(mnos::FlagId::CF, false);
-    check(!flags.read(mnos::FlagId::CF), "CF should be cleared");
+    flags.write(cpu::FlagId::CF, false);
+    check(!flags.read(cpu::FlagId::CF), "CF should be cleared");
 
-    flags.update_zero_sign_from_qword(mnos::UQWORD64{0});
-    check(flags.read(mnos::FlagId::ZF), "zero result should set ZF");
-    check(!flags.read(mnos::FlagId::SF), "zero result should clear SF");
+    flags.update_zero_sign_from_qword(cpu::UQWORD64{0});
+    check(flags.read(cpu::FlagId::ZF), "zero result should set ZF");
+    check(!flags.read(cpu::FlagId::SF), "zero result should clear SF");
 
     flags.update_zero_sign_from_qword(TEST_QWORD_SIGN_MASK);
-    check(!flags.read(mnos::FlagId::ZF), "non-zero result should clear ZF");
-    check(flags.read(mnos::FlagId::SF), "sign bit should set SF");
+    check(!flags.read(cpu::FlagId::ZF), "non-zero result should clear ZF");
+    check(flags.read(cpu::FlagId::SF), "sign bit should set SF");
 
     flags.clear_status_flags();
-    check(flags.raw_bits() == mnos::UQWORD64{0}, "clear status flags should clear raw bits");
+    check(flags.raw_bits() == cpu::UQWORD64{0}, "clear status flags should clear raw bits");
     check_throws<std::out_of_range>(
         [&flags]() {
             static_cast<void>(flags.read(TEST_INVALID_FLAG_ID));
@@ -215,43 +217,43 @@ void test_opcodes()
 {
     struct OpcodeCase
     {
-        mnos::Opcode opcode;
+        cpu::Opcode opcode;
         std::size_t index;
         std::string_view assembly_name;
     };
 
-    constexpr std::array<OpcodeCase, mnos::OPCODE_INSTRUCTION_KIND_COUNT> OPCODE_CASES{
-        OpcodeCase{mnos::Opcode::MOV, 0, "MOV"},   OpcodeCase{mnos::Opcode::ADD, 1, "ADD"},
-        OpcodeCase{mnos::Opcode::SUB, 2, "SUB"},   OpcodeCase{mnos::Opcode::CMP, 3, "CMP"},
-        OpcodeCase{mnos::Opcode::JMP, 4, "JMP"},   OpcodeCase{mnos::Opcode::JE, 5, "JE"},
-        OpcodeCase{mnos::Opcode::JNE, 6, "JNE"},   OpcodeCase{mnos::Opcode::HALT, 7, "HALT"}};
+    constexpr std::array<OpcodeCase, cpu::OPCODE_INSTRUCTION_KIND_COUNT> OPCODE_CASES{
+        OpcodeCase{cpu::Opcode::MOV, 0, "MOV"},   OpcodeCase{cpu::Opcode::ADD, 1, "ADD"},
+        OpcodeCase{cpu::Opcode::SUB, 2, "SUB"},   OpcodeCase{cpu::Opcode::CMP, 3, "CMP"},
+        OpcodeCase{cpu::Opcode::JMP, 4, "JMP"},   OpcodeCase{cpu::Opcode::JE, 5, "JE"},
+        OpcodeCase{cpu::Opcode::JNE, 6, "JNE"},   OpcodeCase{cpu::Opcode::HALT, 7, "HALT"}};
 
     for (const OpcodeCase test_case : OPCODE_CASES)
     {
-        check(mnos::is_opcode_valid(test_case.opcode), "opcode should be valid");
-        check(mnos::opcode_to_index(test_case.opcode) == test_case.index, "opcode index mismatch");
-        check(mnos::opcode_to_assembly_name(test_case.opcode) == test_case.assembly_name,
+        check(cpu::is_opcode_valid(test_case.opcode), "opcode should be valid");
+        check(cpu::opcode_to_index(test_case.opcode) == test_case.index, "opcode index mismatch");
+        check(cpu::opcode_to_assembly_name(test_case.opcode) == test_case.assembly_name,
               "opcode assembly name mismatch");
     }
 
-    check(!mnos::is_opcode_valid(TEST_INVALID_OPCODE), "invalid opcode should be rejected");
-    check(mnos::opcode_to_assembly_name(TEST_INVALID_OPCODE) == "<invalid>",
+    check(!cpu::is_opcode_valid(TEST_INVALID_OPCODE), "invalid opcode should be rejected");
+    check(cpu::opcode_to_assembly_name(TEST_INVALID_OPCODE) == "<invalid>",
           "invalid opcode name should be stable");
 }
 
 void test_operands()
 {
-    check(mnos::is_operand_kind_valid(mnos::OperandKind::MEMORY), "memory operand kind should be valid");
-    check(!mnos::is_operand_kind_valid(TEST_INVALID_OPERAND_KIND), "invalid operand kind should be rejected");
-    check(mnos::operand_kind_to_index(mnos::OperandKind::IMMEDIATE) ==
-              static_cast<std::size_t>(mnos::OperandKind::IMMEDIATE),
+    check(cpu::is_operand_kind_valid(cpu::OperandKind::MEMORY), "memory operand kind should be valid");
+    check(!cpu::is_operand_kind_valid(TEST_INVALID_OPERAND_KIND), "invalid operand kind should be rejected");
+    check(cpu::operand_kind_to_index(cpu::OperandKind::IMMEDIATE) ==
+              static_cast<std::size_t>(cpu::OperandKind::IMMEDIATE),
           "operand kind index mismatch");
-    check(mnos::operand_kind_to_assembly_name(mnos::OperandKind::NONE) == "NONE", "NONE operand name mismatch");
-    check(mnos::operand_kind_to_assembly_name(TEST_INVALID_OPERAND_KIND) == "<invalid>",
+    check(cpu::operand_kind_to_assembly_name(cpu::OperandKind::NONE) == "NONE", "NONE operand name mismatch");
+    check(cpu::operand_kind_to_assembly_name(TEST_INVALID_OPERAND_KIND) == "<invalid>",
           "invalid operand kind name should be stable");
 
-    const mnos::Operand none = mnos::Operand::none();
-    check(none.kind() == mnos::OperandKind::NONE, "none operand kind mismatch");
+    const cpu::Operand none = cpu::Operand::none();
+    check(none.kind() == cpu::OperandKind::NONE, "none operand kind mismatch");
     check(none.is_none(), "none operand predicate mismatch");
     check_throws<std::logic_error>(
         [&none]() {
@@ -264,10 +266,10 @@ void test_operands()
         },
         "none operand immediate access");
 
-    const mnos::Operand reg = mnos::Operand::reg(mnos::RegisterId::RCX);
-    check(reg.kind() == mnos::OperandKind::REGISTER, "register operand kind mismatch");
+    const cpu::Operand reg = cpu::Operand::reg(cpu::RegisterId::RCX);
+    check(reg.kind() == cpu::OperandKind::REGISTER, "register operand kind mismatch");
     check(reg.is_register(), "register operand predicate mismatch");
-    check(reg.register_id() == mnos::RegisterId::RCX, "register operand payload mismatch");
+    check(reg.register_id() == cpu::RegisterId::RCX, "register operand payload mismatch");
     check_throws<std::logic_error>(
         [&reg]() {
             static_cast<void>(reg.memory_data_size());
@@ -275,12 +277,12 @@ void test_operands()
         "register operand memory data size access");
     check_throws<std::out_of_range>(
         []() {
-            static_cast<void>(mnos::Operand::reg(TEST_INVALID_REGISTER_ID));
+            static_cast<void>(cpu::Operand::reg(TEST_INVALID_REGISTER_ID));
         },
         "invalid register operand creation");
 
-    const mnos::Operand imm = mnos::Operand::imm(TEST_IMMEDIATE_VALUE);
-    check(imm.kind() == mnos::OperandKind::IMMEDIATE, "immediate operand kind mismatch");
+    const cpu::Operand imm = cpu::Operand::imm(TEST_IMMEDIATE_VALUE);
+    check(imm.kind() == cpu::OperandKind::IMMEDIATE, "immediate operand kind mismatch");
     check(imm.is_immediate(), "immediate operand predicate mismatch");
     check(imm.immediate_value() == TEST_IMMEDIATE_VALUE, "immediate payload mismatch");
     check_throws<std::logic_error>(
@@ -289,63 +291,63 @@ void test_operands()
         },
         "immediate operand memory access");
 
-    const mnos::Operand mem =
-        mnos::Operand::mem(mnos::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, mnos::DataSize::QWORD);
-    check(mem.kind() == mnos::OperandKind::MEMORY, "memory operand kind mismatch");
+    const cpu::Operand mem =
+        cpu::Operand::mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD);
+    check(mem.kind() == cpu::OperandKind::MEMORY, "memory operand kind mismatch");
     check(mem.is_memory(), "memory operand predicate mismatch");
-    check(mem.memory_base_register() == mnos::RegisterId::RBP, "memory base register mismatch");
+    check(mem.memory_base_register() == cpu::RegisterId::RBP, "memory base register mismatch");
     check(mem.memory_displacement() == TEST_MEMORY_DISPLACEMENT, "memory displacement mismatch");
-    check(mem.memory_data_size() == mnos::DataSize::QWORD, "memory data size mismatch");
+    check(mem.memory_data_size() == cpu::DataSize::QWORD, "memory data size mismatch");
     check_throws<std::out_of_range>(
         []() {
             static_cast<void>(
-                mnos::Operand::mem(TEST_INVALID_REGISTER_ID, TEST_MEMORY_DISPLACEMENT, mnos::DataSize::QWORD));
+                cpu::Operand::mem(TEST_INVALID_REGISTER_ID, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD));
         },
         "invalid memory base register");
     check_throws<std::out_of_range>(
         []() {
             static_cast<void>(
-                mnos::Operand::mem(mnos::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, TEST_INVALID_DATA_SIZE));
+                cpu::Operand::mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, TEST_INVALID_DATA_SIZE));
         },
         "invalid memory data size");
 }
 
 void test_instructions()
 {
-    const mnos::Instruction halt = mnos::Instruction::make_halt();
-    check(halt.opcode() == mnos::Opcode::HALT, "HALT opcode mismatch");
+    const cpu::Instruction halt = cpu::Instruction::make_halt();
+    check(halt.opcode() == cpu::Opcode::HALT, "HALT opcode mismatch");
     check(halt.first_operand().is_none(), "HALT first operand should be none");
     check(halt.second_operand().is_none(), "HALT second operand should be none");
 
-    const mnos::Instruction mov =
-        mnos::Instruction::make_mov(mnos::Operand::reg(mnos::RegisterId::RAX), mnos::Operand::imm(TEST_IMMEDIATE_VALUE));
-    check(mov.opcode() == mnos::Opcode::MOV, "MOV opcode mismatch");
-    check(mov.first_operand().register_id() == mnos::RegisterId::RAX, "MOV destination mismatch");
+    const cpu::Instruction mov =
+        cpu::Instruction::make_mov(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::imm(TEST_IMMEDIATE_VALUE));
+    check(mov.opcode() == cpu::Opcode::MOV, "MOV opcode mismatch");
+    check(mov.first_operand().register_id() == cpu::RegisterId::RAX, "MOV destination mismatch");
     check(mov.second_operand().immediate_value() == TEST_IMMEDIATE_VALUE, "MOV source mismatch");
 
-    const mnos::Instruction add =
-        mnos::Instruction::make_add(mnos::Operand::reg(mnos::RegisterId::RAX), mnos::Operand::reg(mnos::RegisterId::RBX));
-    check(add.opcode() == mnos::Opcode::ADD, "ADD opcode mismatch");
-    check(add.second_operand().register_id() == mnos::RegisterId::RBX, "ADD source mismatch");
+    const cpu::Instruction add =
+        cpu::Instruction::make_add(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::reg(cpu::RegisterId::RBX));
+    check(add.opcode() == cpu::Opcode::ADD, "ADD opcode mismatch");
+    check(add.second_operand().register_id() == cpu::RegisterId::RBX, "ADD source mismatch");
 
-    const mnos::Instruction sub =
-        mnos::Instruction::make_sub(mnos::Operand::reg(mnos::RegisterId::RAX), mnos::Operand::imm(TEST_IMMEDIATE_VALUE));
-    check(sub.opcode() == mnos::Opcode::SUB, "SUB opcode mismatch");
+    const cpu::Instruction sub =
+        cpu::Instruction::make_sub(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::imm(TEST_IMMEDIATE_VALUE));
+    check(sub.opcode() == cpu::Opcode::SUB, "SUB opcode mismatch");
 
-    const mnos::Instruction cmp =
-        mnos::Instruction::make_cmp(mnos::Operand::reg(mnos::RegisterId::RAX), mnos::Operand::reg(mnos::RegisterId::RBX));
-    check(cmp.opcode() == mnos::Opcode::CMP, "CMP opcode mismatch");
+    const cpu::Instruction cmp =
+        cpu::Instruction::make_cmp(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::reg(cpu::RegisterId::RBX));
+    check(cmp.opcode() == cpu::Opcode::CMP, "CMP opcode mismatch");
 
-    const mnos::Instruction jump = mnos::Instruction::make_jmp(mnos::Operand::imm(TEST_MEMORY_DISPLACEMENT));
-    check(jump.opcode() == mnos::Opcode::JMP, "JMP opcode mismatch");
+    const cpu::Instruction jump = cpu::Instruction::make_jmp(cpu::Operand::imm(TEST_MEMORY_DISPLACEMENT));
+    check(jump.opcode() == cpu::Opcode::JMP, "JMP opcode mismatch");
     check(jump.first_operand().immediate_value() == TEST_MEMORY_DISPLACEMENT, "JMP target mismatch");
     check(jump.second_operand().is_none(), "JMP second operand should be none");
 
-    const mnos::Instruction jump_equal = mnos::Instruction::make_je(mnos::Operand::imm(TEST_MEMORY_DISPLACEMENT));
-    check(jump_equal.opcode() == mnos::Opcode::JE, "JE opcode mismatch");
+    const cpu::Instruction jump_equal = cpu::Instruction::make_je(cpu::Operand::imm(TEST_MEMORY_DISPLACEMENT));
+    check(jump_equal.opcode() == cpu::Opcode::JE, "JE opcode mismatch");
 
-    const mnos::Instruction jump_not_equal = mnos::Instruction::make_jne(mnos::Operand::imm(TEST_MEMORY_DISPLACEMENT));
-    check(jump_not_equal.opcode() == mnos::Opcode::JNE, "JNE opcode mismatch");
+    const cpu::Instruction jump_not_equal = cpu::Instruction::make_jne(cpu::Operand::imm(TEST_MEMORY_DISPLACEMENT));
+    check(jump_not_equal.opcode() == cpu::Opcode::JNE, "JNE opcode mismatch");
 }
 }
 

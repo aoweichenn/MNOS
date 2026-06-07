@@ -9,7 +9,7 @@
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/cpu/register/id.hpp>
 
-namespace mnos
+namespace mnos::cpu
 {
 enum class OperandKind : std::uint8_t
 {

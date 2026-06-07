@@ -511,7 +511,7 @@ static_cast<int>(x)
 #### 1. 编译期能确定的转换，通常没有运行时成本
 
 ```cpp
-constexpr int x = static_cast<int>(mnos::DataSize::QWORD);
+constexpr int x = static_cast<int>(mnos::cpu::DataSize::QWORD);
 ```
 
 这种枚举转整数，如果值在编译期确定，编译器直接知道结果。

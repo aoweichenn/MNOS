@@ -3,7 +3,7 @@
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 
-namespace mnos
+namespace mnos::cpu
 {
 class Instruction
 {

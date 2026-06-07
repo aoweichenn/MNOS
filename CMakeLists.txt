@@ -62,3 +62,47 @@ target_link_libraries(mnos_cpu_tests PRIVATE mnos_cpu)
 mnos_apply_project_options(mnos_cpu_tests)
 
 add_test(NAME mnos_cpu_tests COMMAND mnos_cpu_tests)
+
+if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    find_program(MNOS_GCOV_EXECUTABLE gcov)
+
+    if(MNOS_GCOV_EXECUTABLE)
+        set(
+            MNOS_CPU_COVERAGE_GCNO_FILES
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/common/data_size.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/register/id.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/register/bank.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/flags/id.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/flags/rflags.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/opcode.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/operand.cpp.gcno
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/instruction.cpp.gcno
+        )
+
+        set(
+            MNOS_CPU_COVERAGE_GCDA_FILES
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/common/data_size.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/register/id.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/register/bank.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/flags/id.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/flags/rflags.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/opcode.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/operand.cpp.gcda
+                ${CMAKE_BINARY_DIR}/CMakeFiles/mnos_cpu.dir/src/cpu/instruction/instruction.cpp.gcda
+        )
+
+        add_custom_target(
+            mnos_cpu_coverage
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${MNOS_CPU_COVERAGE_GCDA_FILES}
+            COMMAND $<TARGET_FILE:mnos_cpu_tests>
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/coverage/gcov
+            COMMAND ${CMAKE_COMMAND} -E chdir
+                    ${CMAKE_BINARY_DIR}/coverage/gcov
+                    ${MNOS_GCOV_EXECUTABLE} -b -c ${MNOS_CPU_COVERAGE_GCNO_FILES}
+            DEPENDS mnos_cpu_tests
+            COMMENT "Writing mnos_cpu gcov reports to ${CMAKE_BINARY_DIR}/coverage/gcov"
+        )
+    else()
+        message(WARNING "gcov was not found; mnos_cpu_coverage target will not be available.")
+    endif()
+endif()

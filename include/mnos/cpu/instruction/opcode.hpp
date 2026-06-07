@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace mnos
+namespace mnos::cpu
 {
 enum class Opcode : std::uint8_t
 {

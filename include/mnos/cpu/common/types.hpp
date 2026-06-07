@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace mnos
+namespace mnos::cpu
 {
 // 参照 x86-64 的数据大小命名
 using UBYTE8 = std::uint8_t;
