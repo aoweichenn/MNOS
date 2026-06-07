@@ -5,6 +5,7 @@
 #include <deque>
 #include <optional>
 
+#include <mnos/cpu/memory/mmu.hpp>
 #include <mnos/cpu/memory/tlb_shootdown.hpp>
 #include <mnos/cpu/system/apic.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
@@ -15,6 +16,7 @@
 #include <mnos/os/proc/process.hpp>
 #include <mnos/os/sched/round_robin_scheduler.hpp>
 #include <mnos/os/sched/sleep_queue.hpp>
+#include <mnos/os/sched/smp_scheduler.hpp>
 
 namespace mnos::os::kernel
 {
@@ -62,6 +64,7 @@ public:
     [[nodiscard]] std::uint32_t bootstrap_processor_count() const noexcept;
     [[nodiscard]] bool has_stage5_services() const noexcept;
     [[nodiscard]] bool has_stage7_services() const noexcept;
+    [[nodiscard]] bool has_stage9_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -71,6 +74,8 @@ public:
     [[nodiscard]] const sched::RoundRobinScheduler& scheduler() const noexcept;
     [[nodiscard]] cpu::system::ApicSystem& apic_system();
     [[nodiscard]] const cpu::system::ApicSystem& apic_system() const;
+    [[nodiscard]] sched::SmpScheduler& smp_scheduler();
+    [[nodiscard]] const sched::SmpScheduler& smp_scheduler() const;
     [[nodiscard]] sched::SleepQueue& sleep_queue() noexcept;
     [[nodiscard]] const sched::SleepQueue& sleep_queue() const noexcept;
     [[nodiscard]] cpu::memory::TlbShootdownController& tlb_shootdown_controller() noexcept;
@@ -78,8 +83,16 @@ public:
 
     [[nodiscard]] proc::Process& create_process();
     [[nodiscard]] sched::ThreadContext& create_thread(proc::Process& process);
+    [[nodiscard]] sched::ThreadContext& create_thread_on_core(
+        proc::Process& process,
+        cpu::system::CoreId target_core);
     [[nodiscard]] sched::ThreadContext& create_thread(
         proc::Process& process,
+        mm::VirtualAddress kernel_stack_bottom,
+        std::uint64_t kernel_stack_size_bytes = sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
+    [[nodiscard]] sched::ThreadContext& create_thread_on_core(
+        proc::Process& process,
+        cpu::system::CoreId target_core,
         mm::VirtualAddress kernel_stack_bottom,
         std::uint64_t kernel_stack_size_bytes = sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
     [[nodiscard]] std::size_t process_count() const noexcept;
@@ -92,6 +105,7 @@ public:
     [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
     [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
+    [[nodiscard]] sched::ThreadContext* handle_smp_timer_interrupt(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* sleep_current_until(sched::SchedulerTick wake_tick);
     [[nodiscard]] sched::ThreadContext* sleep_current_for(sched::SchedulerTick duration_ticks);
     [[nodiscard]] std::size_t wake_sleepers();
@@ -108,6 +122,18 @@ public:
         cpu::system::CoreId source_core,
         cpu::system::CoreId target_core,
         sched::ThreadContext& thread);
+    [[nodiscard]] bool wake_thread_on_core(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        sched::ThreadContext& thread);
+    [[nodiscard]] const SchedulerHandoff& request_smp_migration(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        sched::ThreadContext& thread);
+    [[nodiscard]] std::optional<sched::ThreadMigration> rebalance_smp_once();
+    [[nodiscard]] bool apply_next_tlb_shootdown_for_core(
+        cpu::system::CoreId core_id,
+        cpu::memory::MemoryManagementUnit& mmu);
     [[nodiscard]] std::size_t scheduler_handoff_count() const noexcept;
     [[nodiscard]] const SchedulerHandoff& scheduler_handoff_at(std::size_t index) const;
 
@@ -117,14 +143,22 @@ private:
     void require_booted() const;
     void require_stage5_services() const;
     void require_stage7_services() const;
+    void require_stage9_services() const;
     void configure_stage7_services();
+    void configure_stage9_services();
     void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;
+    [[nodiscard]] const SchedulerHandoff& record_scheduler_handoff(
+        cpu::system::CoreId source_core,
+        cpu::system::CoreId target_core,
+        sched::ThreadContext& thread);
+    [[nodiscard]] bool send_reschedule_ipi(cpu::system::CoreId source_core, cpu::system::CoreId target_core);
     [[nodiscard]] std::uint64_t next_scheduler_handoff_sequence() noexcept;
 
     BootContext* boot_context_;
     std::optional<mm::PhysicalPageAllocator> physical_page_allocator_;
     std::optional<mm::AddressSpace> kernel_address_space_;
     std::optional<cpu::system::ApicSystem> apic_system_;
+    std::optional<sched::SmpScheduler> smp_scheduler_;
     sched::RoundRobinScheduler scheduler_;
     sched::SleepQueue sleep_queue_;
     cpu::memory::TlbShootdownController tlb_shootdown_controller_;

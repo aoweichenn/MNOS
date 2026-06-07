@@ -16,6 +16,7 @@
 #include <mnos/os/platform/machine.hpp>
 #include <mnos/os/proc/process.hpp>
 #include <mnos/os/sched/round_robin_scheduler.hpp>
+#include <mnos/os/sched/smp_scheduler.hpp>
 #include <mnos/os/sched/thread_context.hpp>
 
 namespace cpu = mnos::cpu;
@@ -37,6 +38,7 @@ constexpr cpu::Qword BENCHMARK_RAX_VALUE = cpu::Qword{0x1234ABCDULL};
 constexpr mm::PageNumber BENCHMARK_ALLOCATOR_PAGE_COUNT = mm::PageNumber{1024};
 constexpr mm::PageNumber BENCHMARK_ALLOCATOR_FIRST_PAGE = mm::PageNumber{8};
 constexpr std::size_t BENCHMARK_SCHEDULER_THREAD_COUNT = 16;
+constexpr std::uint32_t BENCHMARK_SMP_SCHEDULER_CORE_COUNT = std::uint32_t{4};
 constexpr mm::AddressValue BENCHMARK_SCHEDULER_STACK_BASE = mm::AddressValue{0x1000000};
 constexpr mm::AddressValue BENCHMARK_SCHEDULER_STACK_STRIDE = sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES;
 constexpr cpu_system::CoreId BENCHMARK_BOOT_CORE{0};
@@ -130,6 +132,39 @@ static void BM_RoundRobinSchedulerCycle(benchmark::State& state)
     state.SetItemsProcessed(state.iterations());
 }
 
+static void BM_SmpSchedulerPerCoreCycle(benchmark::State& state)
+{
+    std::vector<sched::ThreadContext> threads;
+    threads.reserve(BENCHMARK_SCHEDULER_THREAD_COUNT);
+    sched::SmpScheduler scheduler{cpu_system::CoreTopology{BENCHMARK_SMP_SCHEDULER_CORE_COUNT}};
+    for (std::size_t thread_index = 0; thread_index < BENCHMARK_SCHEDULER_THREAD_COUNT; ++thread_index)
+    {
+        threads.emplace_back(
+            sched::ThreadId{sched::THREAD_ID_FIRST_KERNEL_VALUE + static_cast<sched::ThreadId::value_type>(thread_index)},
+            mm::VirtualAddress{
+                BENCHMARK_SCHEDULER_STACK_BASE +
+                static_cast<mm::AddressValue>(thread_index * BENCHMARK_SCHEDULER_STACK_STRIDE)});
+        scheduler.enqueue(
+            threads.back(),
+            cpu_system::CoreId{
+                static_cast<cpu_system::CoreId::value_type>(thread_index % BENCHMARK_SMP_SCHEDULER_CORE_COUNT)});
+    }
+    for (std::uint32_t core_index = std::uint32_t{0}; core_index < BENCHMARK_SMP_SCHEDULER_CORE_COUNT; ++core_index)
+    {
+        static_cast<void>(scheduler.schedule_next(cpu_system::CoreId{core_index}));
+    }
+
+    std::uint32_t next_core_index = std::uint32_t{0};
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        benchmark::DoNotOptimize(scheduler.yield_current(cpu_system::CoreId{next_core_index}));
+        next_core_index = (next_core_index + std::uint32_t{1}) % BENCHMARK_SMP_SCHEDULER_CORE_COUNT;
+    }
+
+    state.SetItemsProcessed(state.iterations());
+}
+
 static void BM_KernelCreateProcessThread(benchmark::State& state)
 {
     for (auto unused_iteration : state)
@@ -141,6 +176,26 @@ static void BM_KernelCreateProcessThread(benchmark::State& state)
         os_kernel.boot();
         proc::Process& process = os_kernel.create_process();
         benchmark::DoNotOptimize(&os_kernel.create_thread(process));
+    }
+
+    state.SetItemsProcessed(state.iterations());
+}
+
+static void BM_KernelSmpTimerPreempt(benchmark::State& state)
+{
+    platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT);
+    kernel::BootContext boot_context{machine, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT};
+    kernel::Kernel os_kernel{boot_context};
+    os_kernel.boot();
+    proc::Process& process = os_kernel.create_process();
+    static_cast<void>(os_kernel.create_thread_on_core(process, BENCHMARK_BOOT_CORE));
+    static_cast<void>(os_kernel.create_thread_on_core(process, BENCHMARK_BOOT_CORE));
+    static_cast<void>(os_kernel.smp_scheduler().schedule_next(BENCHMARK_BOOT_CORE));
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        benchmark::DoNotOptimize(os_kernel.handle_smp_timer_interrupt(BENCHMARK_BOOT_CORE));
     }
 
     state.SetItemsProcessed(state.iterations());
@@ -215,7 +270,9 @@ BENCHMARK(BM_OSKernelBoot);
 BENCHMARK(BM_ThreadContextReset);
 BENCHMARK(BM_PhysicalPageAllocatorAllocateFree);
 BENCHMARK(BM_RoundRobinSchedulerCycle);
+BENCHMARK(BM_SmpSchedulerPerCoreCycle);
 BENCHMARK(BM_KernelCreateProcessThread);
+BENCHMARK(BM_KernelSmpTimerPreempt);
 BENCHMARK(BM_ApicTimerTick);
 BENCHMARK(BM_KernelTimerPreempt);
 BENCHMARK(BM_TlbShootdownApply);

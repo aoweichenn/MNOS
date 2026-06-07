@@ -1,11 +1,11 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
 BootContext   kernel 启动资源视图
-Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown 编排
+Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown + Stage9 SMP 编排
 Address/Page  物理/虚拟地址和 page 工具
 ThreadContext CPU 状态 + kernel stack + 线程状态
 ```
@@ -140,17 +140,29 @@ Stage8PerformanceModel  Executor/MMU 可选性能 facade，未启用时不改变
 Benchmark               Stage8 performance model 已进入 benchmark smoke
 ```
 
+Stage 9 已经完成第一版 SMP scheduler 底座：
+
+```text
+SmpScheduler          每核心 run queue/current，保留旧 RoundRobinScheduler 教学路径
+create_thread_on_core 按目标 core 创建并入队线程
+SMP timer             只抢占目标 core 的 current，记录 per-core tick/preemption
+cross-core wake       wake 到目标 core run queue，并发送 reschedule IPI
+ready migration       迁移 queued READY thread，running thread 不做伪热迁移
+rebalance_once        从 ready 队列最重的 core 向最轻 core 移动一个 runnable thread
+TLB local apply       目标 core take/apply/ack pending shootdown request
+Benchmark             SMP scheduler cycle 与 Kernel SMP timer 已进入 benchmark smoke
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. per-core run queue、真实 SMP scheduler 和负载迁移
-2. 用户态 loader、内核/用户地址布局、COW fork
-3. signal/event/futex 风格等待语义
-4. fs/block device/network
-5. cache coherence / branch predictor / uop cache / SIMD
-6. HPC/SIMD/AI 路线
+1. 用户态 loader、内核/用户地址布局、COW fork
+2. signal/event/futex 风格等待语义
+3. fs/block device/network
+4. cache coherence / branch predictor / uop cache / SIMD
+5. HPC/SIMD/AI 路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

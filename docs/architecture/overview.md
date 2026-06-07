@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 8 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型。
+当前已经完成 x86-64 Stage 9 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -36,7 +36,7 @@ include/mnos/
     kernel/             BootContext、Kernel、syscall ABI
     mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、PhysicalPageAllocator、AddressSpace、PageFaultHandler
     proc/               ProcessId、Process
-    sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SleepQueue、WaitQueue
+    sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue
 ```
 
 依赖方向必须保持：
@@ -135,6 +135,18 @@ PerformanceCounters    cycles、retired、I-cache/D-cache hit/miss、TLB hit/mis
 Stage8PerformanceModel 组合 L1I/L1D + pipeline + counters，作为 Executor/MMU 的可选性能 facade
 Executor hook          byte/object 路径记录 instruction fetch、retire、branch redirect，不改变原执行语义
 MMU hook               paging 路径记录 TLB hit/miss，读写路径按物理地址记录 D-cache 访问
+```
+
+Stage 9 当前语义：
+
+```text
+SmpScheduler           每核心 run queue/current，非拥有 ThreadContext 指针
+per-core timer         每核心 tick/preemption 统计，目标 core 只抢占本地 current
+cross-core wake        wake 到目标 core run queue，并通过 reschedule IPI 通知
+ready migration        只迁移 queued READY thread，不伪造 running thread 热迁移
+rebalance_once         从 ready 队列最重的 core 向最轻 core 迁移一个 runnable thread
+Kernel Stage9 facade   create_thread_on_core、handle_smp_timer_interrupt、request_smp_migration
+TLB shootdown apply    Kernel 可让目标 core take/apply/ack pending shootdown request
 ```
 
 Stage 3 当前语义：
@@ -269,7 +281,7 @@ RIP-relative addressing
 DecodeError 非法编码入口
 ```
 
-后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线。下一步应沿 per-core run queue、真实 SMP scheduler 和负载迁移推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
+后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。下一步应沿用户态 loader、内核/用户地址布局、COW fork 和 futex/event 等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
 
 ### Stage 2: 更完整的整数 ISA 已完成当前教学范围
 
@@ -323,7 +335,7 @@ kernel process/thread creation facade
 unit/integration/chaos/fuzz/benchmark/docs
 ```
 
-Stage 5 仍不假装已经完成完整现代内核：真实 timer tick、抢占式 context switch、wait/sleep 队列、APIC/IOAPIC、PCID/INVLPG/TLB shootdown 已在 Stage 7 完成当前底座；用户态 ELF loader、COW fork、信号和更真实的 per-core run queue 留给后续阶段。多核同步的第一层语义已在 Stage 6 落地。
+Stage 5 仍不假装已经完成完整现代内核：真实 timer tick、抢占式 context switch、wait/sleep 队列、APIC/IOAPIC、PCID/INVLPG/TLB shootdown 已在 Stage 7 完成当前底座；per-core run queue 和真实 SMP scheduler 已在 Stage 9 完成当前底座；用户态 ELF loader、COW fork、信号继续留给后续阶段。多核同步的第一层语义已在 Stage 6 落地。
 
 ### Stage 6: 原子操作、多核、内存模型 已完成当前底座
 
@@ -348,7 +360,7 @@ INVLPG/PCID/TLB shootdown
 多核心 scheduler handoff
 ```
 
-Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，下一步再逐步扩成 per-core run queue、真实用户态 loader、COW fork 和更复杂的设备模型。
+Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，Stage 9 已经补齐 per-core scheduler 当前底座，下一步再逐步扩成真实用户态 loader、COW fork 和更复杂的设备模型。
 
 ### Stage 8: cache、pipeline、性能计数 已完成当前底座
 
@@ -366,7 +378,7 @@ unit/integration/chaos/benchmark/docs
 
 Stage 8 仍不假装已经有完整微架构：当前没有 MESI/MOESI、一致性探测、分支预测器、uop cache、乱序执行或真实 TSC。这些应在 SMP scheduler、cache coherence 和 SIMD/HPC 阶段逐步引入。
 
-### Stage 9: 真实 SMP scheduler 与负载迁移
+### Stage 9: 真实 SMP scheduler 与负载迁移 已完成当前底座
 
 ```text
 per-core run queue
@@ -374,9 +386,22 @@ per-core run queue
 负载迁移
 抢占 tick 与 per-core scheduler 绑定
 TLB shootdown ack 与核心本地执行闭环
+unit/integration/chaos/benchmark/docs
 ```
 
-### Stage 10: 文件系统、块设备、高性能网络
+Stage 9 仍保持教学范围：当前支持 queued READY thread migration 和确定性 rebalance，不假装已经有真实并发锁、NUMA、CFS/EEVDF、完整 CPU hotplug 或真正并行执行器。这些应在后续调度策略、同步原语和多核执行阶段继续推进。
+
+### Stage 10: 用户态 loader、地址空间隔离、COW/futex
+
+```text
+用户态 loader
+内核/用户地址布局
+COW fork
+futex/event 等等待语义
+signal/async event 初版
+```
+
+### Stage 11: 文件系统、块设备、高性能网络
 
 ```text
 block device + DMA
@@ -388,7 +413,7 @@ zero-copy
 高性能网络 benchmark
 ```
 
-### Stage 11: HPC、SIMD、AI 推理/训练
+### Stage 12: HPC、SIMD、AI 推理/训练
 
 ```text
 SSE/AVX/AVX2/AVX-512 教学模拟路线

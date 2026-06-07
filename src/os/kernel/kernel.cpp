@@ -12,11 +12,14 @@ constexpr const char* KERNEL_INSUFFICIENT_MEMORY_MESSAGE = "kernel requires enou
 constexpr const char* KERNEL_NOT_BOOTED_MESSAGE = "kernel has not booted";
 constexpr const char* KERNEL_STAGE5_NOT_READY_MESSAGE = "kernel stage5 services are not initialized";
 constexpr const char* KERNEL_STAGE7_NOT_READY_MESSAGE = "kernel stage7 services are not initialized";
+constexpr const char* KERNEL_STAGE9_NOT_READY_MESSAGE = "kernel stage9 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_DEAD_THREAD_MESSAGE =
     "kernel cannot hand off a dead thread";
+constexpr const char* KERNEL_SMP_MIGRATION_SOURCE_MISMATCH_MESSAGE =
+    "kernel smp migration source core does not own the ready thread";
 constexpr const char* KERNEL_SLEEP_TICK_OVERFLOW_MESSAGE = "kernel sleep duration overflows scheduler tick";
 }
 
@@ -73,6 +76,7 @@ void Kernel::boot()
         KERNEL_RESERVED_LOW_PAGE_COUNT);
     this->kernel_address_space_.emplace(this->create_address_space(KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT));
     this->configure_stage7_services();
+    this->configure_stage9_services();
     this->booted_ = true;
 }
 
@@ -114,6 +118,11 @@ bool Kernel::has_stage5_services() const noexcept
 bool Kernel::has_stage7_services() const noexcept
 {
     return this->has_stage5_services() && this->apic_system_.has_value();
+}
+
+bool Kernel::has_stage9_services() const noexcept
+{
+    return this->has_stage7_services() && this->smp_scheduler_.has_value();
 }
 
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
@@ -162,6 +171,18 @@ const cpu::system::ApicSystem& Kernel::apic_system() const
     return this->apic_system_.value();
 }
 
+sched::SmpScheduler& Kernel::smp_scheduler()
+{
+    this->require_stage9_services();
+    return this->smp_scheduler_.value();
+}
+
+const sched::SmpScheduler& Kernel::smp_scheduler() const
+{
+    this->require_stage9_services();
+    return this->smp_scheduler_.value();
+}
+
 sched::SleepQueue& Kernel::sleep_queue() noexcept
 {
     return this->sleep_queue_;
@@ -199,6 +220,17 @@ sched::ThreadContext& Kernel::create_thread(proc::Process& process)
         sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
 }
 
+sched::ThreadContext& Kernel::create_thread_on_core(
+    proc::Process& process,
+    const cpu::system::CoreId target_core)
+{
+    return this->create_thread_on_core(
+        process,
+        target_core,
+        this->next_kernel_stack_bottom(),
+        sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
+}
+
 sched::ThreadContext& Kernel::create_thread(
     proc::Process& process,
     const mm::VirtualAddress kernel_stack_bottom,
@@ -209,6 +241,21 @@ sched::ThreadContext& Kernel::create_thread(
     ++this->next_thread_id_value_;
     sched::ThreadContext& thread = process.create_thread(thread_id, kernel_stack_bottom, kernel_stack_size_bytes);
     this->scheduler_.enqueue(thread);
+    return thread;
+}
+
+sched::ThreadContext& Kernel::create_thread_on_core(
+    proc::Process& process,
+    const cpu::system::CoreId target_core,
+    const mm::VirtualAddress kernel_stack_bottom,
+    const std::uint64_t kernel_stack_size_bytes)
+{
+    this->require_stage9_services();
+    static_cast<void>(this->smp_scheduler_.value().core_load(target_core));
+    const sched::ThreadId thread_id{this->next_thread_id_value_};
+    ++this->next_thread_id_value_;
+    sched::ThreadContext& thread = process.create_thread(thread_id, kernel_stack_bottom, kernel_stack_size_bytes);
+    this->smp_scheduler_.value().enqueue(thread, target_core);
     return thread;
 }
 
@@ -314,6 +361,11 @@ sched::ThreadContext* Kernel::handle_timer_interrupt(const cpu::system::CoreId c
 {
     this->require_stage7_services();
     static_cast<void>(this->apic_system_.value().local_apic(core_id));
+    if (this->smp_scheduler_.has_value() && this->smp_scheduler_.value().has_work_on_core(core_id))
+    {
+        return this->handle_smp_timer_interrupt(core_id);
+    }
+
     ++this->scheduler_tick_count_;
     static_cast<void>(this->wake_sleepers());
     if (this->scheduler_.has_current())
@@ -321,6 +373,23 @@ sched::ThreadContext* Kernel::handle_timer_interrupt(const cpu::system::CoreId c
         return this->scheduler_.yield_current();
     }
     return this->scheduler_.schedule_next();
+}
+
+sched::ThreadContext* Kernel::handle_smp_timer_interrupt(const cpu::system::CoreId core_id)
+{
+    this->require_stage9_services();
+    static_cast<void>(this->apic_system_.value().local_apic(core_id));
+    ++this->scheduler_tick_count_;
+    static_cast<void>(this->wake_sleepers());
+
+    sched::SmpScheduler& scheduler = this->smp_scheduler_.value();
+    const bool preempted = scheduler.has_current(core_id);
+    scheduler.record_timer_tick(core_id, preempted);
+    if (preempted)
+    {
+        return scheduler.yield_current(core_id);
+    }
+    return scheduler.schedule_next(core_id);
 }
 
 sched::ThreadContext* Kernel::sleep_current_until(const sched::SchedulerTick wake_tick)
@@ -401,15 +470,77 @@ const SchedulerHandoff& Kernel::request_scheduler_handoff(
     }
     this->validate_ipi_route(source_core, target_core);
 
-    thread.cpu_state().set_core_id(target_core);
+    const SchedulerHandoff& handoff = this->record_scheduler_handoff(source_core, target_core, thread);
+    static_cast<void>(this->send_reschedule_ipi(source_core, target_core));
+    return handoff;
+}
+
+bool Kernel::wake_thread_on_core(
+    const cpu::system::CoreId source_core,
+    const cpu::system::CoreId target_core,
+    sched::ThreadContext& thread)
+{
+    this->require_stage9_services();
+    this->validate_ipi_route(source_core, target_core);
+    this->smp_scheduler_.value().wake(thread, target_core);
+    return this->send_reschedule_ipi(source_core, target_core);
+}
+
+const SchedulerHandoff& Kernel::request_smp_migration(
+    const cpu::system::CoreId source_core,
+    const cpu::system::CoreId target_core,
+    sched::ThreadContext& thread)
+{
+    this->require_stage9_services();
+    this->validate_ipi_route(source_core, target_core);
+    sched::SmpScheduler& scheduler = this->smp_scheduler_.value();
+    const std::optional<cpu::system::CoreId> owning_core = scheduler.current_core_of(thread);
+    if (owning_core.has_value() && owning_core.value() != source_core)
+    {
+        throw std::logic_error{KERNEL_SMP_MIGRATION_SOURCE_MISMATCH_MESSAGE};
+    }
+
+    const sched::ThreadMigration migration = scheduler.migrate_ready(thread, target_core);
+    const SchedulerHandoff& handoff =
+        this->record_scheduler_handoff(migration.source_core(), migration.target_core(), thread);
+    static_cast<void>(this->send_reschedule_ipi(migration.source_core(), migration.target_core()));
+    return handoff;
+}
+
+std::optional<sched::ThreadMigration> Kernel::rebalance_smp_once()
+{
+    this->require_stage9_services();
+    std::optional<sched::ThreadMigration> migration = this->smp_scheduler_.value().rebalance_once();
+    if (!migration.has_value())
+    {
+        return std::nullopt;
+    }
+
+    this->validate_ipi_route(migration->source_core(), migration->target_core());
     this->scheduler_handoffs_.emplace_back(
         this->next_scheduler_handoff_sequence(),
-        source_core,
-        target_core,
-        thread.id());
-    static_cast<void>(
-        this->apic_system_.value().send_ipi(source_core, target_core, cpu::system::InterruptVector::reschedule()));
-    return this->scheduler_handoffs_.back();
+        migration->source_core(),
+        migration->target_core(),
+        migration->thread_id());
+    static_cast<void>(this->send_reschedule_ipi(migration->source_core(), migration->target_core()));
+    return migration;
+}
+
+bool Kernel::apply_next_tlb_shootdown_for_core(
+    const cpu::system::CoreId core_id,
+    cpu::memory::MemoryManagementUnit& mmu)
+{
+    this->require_stage9_services();
+    static_cast<void>(this->apic_system_.value().local_apic(core_id));
+    std::optional<cpu::memory::TlbShootdownRequest> request =
+        this->tlb_shootdown_controller_.take_next_for(core_id);
+    if (!request.has_value())
+    {
+        return false;
+    }
+
+    this->tlb_shootdown_controller_.apply(mmu, request.value());
+    return true;
 }
 
 std::size_t Kernel::scheduler_handoff_count() const noexcept
@@ -481,6 +612,15 @@ void Kernel::require_stage7_services() const
     }
 }
 
+void Kernel::require_stage9_services() const
+{
+    this->require_booted();
+    if (!this->has_stage9_services())
+    {
+        throw std::logic_error{KERNEL_STAGE9_NOT_READY_MESSAGE};
+    }
+}
+
 void Kernel::configure_stage7_services()
 {
     this->apic_system_.emplace(this->boot_context_->machine().core_topology());
@@ -495,12 +635,38 @@ void Kernel::configure_stage7_services()
     }
 }
 
+void Kernel::configure_stage9_services()
+{
+    this->smp_scheduler_.emplace(this->boot_context_->machine().core_topology());
+}
+
 void Kernel::validate_ipi_route(
     const cpu::system::CoreId source_core,
     const cpu::system::CoreId target_core) const
 {
     static_cast<void>(this->apic_system_.value().local_apic(source_core));
     static_cast<void>(this->apic_system_.value().local_apic(target_core));
+}
+
+const SchedulerHandoff& Kernel::record_scheduler_handoff(
+    const cpu::system::CoreId source_core,
+    const cpu::system::CoreId target_core,
+    sched::ThreadContext& thread)
+{
+    thread.cpu_state().set_core_id(target_core);
+    this->scheduler_handoffs_.emplace_back(
+        this->next_scheduler_handoff_sequence(),
+        source_core,
+        target_core,
+        thread.id());
+    return this->scheduler_handoffs_.back();
+}
+
+bool Kernel::send_reschedule_ipi(
+    const cpu::system::CoreId source_core,
+    const cpu::system::CoreId target_core)
+{
+    return this->apic_system_.value().send_ipi(source_core, target_core, cpu::system::InterruptVector::reschedule());
 }
 
 std::uint64_t Kernel::next_scheduler_handoff_sequence() noexcept

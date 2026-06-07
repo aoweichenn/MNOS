@@ -151,6 +151,7 @@ set(
         src/os/platform/machine.cpp
         src/os/proc/process.cpp
         src/os/sched/round_robin_scheduler.cpp
+        src/os/sched/smp_scheduler.cpp
         src/os/sched/sleep_queue.cpp
         src/os/sched/wait_queue.cpp
         src/os/sched/thread_state.cpp
@@ -273,12 +274,15 @@ mnos_add_os_test(mnos_os_kernel_boot_context_unit_tests tests/os/unit/kernel_boo
 mnos_add_os_test(mnos_os_thread_context_unit_tests tests/os/unit/thread_context_test.cpp)
 mnos_add_os_test(mnos_os_process_scheduler_unit_tests tests/os/unit/process_scheduler_test.cpp)
 mnos_add_os_test(mnos_os_stage7_sched_unit_tests tests/os/unit/stage7_sched_test.cpp)
+mnos_add_os_test(mnos_os_smp_scheduler_unit_tests tests/os/unit/smp_scheduler_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage7_integration_tests tests/os/integration/stage7_integration_test.cpp)
+mnos_add_os_test(mnos_os_stage9_integration_tests tests/os/integration/stage9_smp_scheduler_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
 mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_stage7_chaos_tests tests/os/chaos/stage7_scheduler_chaos_test.cpp)
+mnos_add_os_test(mnos_os_stage9_chaos_tests tests/os/chaos/stage9_smp_scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz_test.cpp)
 mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
 
