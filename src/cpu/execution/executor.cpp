@@ -24,6 +24,8 @@ constexpr const char* EXECUTOR_TRAP_CONTROLLER_REQUIRED_MESSAGE =
     "executor trap instruction requires an attached trap controller";
 constexpr const char* EXECUTOR_INTERRUPT_VECTOR_OPERAND_REQUIRED_MESSAGE =
     "executor INT instruction requires an 8-bit vector immediate";
+constexpr const char* EXECUTOR_PAGING_MEMORY_BUS_REQUIRED_MESSAGE =
+    "executor paging requires a memory bus";
 constexpr mnos::cpu::Qword EXECUTOR_ONE_BIT = mnos::cpu::Qword{1};
 constexpr mnos::cpu::Qword EXECUTOR_LOW_BYTE_MASK = mnos::cpu::Qword{0xFF};
 constexpr mnos::cpu::Qword EXECUTOR_WORD_MASK = mnos::cpu::Qword{0xFFFF};
@@ -171,6 +173,16 @@ bool Executor::has_trap_controller() const noexcept
     return this->trap_controller_ != nullptr;
 }
 
+memory::MemoryManagementUnit& Executor::mmu() noexcept
+{
+    return this->mmu_;
+}
+
+const memory::MemoryManagementUnit& Executor::mmu() const noexcept
+{
+    return this->mmu_;
+}
+
 StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrace* const trace)
 {
     return this->step_with_memory(state, program, nullptr, trace);
@@ -254,7 +266,15 @@ StepResult Executor::step_with_memory(
         &program,
         nullptr,
         rip_before + CPU_STATE_NEXT_INSTRUCTION_OFFSET};
-    this->execute_instruction(state, memory_bus, instruction, context);
+    try
+    {
+        this->check_instruction_fetch(state, memory_bus, rip_before, context.next_rip);
+        this->execute_instruction(state, memory_bus, instruction, context);
+    }
+    catch (const memory::PageFault& fault)
+    {
+        this->handle_page_fault(state, fault);
+    }
     ++this->cycle_count_;
 
     if (trace != nullptr)
@@ -289,7 +309,15 @@ StepResult Executor::step_image_with_memory(
     const InstructionPointer rip_before = state.rip();
     const DecodedInstruction decoded_instruction = this->decoder_.decode(image, rip_before);
     const ExecutionContext context{nullptr, &image, decoded_instruction.next_rip};
-    this->execute_instruction(state, memory_bus, decoded_instruction.instruction, context);
+    try
+    {
+        this->check_instruction_fetch(state, memory_bus, decoded_instruction.start_rip, decoded_instruction.next_rip);
+        this->execute_instruction(state, memory_bus, decoded_instruction.instruction, context);
+    }
+    catch (const memory::PageFault& fault)
+    {
+        this->handle_page_fault(state, fault);
+    }
     ++this->cycle_count_;
 
     if (trace != nullptr)
@@ -795,7 +823,7 @@ void Executor::execute_hlt(CpuState& state, const ExecutionContext& context) con
     state.halt();
 }
 
-Qword Executor::read_operand(const CpuState& state, MemoryBus* const memory_bus, const Operand& operand) const
+Qword Executor::read_operand(CpuState& state, MemoryBus* const memory_bus, const Operand& operand)
 {
     if (operand.is_register())
     {
@@ -819,7 +847,7 @@ void Executor::write_operand(
     CpuState& state,
     MemoryBus* const memory_bus,
     const Operand& operand,
-    const Qword value) const
+    const Qword value)
 {
     if (operand.is_register())
     {
@@ -856,38 +884,55 @@ void Executor::write_register_operand(CpuState& state, const Operand& operand, c
 }
 
 Qword Executor::read_memory_operand(
-    const CpuState& state,
+    CpuState& state,
     MemoryBus* const memory_bus,
-    const Operand& operand) const
+    const Operand& operand)
 {
-    return this->require_memory_bus(memory_bus).read(
+    return this->mmu_.read(
+        this->require_memory_bus(memory_bus),
+        state.paging(),
+        state.privilege_level(),
         this->calculate_effective_address(state, operand),
         operand.memory_data_size());
 }
 
 void Executor::write_memory_operand(
-    const CpuState& state,
+    CpuState& state,
     MemoryBus* const memory_bus,
     const Operand& operand,
-    const Qword value) const
+    const Qword value)
 {
-    this->require_memory_bus(memory_bus).write(
+    this->mmu_.write(
+        this->require_memory_bus(memory_bus),
+        state.paging(),
+        state.privilege_level(),
         this->calculate_effective_address(state, operand),
         operand.memory_data_size(),
         value);
 }
 
-void Executor::push_qword(CpuState& state, MemoryBus* const memory_bus, const Qword value) const
+void Executor::push_qword(CpuState& state, MemoryBus* const memory_bus, const Qword value)
 {
     const Qword stack_pointer = state.registers().read(RegisterId::RSP) - EXECUTOR_STACK_SLOT_BYTES;
+    this->mmu_.write(
+        this->require_memory_bus(memory_bus),
+        state.paging(),
+        state.privilege_level(),
+        stack_pointer,
+        DataSize::QWORD,
+        value);
     state.registers().write(RegisterId::RSP, stack_pointer);
-    this->require_memory_bus(memory_bus).write(stack_pointer, DataSize::QWORD, value);
 }
 
-Qword Executor::pop_qword(CpuState& state, MemoryBus* const memory_bus) const
+Qword Executor::pop_qword(CpuState& state, MemoryBus* const memory_bus)
 {
     const Qword stack_pointer = state.registers().read(RegisterId::RSP);
-    const Qword value = this->require_memory_bus(memory_bus).read(stack_pointer, DataSize::QWORD);
+    const Qword value = this->mmu_.read(
+        this->require_memory_bus(memory_bus),
+        state.paging(),
+        state.privilege_level(),
+        stack_pointer,
+        DataSize::QWORD);
     state.registers().write(RegisterId::RSP, stack_pointer + EXECUTOR_STACK_SLOT_BYTES);
     return value;
 }
@@ -1006,6 +1051,46 @@ system::TrapController& Executor::require_trap_controller() const
         throw std::logic_error{EXECUTOR_TRAP_CONTROLLER_REQUIRED_MESSAGE};
     }
     return *this->trap_controller_;
+}
+
+void Executor::check_instruction_fetch(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const InstructionPointer start_rip,
+    const InstructionPointer next_rip)
+{
+    if (!state.paging().is_enabled())
+    {
+        return;
+    }
+
+    if (memory_bus == nullptr)
+    {
+        throw std::logic_error{EXECUTOR_PAGING_MEMORY_BUS_REQUIRED_MESSAGE};
+    }
+
+    const std::size_t instruction_byte_count = static_cast<std::size_t>(next_rip - start_rip);
+    this->mmu_.check_access_range(
+        *memory_bus,
+        state.paging(),
+        state.privilege_level(),
+        start_rip,
+        instruction_byte_count,
+        memory::MemoryAccessKind::EXECUTE);
+}
+
+void Executor::handle_page_fault(CpuState& state, const memory::PageFault& fault) const
+{
+    if (this->trap_controller_ == nullptr)
+    {
+        throw fault;
+    }
+
+    state.paging().set_page_fault_linear_address(fault.linear_address());
+    static_cast<void>(this->trap_controller_->raise_exception(
+        state,
+        system::InterruptVector::page_fault(),
+        fault.error_code()));
 }
 
 void Executor::set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept

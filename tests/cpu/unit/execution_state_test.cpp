@@ -38,6 +38,8 @@ constexpr cpu::CycleCount TEST_TRACE_FIRST_CYCLE = cpu::CycleCount{1};
 constexpr bool TEST_TRACE_NOT_HALTED = false;
 constexpr cpu::InstructionPointer TEST_TRAP_RETURN_RIP = cpu::InstructionPointer{7};
 constexpr cpu::Qword TEST_STACK_POINTER = cpu::Qword{0x8000};
+constexpr cpu::Address64 TEST_PAGING_ROOT_TABLE = cpu::Address64{0x1000};
+constexpr cpu::Address64 TEST_PAGE_FAULT_ADDRESS = cpu::Address64{0x5000};
 }
 
 TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
@@ -50,6 +52,9 @@ TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
 
     state.registers().write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
     state.flags().write(cpu::FlagId::ZF, true);
+    state.paging().load_cr3(TEST_PAGING_ROOT_TABLE);
+    state.paging().enable();
+    state.paging().set_page_fault_linear_address(TEST_PAGE_FAULT_ADDRESS);
     state.advance_rip();
     state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
     state.set_pending_trap(cpu_system::TrapFrame{
@@ -64,6 +69,9 @@ TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
 
     EXPECT_THAT(const_state.registers().read(cpu::RegisterId::RAX), Eq(TEST_REGISTER_VALUE));
     EXPECT_TRUE(const_state.flags().read(cpu::FlagId::ZF));
+    EXPECT_TRUE(const_state.paging().is_enabled());
+    EXPECT_THAT(const_state.paging().cr3(), Eq(TEST_PAGING_ROOT_TABLE));
+    EXPECT_THAT(const_state.paging().page_fault_linear_address(), Eq(TEST_PAGE_FAULT_ADDRESS));
     EXPECT_THAT(state.rip(), Eq(cpu::CPU_STATE_NEXT_INSTRUCTION_OFFSET));
     EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
     EXPECT_TRUE(state.has_pending_trap());
@@ -79,6 +87,8 @@ TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
     EXPECT_THAT(state.rip(), Eq(cpu::CPU_STATE_INITIAL_RIP));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
+    EXPECT_FALSE(state.paging().is_enabled());
+    EXPECT_THAT(state.paging().cr3(), Eq(cpu::Address64{0}));
     EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING0));
     EXPECT_THROW(static_cast<void>(state.pending_trap()), std::logic_error);
 }

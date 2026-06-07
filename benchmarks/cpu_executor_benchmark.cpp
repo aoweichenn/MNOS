@@ -13,6 +13,8 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/page_table_builder.hpp>
+#include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
@@ -20,6 +22,7 @@
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
 
 namespace
@@ -32,9 +35,17 @@ constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
 constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
 constexpr std::size_t BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
 constexpr std::size_t BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT = 6;
+constexpr std::size_t BENCHMARK_STAGE4_PAGED_PROGRAM_INSTRUCTION_COUNT = 5;
 constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
 constexpr cpu::Address64 BENCHMARK_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
 constexpr cpu::Qword BENCHMARK_STAGE3_KERNEL_STACK_TOP = cpu::Qword{384};
+constexpr std::size_t BENCHMARK_STAGE4_MEMORY_SIZE_BYTES = 128 * 1024;
+constexpr cpu::Address64 BENCHMARK_STAGE4_ROOT_TABLE = cpu::Address64{0x1000};
+constexpr cpu::Address64 BENCHMARK_STAGE4_NEXT_TABLE = cpu::Address64{0x2000};
+constexpr cpu::Address64 BENCHMARK_STAGE4_LINEAR_DATA_PAGE = cpu::Address64{0x5000};
+constexpr cpu::Address64 BENCHMARK_STAGE4_PHYSICAL_DATA_PAGE = cpu::Address64{0x9000};
+constexpr cpu::SignedQword BENCHMARK_STAGE4_LINEAR_DATA_VALUE =
+    static_cast<cpu::SignedQword>(BENCHMARK_STAGE4_LINEAR_DATA_PAGE);
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -57,6 +68,21 @@ constexpr cpu::Qword BENCHMARK_STAGE3_KERNEL_STACK_TOP = cpu::Qword{384};
         cpu::Instruction::make_mov(
             cpu::Operand::reg(cpu::RegisterId::RBX),
             cpu_support::make_mem(cpu::RegisterId::RBP, BENCHMARK_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD)),
+        cpu::Instruction::make_hlt(),
+    };
+}
+
+[[nodiscard]] cpu::Program make_stage4_paged_program()
+{
+    return cpu::Program{
+        cpu_support::make_mov_imm(cpu::RegisterId::RBP, BENCHMARK_STAGE4_LINEAR_DATA_VALUE),
+        cpu_support::make_mov_imm(cpu::RegisterId::RAX, BENCHMARK_INCREMENT_VALUE),
+        cpu::Instruction::make_mov(
+            cpu::Operand::mem(cpu::RegisterId::RBP, cpu::SignedQword{0}, cpu::DataSize::QWORD),
+            cpu::Operand::reg(cpu::RegisterId::RAX)),
+        cpu::Instruction::make_mov(
+            cpu::Operand::reg(cpu::RegisterId::RBX),
+            cpu::Operand::mem(cpu::RegisterId::RBP, cpu::SignedQword{0}, cpu::DataSize::QWORD)),
         cpu::Instruction::make_hlt(),
     };
 }
@@ -197,8 +223,43 @@ static void BM_CPUExecutorStage3SyscallByteImageProgram(benchmark::State& state)
     set_instruction_items_processed(state, BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT);
 }
 
+static void BM_CPUExecutorStage4PagedMemoryProgram(benchmark::State& state)
+{
+    const cpu::Program program = make_stage4_paged_program();
+    cpu::PhysicalMemory memory(BENCHMARK_STAGE4_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    cpu_memory::PageTableBuilder page_table_builder{
+        memory_bus,
+        BENCHMARK_STAGE4_ROOT_TABLE,
+        BENCHMARK_STAGE4_NEXT_TABLE};
+    page_table_builder.clear_root_table();
+    page_table_builder.map_4k(
+        cpu::Address64{0},
+        cpu::Address64{0},
+        cpu_memory::PagePermissions::user_read_write_execute());
+    page_table_builder.map_4k(
+        BENCHMARK_STAGE4_LINEAR_DATA_PAGE,
+        BENCHMARK_STAGE4_PHYSICAL_DATA_PAGE,
+        cpu_memory::PagePermissions::user_read_write_execute());
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::CpuState cpu_state;
+        cpu_state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+        cpu_state.paging().load_cr3(BENCHMARK_STAGE4_ROOT_TABLE);
+        cpu_state.paging().enable();
+        cpu::Executor executor;
+        benchmark::DoNotOptimize(executor.run(cpu_state, program, memory_bus));
+        benchmark::DoNotOptimize(cpu_state.registers().read(cpu::RegisterId::RBX));
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_STAGE4_PAGED_PROGRAM_INSTRUCTION_COUNT);
+}
+
 BENCHMARK(BM_CPUExecutorRegisterProgram);
 BENCHMARK(BM_CPUExecutorMemoryProgram);
 BENCHMARK(BM_CPUExecutorByteImageMemoryProgram);
 BENCHMARK(BM_CPUExecutorStage2ByteImageProgram);
 BENCHMARK(BM_CPUExecutorStage3SyscallByteImageProgram);
+BENCHMARK(BM_CPUExecutorStage4PagedMemoryProgram);

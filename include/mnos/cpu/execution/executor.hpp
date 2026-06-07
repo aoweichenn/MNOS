@@ -11,6 +11,7 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/mmu.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 
 namespace mnos::cpu
@@ -32,6 +33,8 @@ public:
     void attach_trap_controller(system::TrapController& trap_controller) noexcept;
     void detach_trap_controller() noexcept;
     [[nodiscard]] bool has_trap_controller() const noexcept;
+    [[nodiscard]] memory::MemoryManagementUnit& mmu() noexcept;
+    [[nodiscard]] const memory::MemoryManagementUnit& mmu() const noexcept;
 
     [[nodiscard]] StepResult step(CpuState& state, const Program& program, ExecutionTrace* trace = nullptr);
     [[nodiscard]] StepResult step(
@@ -220,17 +223,17 @@ private:
     void execute_iret(CpuState& state) const;
     void execute_hlt(CpuState& state, const ExecutionContext& context) const noexcept;
 
-    [[nodiscard]] Qword read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
-    void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
+    [[nodiscard]] Qword read_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand);
+    void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value);
     [[nodiscard]] Qword read_register_operand(const CpuState& state, const Operand& operand) const;
     void write_register_operand(CpuState& state, const Operand& operand, Qword value) const;
     [[nodiscard]] Qword read_memory_operand(
-        const CpuState& state,
+        CpuState& state,
         MemoryBus* memory_bus,
-        const Operand& operand) const;
-    void write_memory_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
-    void push_qword(CpuState& state, MemoryBus* memory_bus, Qword value) const;
-    [[nodiscard]] Qword pop_qword(CpuState& state, MemoryBus* memory_bus) const;
+        const Operand& operand);
+    void write_memory_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value);
+    void push_qword(CpuState& state, MemoryBus* memory_bus, Qword value);
+    [[nodiscard]] Qword pop_qword(CpuState& state, MemoryBus* memory_bus);
     [[nodiscard]] MemoryBus& require_memory_bus(MemoryBus* memory_bus) const;
     [[nodiscard]] Address64 calculate_effective_address(const CpuState& state, const Operand& operand) const;
     [[nodiscard]] bool evaluate_condition(const CpuState& state, ConditionCode condition) const;
@@ -238,10 +241,17 @@ private:
     void require_register_operand(const Operand& operand) const;
     void require_memory_operand(const Operand& operand) const;
     [[nodiscard]] system::TrapController& require_trap_controller() const;
+    void check_instruction_fetch(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        InstructionPointer start_rip,
+        InstructionPointer next_rip);
+    void handle_page_fault(CpuState& state, const memory::PageFault& fault) const;
     void set_next_rip(CpuState& state, const ExecutionContext& context) const noexcept;
     void jump_to(CpuState& state, const ExecutionContext& context, InstructionPointer target) const;
 
     Decoder decoder_;
+    memory::MemoryManagementUnit mmu_;
     system::TrapController* trap_controller_ = nullptr;
     CycleCount cycle_count_ = CycleCount{0};
 };

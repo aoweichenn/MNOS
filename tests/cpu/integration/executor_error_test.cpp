@@ -11,6 +11,8 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/page_table_builder.hpp>
+#include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/interrupt_vector.hpp>
@@ -18,6 +20,7 @@
 
 namespace cpu = mnos::cpu;
 namespace cpu_support = mnos::test::cpu_support;
+namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
 
 namespace
@@ -32,6 +35,10 @@ constexpr cpu::Address64 TEST_STACK_TOP_ADDRESS = cpu::Address64{64};
 constexpr cpu::SignedQword TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SignedQword{16};
 constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
 constexpr cpu::Qword TEST_INVALID_RETURN_TARGET = cpu::Qword{4};
+constexpr std::size_t TEST_STAGE4_MEMORY_SIZE_BYTES = 128 * 1024;
+constexpr cpu::Address64 TEST_STAGE4_ROOT_TABLE = cpu::Address64{0x1000};
+constexpr cpu::Address64 TEST_STAGE4_NEXT_TABLE = cpu::Address64{0x2000};
+constexpr cpu::Address64 TEST_STAGE4_UNMAPPED_PAGE = cpu::Address64{0xA000};
 }
 
 TEST(ExecutorErrorTest, RejectsInvalidJumpTarget)
@@ -180,4 +187,46 @@ TEST(ExecutorErrorTest, RejectsTrapInstructionsWithoutControllerOrSyscallDescrip
     cpu::CpuState syscall_state;
 
     EXPECT_THROW(static_cast<void>(executor.step(syscall_state, syscall_program)), std::logic_error);
+}
+
+TEST(ExecutorErrorTest, RejectsPagingWithoutMemoryBus)
+{
+    cpu::Program program{
+        cpu::Instruction::make_hlt(),
+    };
+    cpu::CpuState state;
+    state.paging().load_cr3(TEST_STAGE4_ROOT_TABLE);
+    state.paging().enable();
+    cpu::Executor executor;
+
+    EXPECT_THROW(static_cast<void>(executor.step(state, program)), std::logic_error);
+}
+
+TEST(ExecutorErrorTest, PropagatesPageFaultWhenTrapControllerIsMissing)
+{
+    cpu::PhysicalMemory memory(TEST_STAGE4_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    cpu_memory::PageTableBuilder page_table_builder{
+        memory_bus,
+        TEST_STAGE4_ROOT_TABLE,
+        TEST_STAGE4_NEXT_TABLE};
+    page_table_builder.clear_root_table();
+    page_table_builder.map_4k(
+        cpu::Address64{0},
+        cpu::Address64{0},
+        cpu_memory::PagePermissions::user_read_write_execute());
+
+    cpu::Program program{
+        cpu::Instruction::make_mov(
+            cpu::Operand::reg(cpu::RegisterId::RAX),
+            cpu::Operand::mem(cpu::RegisterId::RBP, cpu::SignedQword{0}, cpu::DataSize::QWORD)),
+    };
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.registers().write(cpu::RegisterId::RBP, TEST_STAGE4_UNMAPPED_PAGE);
+    state.paging().load_cr3(TEST_STAGE4_ROOT_TABLE);
+    state.paging().enable();
+    cpu::Executor executor;
+
+    EXPECT_THROW(static_cast<void>(executor.step(state, program, memory_bus)), cpu_memory::PageFault);
 }

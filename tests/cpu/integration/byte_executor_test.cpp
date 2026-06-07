@@ -9,12 +9,15 @@
 #include <mnos/cpu/execution/trace.hpp>
 #include <mnos/cpu/flags/id.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/page_table_builder.hpp>
+#include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 
 namespace cpu = mnos::cpu;
+namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
 
 namespace
@@ -42,6 +45,16 @@ constexpr cpu::Address64 TEST_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
 constexpr cpu::Qword TEST_STAGE3_USER_STACK_TOP = cpu::Qword{120};
 constexpr cpu::Qword TEST_STAGE3_KERNEL_STACK_TOP = cpu::Qword{96};
 constexpr std::size_t TEST_STAGE3_SYSCALL_BYTE_PROGRAM_STEP_COUNT = 6;
+constexpr std::size_t TEST_STAGE4_MEMORY_SIZE_BYTES = 128 * 1024;
+constexpr cpu::Address64 TEST_STAGE4_ROOT_TABLE = cpu::Address64{0x1000};
+constexpr cpu::Address64 TEST_STAGE4_NEXT_TABLE = cpu::Address64{0x2000};
+constexpr cpu::Address64 TEST_STAGE4_PAGE_FAULT_HANDLER_RIP = cpu::Address64{1};
+constexpr cpu::Qword TEST_STAGE4_KERNEL_STACK_TOP = cpu::Qword{0xE000};
+constexpr cpu::Qword TEST_STAGE4_USER_STACK_TOP = cpu::Qword{0xF000};
+constexpr cpu::Qword TEST_STAGE4_NX_FAULT_ERROR =
+    cpu_memory::PAGE_FAULT_ERROR_PRESENT_BIT |
+    cpu_memory::PAGE_FAULT_ERROR_USER_BIT |
+    cpu_memory::PAGE_FAULT_ERROR_INSTRUCTION_FETCH_BIT;
 }
 
 TEST(ByteExecutorTest, RunsDecodedByteProgramThroughMemoryAndBranching)
@@ -259,4 +272,45 @@ TEST(ByteExecutorTest, ExecutesStage3SyscallAndSysretByteImage)
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE3_USER_STACK_TOP));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(TEST_EXPECTED_VALUE));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(TEST_SKIPPED_VALUE));
+}
+
+TEST(ByteExecutorTest, RaisesStage4ExecuteDisablePageFaultBeforeExecutingImageInstruction)
+{
+    cpu::ExecutableImage image{0xF4}; // HLT
+    cpu::PhysicalMemory memory(TEST_STAGE4_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    cpu_memory::PageTableBuilder page_table_builder{
+        memory_bus,
+        TEST_STAGE4_ROOT_TABLE,
+        TEST_STAGE4_NEXT_TABLE};
+    page_table_builder.clear_root_table();
+    page_table_builder.map_4k(
+        cpu::Address64{0},
+        cpu::Address64{0},
+        cpu_memory::PagePermissions::user_read_write_no_execute());
+
+    cpu_system::TrapController trap_controller;
+    trap_controller.idt().set_gate(
+        cpu_system::InterruptVector::page_fault(),
+        cpu_system::InterruptGate::interrupt_gate(
+            TEST_STAGE4_PAGE_FAULT_HANDLER_RIP,
+            cpu_system::PrivilegeLevel::RING0));
+    trap_controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_STAGE4_KERNEL_STACK_TOP);
+
+    cpu::CpuState state;
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.registers().write(cpu::RegisterId::RSP, TEST_STAGE4_USER_STACK_TOP);
+    state.paging().load_cr3(TEST_STAGE4_ROOT_TABLE);
+    state.paging().enable();
+    cpu::Executor executor;
+    executor.attach_trap_controller(trap_controller);
+
+    EXPECT_THAT(executor.step(state, image, memory_bus), Eq(cpu::StepResult::EXECUTED));
+    EXPECT_FALSE(state.is_halted());
+    EXPECT_TRUE(state.has_pending_trap());
+    EXPECT_THAT(state.pending_trap().vector(), Eq(cpu_system::InterruptVector::page_fault()));
+    EXPECT_THAT(state.pending_trap().error_code(), Eq(TEST_STAGE4_NX_FAULT_ERROR));
+    EXPECT_THAT(state.paging().page_fault_linear_address(), Eq(cpu::Address64{0}));
+    EXPECT_THAT(state.rip(), Eq(TEST_STAGE4_PAGE_FAULT_HANDLER_RIP));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE4_KERNEL_STACK_TOP));
 }

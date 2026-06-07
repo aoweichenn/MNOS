@@ -92,14 +92,14 @@ CPL + IF
 ThreadContext trapframe snapshot
 ```
 
-其中 page fault 目前只是 vector/trapframe 能表达，真实 paging/MMU/TLB 和 memory fault 接入放到 Stage 4。
+Stage 4 已经把 paging/MMU/TLB 和 memory fault 接入 `TrapController`：`CpuState` 保存 CR3/CR2 风格状态，MMU 做 4-level walk/TLB 查询，缺页会产生 `#PF` trapframe 和 x86-64 page fault error code。OS 下一步可以在这个基础上实现真实 page fault handler、物理页分配器和进程地址空间。
 
 ## 下一步
 
 合理顺序：
 
 ```text
-1. paging/MMU/TLB + page fault 接入
+1. page fault handler + physical page allocator
 2. trapframe + context switch
 3. syscall ABI + scheduler
 4. timer interrupt + APIC/IOAPIC 教学模型

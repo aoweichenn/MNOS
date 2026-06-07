@@ -31,6 +31,16 @@ const Rflags& CpuState::flags() const noexcept
     return this->flags_;
 }
 
+memory::PagingState& CpuState::paging() noexcept
+{
+    return this->paging_;
+}
+
+const memory::PagingState& CpuState::paging() const noexcept
+{
+    return this->paging_;
+}
+
 InstructionPointer CpuState::rip() const noexcept
 {
     return this->rip_;
@@ -65,6 +75,7 @@ void CpuState::reset() noexcept
 {
     this->registers_ = RegisterBank{};
     this->flags_ = Rflags{};
+    this->paging_ = memory::PagingState{};
     this->rip_ = CPU_STATE_INITIAL_RIP;
     this->privilege_level_ = system::PrivilegeLevel::RING0;
     this->pending_trap_.reset();
