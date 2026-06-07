@@ -55,6 +55,10 @@ constexpr cpu::Qword TEST_STAGE4_NX_FAULT_ERROR =
     cpu_memory::PAGE_FAULT_ERROR_PRESENT_BIT |
     cpu_memory::PAGE_FAULT_ERROR_USER_BIT |
     cpu_memory::PAGE_FAULT_ERROR_INSTRUCTION_FETCH_BIT;
+constexpr cpu::Qword TEST_STAGE6_COMPARE_VALUE = cpu::Qword{10};
+constexpr cpu::Qword TEST_STAGE6_EXCHANGE_VALUE = cpu::Qword{42};
+constexpr cpu::Qword TEST_STAGE6_ADD_VALUE = cpu::Qword{5};
+constexpr std::size_t TEST_STAGE6_ATOMIC_BYTE_PROGRAM_STEP_COUNT = 8;
 }
 
 TEST(ByteExecutorTest, RunsDecodedByteProgramThroughMemoryAndBranching)
@@ -272,6 +276,32 @@ TEST(ByteExecutorTest, ExecutesStage3SyscallAndSysretByteImage)
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RSP), Eq(TEST_STAGE3_USER_STACK_TOP));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(TEST_EXPECTED_VALUE));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(TEST_SKIPPED_VALUE));
+}
+
+TEST(ByteExecutorTest, ExecutesStage6AtomicByteImage)
+{
+    cpu::ExecutableImage image{
+        0x48, 0xBD, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 64
+        0x48, 0xB8, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 10
+        0x48, 0xBB, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 42
+        0xF0, 0x48, 0x0F, 0xB1, 0x5D, 0x08,                         // LOCK CMPXCHG [RBP + 8], RBX
+        0x48, 0xB9, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 5
+        0xF0, 0x48, 0x0F, 0xC1, 0x4D, 0x08,                         // LOCK XADD [RBP + 8], RCX
+        0x0F, 0xAE, 0xF0,                                           // MFENCE
+        0xF4};                                                      // HLT
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    memory.write_qword(TEST_MEMORY_STORED_ADDRESS, TEST_STAGE6_COMPARE_VALUE);
+    cpu::MemoryBus memory_bus{memory};
+    cpu::CpuState state;
+    cpu::Executor executor;
+
+    const std::size_t executed_steps = executor.run(state, image, memory_bus);
+
+    EXPECT_THAT(executed_steps, Eq(TEST_STAGE6_ATOMIC_BYTE_PROGRAM_STEP_COUNT));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(memory.read_qword(TEST_MEMORY_STORED_ADDRESS), Eq(TEST_STAGE6_EXCHANGE_VALUE + TEST_STAGE6_ADD_VALUE));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RCX), Eq(TEST_STAGE6_EXCHANGE_VALUE));
+    EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
 }
 
 TEST(ByteExecutorTest, RaisesStage4ExecuteDisablePageFaultBeforeExecutingImageInstruction)

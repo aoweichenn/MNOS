@@ -7,6 +7,8 @@ namespace
 {
 constexpr const char* BOOT_CONTEXT_EMPTY_MEMORY_MESSAGE = "boot context requires physical memory";
 constexpr const char* BOOT_CONTEXT_ZERO_PROCESSOR_COUNT_MESSAGE = "boot context requires at least one processor";
+constexpr const char* BOOT_CONTEXT_PROCESSOR_COUNT_EXCEEDS_MACHINE_MESSAGE =
+    "boot context processor count exceeds machine topology";
 }
 
 namespace mnos::os::kernel
@@ -27,6 +29,11 @@ BootContext::BootContext(platform::Machine& machine, const std::uint32_t bootstr
     if (this->bootstrap_processor_count_ == std::uint32_t{0})
     {
         throw std::invalid_argument{BOOT_CONTEXT_ZERO_PROCESSOR_COUNT_MESSAGE};
+    }
+
+    if (this->bootstrap_processor_count_ > this->machine_->processor_count())
+    {
+        throw std::invalid_argument{BOOT_CONTEXT_PROCESSOR_COUNT_EXCEEDS_MACHINE_MESSAGE};
     }
 }
 

@@ -3,7 +3,13 @@
 namespace mnos::os::platform
 {
 Machine::Machine(const std::size_t physical_memory_size_bytes) :
-    physical_memory_(physical_memory_size_bytes), memory_bus_(this->physical_memory_)
+    Machine(physical_memory_size_bytes, cpu::system::CORE_TOPOLOGY_DEFAULT_CORE_COUNT)
+{
+}
+
+Machine::Machine(const std::size_t physical_memory_size_bytes, const std::uint32_t core_count) :
+    physical_memory_(physical_memory_size_bytes),
+    memory_bus_(this->physical_memory_), core_topology_(core_count)
 {
 }
 
@@ -25,6 +31,21 @@ cpu::MemoryBus& Machine::memory_bus() noexcept
 const cpu::MemoryBus& Machine::memory_bus() const noexcept
 {
     return this->memory_bus_;
+}
+
+cpu::system::CoreTopology& Machine::core_topology() noexcept
+{
+    return this->core_topology_;
+}
+
+const cpu::system::CoreTopology& Machine::core_topology() const noexcept
+{
+    return this->core_topology_;
+}
+
+std::uint32_t Machine::processor_count() const noexcept
+{
+    return this->core_topology_.core_count();
 }
 
 std::size_t Machine::physical_memory_size_bytes() const noexcept

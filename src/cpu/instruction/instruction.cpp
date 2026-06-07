@@ -18,8 +18,13 @@ void require_condition_code(const mnos::cpu::ConditionCode condition)
 
 namespace mnos::cpu
 {
-Instruction::Instruction(const Opcode opcode, Operand first_operand, Operand second_operand) noexcept :
-    opcode_(opcode), first_operand_(std::move(first_operand)), second_operand_(std::move(second_operand))
+Instruction::Instruction(
+    const Opcode opcode,
+    Operand first_operand,
+    Operand second_operand,
+    const bool locked) noexcept :
+    opcode_(opcode),
+    first_operand_(std::move(first_operand)), second_operand_(std::move(second_operand)), locked_(locked)
 {
 }
 
@@ -27,9 +32,11 @@ Instruction::Instruction(
     const Opcode opcode,
     const ConditionCode condition,
     Operand first_operand,
-    Operand second_operand) noexcept :
+    Operand second_operand,
+    const bool locked) noexcept :
     opcode_(opcode),
-    condition_(condition), first_operand_(std::move(first_operand)), second_operand_(std::move(second_operand))
+    condition_(condition),
+    first_operand_(std::move(first_operand)), second_operand_(std::move(second_operand)), locked_(locked)
 {
 }
 
@@ -101,6 +108,21 @@ Instruction Instruction::make_xor(Operand destination, Operand source) noexcept
 Instruction Instruction::make_test(Operand left, Operand right) noexcept
 {
     return Instruction{Opcode::TEST, std::move(left), std::move(right)};
+}
+
+Instruction Instruction::make_cmpxchg(Operand destination, Operand source, const bool locked) noexcept
+{
+    return Instruction{Opcode::CMPXCHG, std::move(destination), std::move(source), locked};
+}
+
+Instruction Instruction::make_xadd(Operand destination, Operand source, const bool locked) noexcept
+{
+    return Instruction{Opcode::XADD, std::move(destination), std::move(source), locked};
+}
+
+Instruction Instruction::make_mfence() noexcept
+{
+    return Instruction{Opcode::MFENCE, Operand::none(), Operand::none()};
 }
 
 Instruction Instruction::make_push(Operand source) noexcept
@@ -182,6 +204,11 @@ Instruction Instruction::make_iret() noexcept
 Opcode Instruction::opcode() const noexcept
 {
     return this->opcode_;
+}
+
+bool Instruction::is_locked() const noexcept
+{
+    return this->locked_;
 }
 
 bool Instruction::has_condition_code() const noexcept

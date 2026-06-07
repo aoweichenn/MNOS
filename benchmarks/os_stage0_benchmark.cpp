@@ -40,7 +40,7 @@ static void BM_OSKernelBoot(benchmark::State& state)
     for (auto unused_iteration : state)
     {
         static_cast<void>(unused_iteration);
-        platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES);
+        platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT);
         kernel::BootContext boot_context{machine, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT};
         kernel::Kernel os_kernel{boot_context};
         os_kernel.boot();
@@ -111,7 +111,7 @@ static void BM_KernelCreateProcessThread(benchmark::State& state)
     for (auto unused_iteration : state)
     {
         static_cast<void>(unused_iteration);
-        platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES);
+        platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT);
         kernel::BootContext boot_context{machine, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT};
         kernel::Kernel os_kernel{boot_context};
         os_kernel.boot();

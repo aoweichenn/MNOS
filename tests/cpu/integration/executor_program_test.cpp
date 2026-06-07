@@ -113,6 +113,11 @@ constexpr cpu::Qword TEST_STAGE4_KERNEL_STACK_TOP = cpu::Qword{0xE000};
 constexpr std::size_t TEST_STAGE4_PAGED_PROGRAM_STEP_COUNT = 5;
 constexpr cpu::Qword TEST_STAGE4_USER_NOT_PRESENT_ERROR =
     cpu_memory::PAGE_FAULT_ERROR_USER_BIT;
+constexpr cpu::Address64 TEST_STAGE6_ATOMIC_ADDRESS = cpu::Address64{48};
+constexpr cpu::Qword TEST_STAGE6_COMPARE_VALUE = cpu::Qword{10};
+constexpr cpu::Qword TEST_STAGE6_EXCHANGE_VALUE = cpu::Qword{42};
+constexpr cpu::Qword TEST_STAGE6_ADD_VALUE = cpu::Qword{5};
+constexpr cpu::Qword TEST_STAGE6_XADD_EXPECTED_VALUE = cpu::Qword{47};
 
 void map_stage4_instruction_page(cpu_memory::PageTableBuilder& builder)
 {
@@ -610,6 +615,85 @@ TEST(ExecutorProgramTest, RunsStage4PagedMemoryProgram)
     EXPECT_THAT(memory.read_qword(TEST_STAGE4_PHYSICAL_DATA_PAGE), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
     EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
     EXPECT_FALSE(executor.mmu().tlb().empty());
+}
+
+TEST(ExecutorProgramTest, ExecutesStage6CmpxchgSuccessAndFailure)
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    memory.write_qword(TEST_STAGE6_ATOMIC_ADDRESS, TEST_STAGE6_COMPARE_VALUE);
+
+    cpu::Program success_program{
+        cpu::Instruction::make_cmpxchg(
+            cpu::Operand::absolute_mem(TEST_STAGE6_ATOMIC_ADDRESS, cpu::DataSize::QWORD),
+            cpu::Operand::reg(cpu::RegisterId::RBX),
+            true),
+    };
+    cpu::CpuState success_state;
+    success_state.registers().write(cpu::RegisterId::RAX, TEST_STAGE6_COMPARE_VALUE);
+    success_state.registers().write(cpu::RegisterId::RBX, TEST_STAGE6_EXCHANGE_VALUE);
+    cpu::Executor executor;
+
+    EXPECT_THAT(executor.step(success_state, success_program, memory_bus), Eq(cpu::StepResult::EXECUTED));
+    EXPECT_THAT(memory.read_qword(TEST_STAGE6_ATOMIC_ADDRESS), Eq(TEST_STAGE6_EXCHANGE_VALUE));
+    EXPECT_THAT(success_state.registers().read(cpu::RegisterId::RAX), Eq(TEST_STAGE6_COMPARE_VALUE));
+    EXPECT_TRUE(success_state.flags().read(cpu::FlagId::ZF));
+    EXPECT_FALSE(success_state.flags().read(cpu::FlagId::CF));
+
+    cpu::Program failure_program{
+        cpu::Instruction::make_cmpxchg(
+            cpu::Operand::absolute_mem(TEST_STAGE6_ATOMIC_ADDRESS, cpu::DataSize::QWORD),
+            cpu::Operand::reg(cpu::RegisterId::RBX),
+            true),
+    };
+    cpu::CpuState failure_state;
+    failure_state.registers().write(cpu::RegisterId::RAX, TEST_STAGE6_COMPARE_VALUE);
+    failure_state.registers().write(cpu::RegisterId::RBX, cpu::Qword{99});
+    executor.reset();
+
+    EXPECT_THAT(executor.step(failure_state, failure_program, memory_bus), Eq(cpu::StepResult::EXECUTED));
+    EXPECT_THAT(memory.read_qword(TEST_STAGE6_ATOMIC_ADDRESS), Eq(TEST_STAGE6_EXCHANGE_VALUE));
+    EXPECT_THAT(failure_state.registers().read(cpu::RegisterId::RAX), Eq(TEST_STAGE6_EXCHANGE_VALUE));
+    EXPECT_FALSE(failure_state.flags().read(cpu::FlagId::ZF));
+    EXPECT_TRUE(failure_state.flags().read(cpu::FlagId::CF));
+}
+
+TEST(ExecutorProgramTest, ExecutesStage6XaddMfenceAndRejectsInvalidLock)
+{
+    cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
+    cpu::MemoryBus memory_bus{memory};
+    memory.write_qword(TEST_STAGE6_ATOMIC_ADDRESS, TEST_STAGE6_EXCHANGE_VALUE);
+
+    cpu::Program xadd_program{
+        cpu::Instruction::make_xadd(
+            cpu::Operand::absolute_mem(TEST_STAGE6_ATOMIC_ADDRESS, cpu::DataSize::QWORD),
+            cpu::Operand::reg(cpu::RegisterId::RCX),
+            true),
+        cpu::Instruction::make_mfence(),
+        cpu::Instruction::make_hlt(),
+    };
+    cpu::CpuState state;
+    state.registers().write(cpu::RegisterId::RCX, TEST_STAGE6_ADD_VALUE);
+    cpu::Executor executor;
+
+    const std::size_t executed_steps = executor.run(state, xadd_program, memory_bus);
+
+    EXPECT_THAT(executed_steps, Eq(std::size_t{3}));
+    EXPECT_TRUE(state.is_halted());
+    EXPECT_THAT(memory.read_qword(TEST_STAGE6_ATOMIC_ADDRESS), Eq(TEST_STAGE6_XADD_EXPECTED_VALUE));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RCX), Eq(TEST_STAGE6_EXCHANGE_VALUE));
+    EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
+
+    cpu::Program invalid_lock_program{
+        cpu::Instruction::make_xadd(
+            cpu::Operand::reg(cpu::RegisterId::RAX),
+            cpu::Operand::reg(cpu::RegisterId::RBX),
+            true),
+    };
+    cpu::CpuState invalid_state;
+    EXPECT_THROW(
+        static_cast<void>(executor.step(invalid_state, invalid_lock_program, memory_bus)),
+        std::logic_error);
 }
 
 TEST(ExecutorProgramTest, RaisesStage4PageFaultThroughTrapController)

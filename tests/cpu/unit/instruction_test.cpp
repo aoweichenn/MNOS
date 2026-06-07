@@ -48,14 +48,16 @@ constexpr std::array<OpcodeCase, cpu::OPCODE_COUNT> OPCODE_CASES{
     OpcodeCase{cpu::Opcode::CMP, 6, "CMP"},       OpcodeCase{cpu::Opcode::INC, 7, "INC"},
     OpcodeCase{cpu::Opcode::DEC, 8, "DEC"},       OpcodeCase{cpu::Opcode::AND, 9, "AND"},
     OpcodeCase{cpu::Opcode::OR, 10, "OR"},        OpcodeCase{cpu::Opcode::XOR, 11, "XOR"},
-    OpcodeCase{cpu::Opcode::TEST, 12, "TEST"},    OpcodeCase{cpu::Opcode::PUSH, 13, "PUSH"},
-    OpcodeCase{cpu::Opcode::POP, 14, "POP"},      OpcodeCase{cpu::Opcode::CALL, 15, "CALL"},
-    OpcodeCase{cpu::Opcode::RET, 16, "RET"},      OpcodeCase{cpu::Opcode::JMP, 17, "JMP"},
-    OpcodeCase{cpu::Opcode::JE, 18, "JE"},        OpcodeCase{cpu::Opcode::JNE, 19, "JNE"},
-    OpcodeCase{cpu::Opcode::JCC, 20, "JCC"},      OpcodeCase{cpu::Opcode::SETCC, 21, "SETCC"},
-    OpcodeCase{cpu::Opcode::CMOVCC, 22, "CMOVCC"}, OpcodeCase{cpu::Opcode::INT, 23, "INT"},
-    OpcodeCase{cpu::Opcode::SYSCALL, 24, "SYSCALL"}, OpcodeCase{cpu::Opcode::SYSRET, 25, "SYSRET"},
-    OpcodeCase{cpu::Opcode::IRET, 26, "IRET"},    OpcodeCase{cpu::Opcode::HLT, 27, "HLT"}};
+    OpcodeCase{cpu::Opcode::TEST, 12, "TEST"},    OpcodeCase{cpu::Opcode::CMPXCHG, 13, "CMPXCHG"},
+    OpcodeCase{cpu::Opcode::XADD, 14, "XADD"},    OpcodeCase{cpu::Opcode::MFENCE, 15, "MFENCE"},
+    OpcodeCase{cpu::Opcode::PUSH, 16, "PUSH"},    OpcodeCase{cpu::Opcode::POP, 17, "POP"},
+    OpcodeCase{cpu::Opcode::CALL, 18, "CALL"},    OpcodeCase{cpu::Opcode::RET, 19, "RET"},
+    OpcodeCase{cpu::Opcode::JMP, 20, "JMP"},      OpcodeCase{cpu::Opcode::JE, 21, "JE"},
+    OpcodeCase{cpu::Opcode::JNE, 22, "JNE"},      OpcodeCase{cpu::Opcode::JCC, 23, "JCC"},
+    OpcodeCase{cpu::Opcode::SETCC, 24, "SETCC"},  OpcodeCase{cpu::Opcode::CMOVCC, 25, "CMOVCC"},
+    OpcodeCase{cpu::Opcode::INT, 26, "INT"},      OpcodeCase{cpu::Opcode::SYSCALL, 27, "SYSCALL"},
+    OpcodeCase{cpu::Opcode::SYSRET, 28, "SYSRET"}, OpcodeCase{cpu::Opcode::IRET, 29, "IRET"},
+    OpcodeCase{cpu::Opcode::HLT, 30, "HLT"}};
 
 struct ConditionCodeCase
 {
@@ -242,6 +244,24 @@ TEST(InstructionTest, FactoryFunctionsCreateExpectedShapes)
     const cpu::Instruction bit_test =
         cpu::Instruction::make_test(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::imm(TEST_IMMEDIATE_VALUE));
     EXPECT_THAT(bit_test.opcode(), Eq(cpu::Opcode::TEST));
+
+    const cpu::Instruction cmpxchg = cpu::Instruction::make_cmpxchg(
+        cpu::Operand::mem(cpu::RegisterId::RBP, TEST_MEMORY_DISPLACEMENT, cpu::DataSize::QWORD),
+        cpu::Operand::reg(cpu::RegisterId::RBX),
+        true);
+    EXPECT_THAT(cmpxchg.opcode(), Eq(cpu::Opcode::CMPXCHG));
+    EXPECT_TRUE(cmpxchg.is_locked());
+    EXPECT_TRUE(cmpxchg.first_operand().is_memory());
+
+    const cpu::Instruction xadd =
+        cpu::Instruction::make_xadd(cpu::Operand::reg(cpu::RegisterId::RAX), cpu::Operand::reg(cpu::RegisterId::RBX));
+    EXPECT_THAT(xadd.opcode(), Eq(cpu::Opcode::XADD));
+    EXPECT_FALSE(xadd.is_locked());
+    EXPECT_THAT(xadd.second_operand().register_id(), Eq(cpu::RegisterId::RBX));
+
+    const cpu::Instruction mfence = cpu::Instruction::make_mfence();
+    EXPECT_THAT(mfence.opcode(), Eq(cpu::Opcode::MFENCE));
+    EXPECT_TRUE(mfence.first_operand().is_none());
 
     const cpu::Instruction push = cpu::Instruction::make_push(cpu::Operand::reg(cpu::RegisterId::RAX));
     EXPECT_THAT(push.opcode(), Eq(cpu::Opcode::PUSH));

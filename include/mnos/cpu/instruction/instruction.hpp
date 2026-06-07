@@ -24,6 +24,9 @@ public:
     [[nodiscard]] static Instruction make_or(Operand destination, Operand source) noexcept;
     [[nodiscard]] static Instruction make_xor(Operand destination, Operand source) noexcept;
     [[nodiscard]] static Instruction make_test(Operand left, Operand right) noexcept;
+    [[nodiscard]] static Instruction make_cmpxchg(Operand destination, Operand source, bool locked = false) noexcept;
+    [[nodiscard]] static Instruction make_xadd(Operand destination, Operand source, bool locked = false) noexcept;
+    [[nodiscard]] static Instruction make_mfence() noexcept;
     [[nodiscard]] static Instruction make_push(Operand source) noexcept;
     [[nodiscard]] static Instruction make_pop(Operand destination) noexcept;
     [[nodiscard]] static Instruction make_call(Operand target) noexcept;
@@ -40,18 +43,25 @@ public:
     [[nodiscard]] static Instruction make_iret() noexcept;
 
     [[nodiscard]] Opcode opcode() const noexcept;
+    [[nodiscard]] bool is_locked() const noexcept;
     [[nodiscard]] bool has_condition_code() const noexcept;
     [[nodiscard]] ConditionCode condition_code() const noexcept;
     [[nodiscard]] const Operand& first_operand() const noexcept;
     [[nodiscard]] const Operand& second_operand() const noexcept;
 
 private:
-    Instruction(Opcode opcode, Operand first_operand, Operand second_operand) noexcept;
-    Instruction(Opcode opcode, ConditionCode condition, Operand first_operand, Operand second_operand) noexcept;
+    Instruction(Opcode opcode, Operand first_operand, Operand second_operand, bool locked = false) noexcept;
+    Instruction(
+        Opcode opcode,
+        ConditionCode condition,
+        Operand first_operand,
+        Operand second_operand,
+        bool locked = false) noexcept;
 
     Opcode opcode_ = Opcode::HLT;
     ConditionCode condition_ = ConditionCode::COUNT;
     Operand first_operand_ = Operand::none();
     Operand second_operand_ = Operand::none();
+    bool locked_ = false;
 };
 }

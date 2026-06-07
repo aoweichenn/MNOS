@@ -13,10 +13,12 @@
 #include <mnos/cpu/instruction/instruction.hpp>
 #include <mnos/cpu/instruction/operand.hpp>
 #include <mnos/cpu/memory/memory_bus.hpp>
+#include <mnos/cpu/memory/memory_model.hpp>
 #include <mnos/cpu/memory/page_table_builder.hpp>
 #include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/core_topology.hpp>
 #include <mnos/cpu/system/privilege.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 
@@ -36,6 +38,7 @@ constexpr std::size_t BENCHMARK_BYTE_IMAGE_INSTRUCTION_COUNT = 5;
 constexpr std::size_t BENCHMARK_STAGE2_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
 constexpr std::size_t BENCHMARK_STAGE3_BYTE_IMAGE_INSTRUCTION_COUNT = 6;
 constexpr std::size_t BENCHMARK_STAGE4_PAGED_PROGRAM_INSTRUCTION_COUNT = 5;
+constexpr std::size_t BENCHMARK_STAGE6_ATOMIC_BYTE_IMAGE_INSTRUCTION_COUNT = 8;
 constexpr cpu::Address64 BENCHMARK_STAGE2_LOAD_ADDRESS = cpu::Address64{32};
 constexpr cpu::Address64 BENCHMARK_STAGE3_SYSCALL_HANDLER_RIP = cpu::Address64{23};
 constexpr cpu::Qword BENCHMARK_STAGE3_KERNEL_STACK_TOP = cpu::Qword{384};
@@ -46,6 +49,9 @@ constexpr cpu::Address64 BENCHMARK_STAGE4_LINEAR_DATA_PAGE = cpu::Address64{0x50
 constexpr cpu::Address64 BENCHMARK_STAGE4_PHYSICAL_DATA_PAGE = cpu::Address64{0x9000};
 constexpr cpu::SignedQword BENCHMARK_STAGE4_LINEAR_DATA_VALUE =
     static_cast<cpu::SignedQword>(BENCHMARK_STAGE4_LINEAR_DATA_PAGE);
+constexpr cpu::Qword BENCHMARK_STAGE6_ATOMIC_INITIAL_VALUE = cpu::Qword{10};
+constexpr cpu::Address64 BENCHMARK_STAGE6_ATOMIC_ADDRESS = cpu::Address64{128};
+constexpr std::uint32_t BENCHMARK_STAGE6_CORE_COUNT = std::uint32_t{2};
 
 [[nodiscard]] cpu::Program make_register_program()
 {
@@ -119,6 +125,19 @@ constexpr cpu::SignedQword BENCHMARK_STAGE4_LINEAR_DATA_VALUE =
         0xF4,                                                       // HLT
         0x48, 0xBB, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 13
         0x48, 0x0F, 0x07};                                          // SYSRETQ
+}
+
+[[nodiscard]] cpu::ExecutableImage make_stage6_atomic_image()
+{
+    return cpu::ExecutableImage{
+        0x48, 0xBD, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 128
+        0x48, 0xB8, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 10
+        0x48, 0xBB, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBX, 42
+        0xF0, 0x48, 0x0F, 0xB1, 0x5D, 0x00,                         // LOCK CMPXCHG [RBP], RBX
+        0x48, 0xB9, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 5
+        0xF0, 0x48, 0x0F, 0xC1, 0x4D, 0x00,                         // LOCK XADD [RBP], RCX
+        0x0F, 0xAE, 0xF0,                                           // MFENCE
+        0xF4};                                                      // HLT
 }
 
 void set_instruction_items_processed(benchmark::State& state, const std::size_t program_size)
@@ -257,9 +276,51 @@ static void BM_CPUExecutorStage4PagedMemoryProgram(benchmark::State& state)
     set_instruction_items_processed(state, BENCHMARK_STAGE4_PAGED_PROGRAM_INSTRUCTION_COUNT);
 }
 
+static void BM_CPUExecutorStage6AtomicByteImageProgram(benchmark::State& state)
+{
+    const cpu::ExecutableImage image = make_stage6_atomic_image();
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::CpuState cpu_state;
+        cpu::PhysicalMemory memory(BENCHMARK_MEMORY_SIZE_BYTES);
+        memory.write_qword(BENCHMARK_STAGE6_ATOMIC_ADDRESS, BENCHMARK_STAGE6_ATOMIC_INITIAL_VALUE);
+        cpu::MemoryBus memory_bus{memory};
+        cpu::Executor executor;
+        benchmark::DoNotOptimize(executor.run(cpu_state, image, memory_bus));
+        benchmark::DoNotOptimize(memory.read_qword(BENCHMARK_STAGE6_ATOMIC_ADDRESS));
+    }
+
+    set_instruction_items_processed(state, BENCHMARK_STAGE6_ATOMIC_BYTE_IMAGE_INSTRUCTION_COUNT);
+}
+
+static void BM_X86TsoMemoryModelStoreFence(benchmark::State& state)
+{
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cpu::PhysicalMemory memory(BENCHMARK_MEMORY_SIZE_BYTES);
+        cpu::MemoryBus memory_bus{memory};
+        cpu_memory::X86TsoMemoryModel memory_model{
+            cpu_system::CoreTopology{BENCHMARK_STAGE6_CORE_COUNT}};
+        memory_model.store(
+            cpu_system::CoreId::bootstrap(),
+            BENCHMARK_STAGE6_ATOMIC_ADDRESS,
+            cpu::DataSize::QWORD,
+            BENCHMARK_STAGE6_ATOMIC_INITIAL_VALUE);
+        memory_model.fence(memory_bus, cpu_system::CoreId::bootstrap());
+        benchmark::DoNotOptimize(memory.read_qword(BENCHMARK_STAGE6_ATOMIC_ADDRESS));
+    }
+
+    state.SetItemsProcessed(state.iterations());
+}
+
 BENCHMARK(BM_CPUExecutorRegisterProgram);
 BENCHMARK(BM_CPUExecutorMemoryProgram);
 BENCHMARK(BM_CPUExecutorByteImageMemoryProgram);
 BENCHMARK(BM_CPUExecutorStage2ByteImageProgram);
 BENCHMARK(BM_CPUExecutorStage3SyscallByteImageProgram);
 BENCHMARK(BM_CPUExecutorStage4PagedMemoryProgram);
+BENCHMARK(BM_CPUExecutorStage6AtomicByteImageProgram);
+BENCHMARK(BM_X86TsoMemoryModelStoreFence);

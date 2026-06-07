@@ -48,7 +48,7 @@ constexpr cpu::Qword TEST_QWORD_VALUE = cpu::Qword{0x5152535455565758ULL};
 
 TEST(Stage5IntegrationTest, KernelCreatesProcessSchedulesThreadsAndHandlesPageFaults)
 {
-    platform::Machine machine(TEST_MEMORY_SIZE_BYTES);
+    platform::Machine machine(TEST_MEMORY_SIZE_BYTES, TEST_BOOTSTRAP_PROCESSOR_COUNT);
     kernel::BootContext boot_context{machine, TEST_BOOTSTRAP_PROCESSOR_COUNT};
     kernel::Kernel os_kernel{boot_context};
     os_kernel.boot();

@@ -39,7 +39,7 @@ constexpr std::size_t TEST_PROGRAM_STEP_COUNT = 5;
 
 TEST(KernelBootIntegrationTest, BootedKernelRunsAThreadContextThroughCpuExecutor)
 {
-    platform::Machine machine(TEST_MACHINE_MEMORY_SIZE_BYTES);
+    platform::Machine machine(TEST_MACHINE_MEMORY_SIZE_BYTES, TEST_BOOTSTRAP_PROCESSOR_COUNT);
     kernel::BootContext boot_context{machine, TEST_BOOTSTRAP_PROCESSOR_COUNT};
     kernel::Kernel os_kernel{boot_context};
 

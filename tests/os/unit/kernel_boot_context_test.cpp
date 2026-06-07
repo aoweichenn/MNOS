@@ -33,11 +33,13 @@ constexpr mm::VirtualAddress TEST_KERNEL_STACK_BOTTOM{mm::AddressValue{0x20000}}
 
 TEST(MachineTest, OwnsPhysicalMemoryAndExposesMemoryBusFacade)
 {
-    platform::Machine machine(TEST_MEMORY_SIZE_BYTES);
+    platform::Machine machine(TEST_MEMORY_SIZE_BYTES, TEST_BOOTSTRAP_PROCESSOR_COUNT);
 
     EXPECT_THAT(machine.physical_memory_size_bytes(), Eq(TEST_MEMORY_SIZE_BYTES));
     EXPECT_THAT(machine.physical_memory().size(), Eq(TEST_MEMORY_SIZE_BYTES));
     EXPECT_THAT(machine.memory_bus().size(), Eq(TEST_MEMORY_SIZE_BYTES));
+    EXPECT_THAT(machine.processor_count(), Eq(TEST_BOOTSTRAP_PROCESSOR_COUNT));
+    EXPECT_THAT(machine.core_topology().core_count(), Eq(TEST_BOOTSTRAP_PROCESSOR_COUNT));
 
     machine.memory_bus().write(TEST_MEMORY_ADDRESS, cpu::DataSize::QWORD, TEST_MEMORY_VALUE);
     EXPECT_THAT(machine.physical_memory().read_qword(TEST_MEMORY_ADDRESS), Eq(TEST_MEMORY_VALUE));
@@ -45,11 +47,12 @@ TEST(MachineTest, OwnsPhysicalMemoryAndExposesMemoryBusFacade)
     const platform::Machine& const_machine = machine;
     EXPECT_THAT(const_machine.physical_memory().size(), Eq(TEST_MEMORY_SIZE_BYTES));
     EXPECT_THAT(const_machine.memory_bus().size(), Eq(TEST_MEMORY_SIZE_BYTES));
+    EXPECT_THAT(const_machine.core_topology().core_count(), Eq(TEST_BOOTSTRAP_PROCESSOR_COUNT));
 }
 
 TEST(BootContextTest, ExposesBootMachineResourcesAndProcessorCount)
 {
-    platform::Machine machine(TEST_MEMORY_SIZE_BYTES);
+    platform::Machine machine(TEST_MEMORY_SIZE_BYTES, TEST_BOOTSTRAP_PROCESSOR_COUNT);
     kernel::BootContext default_context{machine};
     kernel::BootContext explicit_context{machine, TEST_BOOTSTRAP_PROCESSOR_COUNT};
 
@@ -75,11 +78,14 @@ TEST(BootContextTest, RejectsMissingMemoryAndZeroProcessors)
 
     EXPECT_THROW(static_cast<void>(kernel::BootContext{empty_machine}), std::invalid_argument);
     EXPECT_THROW(static_cast<void>(kernel::BootContext{machine, std::uint32_t{0}}), std::invalid_argument);
+    EXPECT_THROW(
+        static_cast<void>(kernel::BootContext{machine, TEST_BOOTSTRAP_PROCESSOR_COUNT}),
+        std::invalid_argument);
 }
 
 TEST(KernelTest, BootsOnceWhenAtLeastOnePhysicalPageExists)
 {
-    platform::Machine machine(TEST_MEMORY_SIZE_BYTES);
+    platform::Machine machine(TEST_MEMORY_SIZE_BYTES, TEST_BOOTSTRAP_PROCESSOR_COUNT);
     kernel::BootContext context{machine, TEST_BOOTSTRAP_PROCESSOR_COUNT};
     kernel::Kernel os_kernel{context};
     const kernel::Kernel& const_kernel = os_kernel;

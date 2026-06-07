@@ -171,6 +171,17 @@ private:
         MemoryBus* memory_bus,
         const Instruction& instruction,
         const ExecutionContext& context);
+    void execute_cmpxchg(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_xadd(
+        CpuState& state,
+        MemoryBus* memory_bus,
+        const Instruction& instruction,
+        const ExecutionContext& context);
+    void execute_mfence(CpuState& state, const ExecutionContext& context) const noexcept;
     void execute_push(
         CpuState& state,
         MemoryBus* memory_bus,
@@ -240,6 +251,7 @@ private:
     void require_at_most_one_memory_operand(const Instruction& instruction) const;
     void require_register_operand(const Operand& operand) const;
     void require_memory_operand(const Operand& operand) const;
+    void require_locked_memory_destination(const Instruction& instruction) const;
     [[nodiscard]] system::TrapController& require_trap_controller() const;
     void check_instruction_fetch(
         CpuState& state,

@@ -41,6 +41,16 @@ const memory::PagingState& CpuState::paging() const noexcept
     return this->paging_;
 }
 
+system::CoreId CpuState::core_id() const noexcept
+{
+    return this->core_id_;
+}
+
+void CpuState::set_core_id(const system::CoreId core_id) noexcept
+{
+    this->core_id_ = core_id;
+}
+
 InstructionPointer CpuState::rip() const noexcept
 {
     return this->rip_;
@@ -76,6 +86,7 @@ void CpuState::reset() noexcept
     this->registers_ = RegisterBank{};
     this->flags_ = Rflags{};
     this->paging_ = memory::PagingState{};
+    this->core_id_ = system::CoreId::bootstrap();
     this->rip_ = CPU_STATE_INITIAL_RIP;
     this->privilege_level_ = system::PrivilegeLevel::RING0;
     this->pending_trap_.reset();

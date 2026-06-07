@@ -6,6 +6,7 @@
 #include <mnos/cpu/flags/rflags.hpp>
 #include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/register/bank.hpp>
+#include <mnos/cpu/system/core_id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
 #include <mnos/cpu/system/trap_frame.hpp>
 
@@ -25,6 +26,9 @@ public:
 
     [[nodiscard]] memory::PagingState& paging() noexcept;
     [[nodiscard]] const memory::PagingState& paging() const noexcept;
+
+    [[nodiscard]] system::CoreId core_id() const noexcept;
+    void set_core_id(system::CoreId core_id) noexcept;
 
     [[nodiscard]] InstructionPointer rip() const noexcept;
     void set_rip(InstructionPointer value) noexcept;
@@ -47,6 +51,7 @@ private:
     RegisterBank registers_;
     Rflags flags_;
     memory::PagingState paging_;
+    system::CoreId core_id_ = system::CoreId::bootstrap();
     InstructionPointer rip_ = CPU_STATE_INITIAL_RIP;
     system::PrivilegeLevel privilege_level_ = system::PrivilegeLevel::RING0;
     std::optional<system::TrapFrame> pending_trap_;

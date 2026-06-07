@@ -14,6 +14,11 @@ constexpr const char* DECODER_TRUNCATED_INSTRUCTION_MESSAGE = "decoder reached t
 constexpr const char* DECODER_UNSUPPORTED_OPCODE_MESSAGE = "decoder unsupported x86-64 opcode";
 constexpr const char* DECODER_REX_W_REQUIRED_MESSAGE = "decoder instruction requires REX.W";
 constexpr const char* DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE = "decoder unsupported ModRM opcode extension";
+constexpr const char* DECODER_UNSUPPORTED_LOCK_PREFIX_MESSAGE =
+    "decoder LOCK prefix is only supported for x86-64 atomic read-modify-write instructions";
+constexpr const char* DECODER_LOCK_PREFIX_REQUIRES_MEMORY_DESTINATION_MESSAGE =
+    "decoder LOCK prefix requires a memory destination operand";
+constexpr std::uint8_t X86_LOCK_PREFIX = 0xF0;
 constexpr std::uint8_t X86_REX_PREFIX_MIN = 0x40;
 constexpr std::uint8_t X86_REX_PREFIX_MAX = 0x4F;
 constexpr std::uint8_t X86_REX_W_MASK = 0x08;
@@ -38,12 +43,15 @@ constexpr std::uint8_t X86_OPCODE_SYSCALL = 0x05;
 constexpr std::uint8_t X86_OPCODE_SYSRET = 0x07;
 constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MIN = 0x40;
 constexpr std::uint8_t X86_OPCODE_CMOVCC_R64_RM64_MAX = 0x4F;
+constexpr std::uint8_t X86_OPCODE_MFENCE_GROUP = 0xAE;
 constexpr std::uint8_t X86_OPCODE_SETCC_RM8_MIN = 0x90;
 constexpr std::uint8_t X86_OPCODE_SETCC_RM8_MAX = 0x9F;
+constexpr std::uint8_t X86_OPCODE_CMPXCHG_RM64_R64 = 0xB1;
 constexpr std::uint8_t X86_OPCODE_MOVZX_R64_RM8 = 0xB6;
 constexpr std::uint8_t X86_OPCODE_MOVZX_R64_RM16 = 0xB7;
 constexpr std::uint8_t X86_OPCODE_MOVSX_R64_RM8 = 0xBE;
 constexpr std::uint8_t X86_OPCODE_MOVSX_R64_RM16 = 0xBF;
+constexpr std::uint8_t X86_OPCODE_XADD_RM64_R64 = 0xC1;
 constexpr std::uint8_t X86_OPCODE_CONDITION_MASK = 0x0F;
 constexpr std::uint8_t X86_OPCODE_PUSH_R64_MIN = 0x50;
 constexpr std::uint8_t X86_OPCODE_PUSH_R64_MAX = 0x57;
@@ -100,6 +108,8 @@ constexpr std::uint8_t X86_GROUP5_INC_EXTENSION = 0;
 constexpr std::uint8_t X86_GROUP5_DEC_EXTENSION = 1;
 constexpr std::uint8_t X86_GROUP5_CALL_EXTENSION = 2;
 constexpr std::uint8_t X86_GROUP5_PUSH_EXTENSION = 6;
+constexpr std::uint8_t X86_MFENCE_EXTENSION = 6;
+constexpr std::uint8_t X86_MFENCE_RM_FIELD = 0;
 constexpr std::uint8_t X86_POP_RM64_EXTENSION = 0;
 constexpr std::size_t X86_REGISTER_COUNT = 16;
 
@@ -109,6 +119,12 @@ struct RexPrefix
     bool r = false;
     bool x = false;
     bool b = false;
+};
+
+struct InstructionPrefixes
+{
+    RexPrefix rex;
+    bool locked = false;
 };
 
 struct ModRmByte
@@ -224,18 +240,32 @@ private:
     return value >= X86_REX_PREFIX_MIN && value <= X86_REX_PREFIX_MAX;
 }
 
-[[nodiscard]] RexPrefix read_rex_prefixes(DecodeCursor& cursor)
+[[nodiscard]] InstructionPrefixes read_instruction_prefixes(DecodeCursor& cursor)
 {
-    RexPrefix rex;
-    while (is_rex_prefix(cursor.peek_u8()))
+    InstructionPrefixes prefixes;
+    bool keep_reading = true;
+    while (keep_reading)
     {
-        const std::uint8_t value = cursor.read_u8();
-        rex.w = (value & X86_REX_W_MASK) != 0;
-        rex.r = (value & X86_REX_R_MASK) != 0;
-        rex.x = (value & X86_REX_X_MASK) != 0;
-        rex.b = (value & X86_REX_B_MASK) != 0;
+        const std::uint8_t value = cursor.peek_u8();
+        if (value == X86_LOCK_PREFIX)
+        {
+            static_cast<void>(cursor.read_u8());
+            prefixes.locked = true;
+        }
+        else if (is_rex_prefix(value))
+        {
+            static_cast<void>(cursor.read_u8());
+            prefixes.rex.w = (value & X86_REX_W_MASK) != 0;
+            prefixes.rex.r = (value & X86_REX_R_MASK) != 0;
+            prefixes.rex.x = (value & X86_REX_X_MASK) != 0;
+            prefixes.rex.b = (value & X86_REX_B_MASK) != 0;
+        }
+        else
+        {
+            keep_reading = false;
+        }
     }
-    return rex;
+    return prefixes;
 }
 
 void require_rex_w(const RexPrefix& rex)
@@ -243,6 +273,22 @@ void require_rex_w(const RexPrefix& rex)
     if (!rex.w)
     {
         throw mnos::cpu::DecodeError{DECODER_REX_W_REQUIRED_MESSAGE};
+    }
+}
+
+void require_unlocked(const bool locked)
+{
+    if (locked)
+    {
+        throw mnos::cpu::DecodeError{DECODER_UNSUPPORTED_LOCK_PREFIX_MESSAGE};
+    }
+}
+
+void require_lockable_memory_destination(const mnos::cpu::Operand& destination, const bool locked)
+{
+    if (locked && !destination.is_memory())
+    {
+        throw mnos::cpu::DecodeError{DECODER_LOCK_PREFIX_REQUIRES_MEMORY_DESTINATION_MESSAGE};
     }
 }
 
@@ -598,9 +644,15 @@ DecodeError::DecodeError(const char* const message) : std::runtime_error(message
 DecodedInstruction Decoder::decode(const ExecutableImage& image, const InstructionPointer rip) const
 {
     DecodeCursor cursor{image, rip};
-    const RexPrefix rex = read_rex_prefixes(cursor);
+    const InstructionPrefixes prefixes = read_instruction_prefixes(cursor);
+    const RexPrefix& rex = prefixes.rex;
     const std::uint8_t opcode = cursor.read_u8();
     Instruction instruction = Instruction::make_hlt();
+
+    if (prefixes.locked && opcode != X86_OPCODE_ESCAPE)
+    {
+        throw DecodeError{DECODER_UNSUPPORTED_LOCK_PREFIX_MESSAGE};
+    }
 
     if (opcode == X86_OPCODE_HLT)
     {
@@ -751,15 +803,18 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
         const std::uint8_t escaped_opcode = cursor.read_u8();
         if (escaped_opcode == X86_OPCODE_SYSCALL)
         {
+            require_unlocked(prefixes.locked);
             instruction = Instruction::make_syscall();
         }
         else if (escaped_opcode == X86_OPCODE_SYSRET)
         {
+            require_unlocked(prefixes.locked);
             require_rex_w(rex);
             instruction = Instruction::make_sysret();
         }
         else if (escaped_opcode >= X86_OPCODE_JCC_REL32_MIN && escaped_opcode <= X86_OPCODE_JCC_REL32_MAX)
         {
+            require_unlocked(prefixes.locked);
             const SignedQword displacement = static_cast<SignedQword>(cursor.read_i32());
             instruction = make_conditional_jump_instruction(
                 condition_from_opcode(escaped_opcode),
@@ -767,6 +822,7 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
         }
         else if (escaped_opcode >= X86_OPCODE_CMOVCC_R64_RM64_MIN && escaped_opcode <= X86_OPCODE_CMOVCC_R64_RM64_MAX)
         {
+            require_unlocked(prefixes.locked);
             require_rex_w(rex);
             const ModRmByte modrm = read_modrm(cursor);
             instruction = Instruction::make_cmovcc(
@@ -776,14 +832,43 @@ DecodedInstruction Decoder::decode(const ExecutableImage& image, const Instructi
         }
         else if (escaped_opcode >= X86_OPCODE_SETCC_RM8_MIN && escaped_opcode <= X86_OPCODE_SETCC_RM8_MAX)
         {
+            require_unlocked(prefixes.locked);
             const ModRmByte modrm = read_modrm(cursor);
             instruction = Instruction::make_setcc(
                 condition_from_opcode(escaped_opcode),
                 decode_rm_operand(cursor, modrm, rex, DataSize::BYTE));
         }
+        else if (escaped_opcode == X86_OPCODE_CMPXCHG_RM64_R64 || escaped_opcode == X86_OPCODE_XADD_RM64_R64)
+        {
+            require_rex_w(rex);
+            const ModRmByte modrm = read_modrm(cursor);
+            Operand destination = decode_rm_operand(cursor, modrm, rex, DataSize::QWORD);
+            require_lockable_memory_destination(destination, prefixes.locked);
+            Operand source = decode_reg_operand(modrm.reg, rex, DataSize::QWORD);
+            if (escaped_opcode == X86_OPCODE_CMPXCHG_RM64_R64)
+            {
+                instruction = Instruction::make_cmpxchg(std::move(destination), std::move(source), prefixes.locked);
+            }
+            else
+            {
+                instruction = Instruction::make_xadd(std::move(destination), std::move(source), prefixes.locked);
+            }
+        }
+        else if (escaped_opcode == X86_OPCODE_MFENCE_GROUP)
+        {
+            require_unlocked(prefixes.locked);
+            const ModRmByte modrm = read_modrm(cursor);
+            if (modrm.mod != X86_MODRM_MOD_REGISTER || modrm.reg != X86_MFENCE_EXTENSION ||
+                modrm.rm != X86_MFENCE_RM_FIELD)
+            {
+                throw DecodeError{DECODER_UNSUPPORTED_MODRM_EXTENSION_MESSAGE};
+            }
+            instruction = Instruction::make_mfence();
+        }
         else if (escaped_opcode == X86_OPCODE_MOVZX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVZX_R64_RM16 ||
                  escaped_opcode == X86_OPCODE_MOVSX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVSX_R64_RM16)
         {
+            require_unlocked(prefixes.locked);
             require_rex_w(rex);
             const DataSize source_size =
                 escaped_opcode == X86_OPCODE_MOVZX_R64_RM8 || escaped_opcode == X86_OPCODE_MOVSX_R64_RM8

@@ -104,11 +104,13 @@ set(
         src/cpu/instruction/instruction.cpp
         src/cpu/memory/physical_memory.cpp
         src/cpu/memory/memory_bus.cpp
+        src/cpu/memory/memory_model.cpp
         src/cpu/memory/paging.cpp
         src/cpu/memory/tlb.cpp
         src/cpu/memory/page_table_walker.cpp
         src/cpu/memory/page_table_builder.cpp
         src/cpu/memory/mmu.cpp
+        src/cpu/system/core_topology.cpp
         src/cpu/system/privilege.cpp
         src/cpu/system/interrupt_vector.cpp
         src/cpu/system/descriptor_tables.cpp
@@ -241,6 +243,7 @@ mnos_add_cpu_test(mnos_cpu_system_unit_tests tests/cpu/unit/system_test.cpp)
 mnos_add_cpu_test(mnos_cpu_decoder_unit_tests tests/cpu/unit/decoder_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)
+mnos_add_cpu_test(mnos_cpu_memory_model_unit_tests tests/cpu/unit/memory_model_test.cpp)
 mnos_add_cpu_test(mnos_cpu_paging_unit_tests tests/cpu/unit/paging_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_integration_tests tests/cpu/integration/executor_program_test.cpp)
 mnos_add_cpu_test(mnos_cpu_executor_error_integration_tests tests/cpu/integration/executor_error_test.cpp)

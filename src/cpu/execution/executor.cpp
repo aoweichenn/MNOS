@@ -16,6 +16,8 @@ constexpr const char* EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE =
     "executor binary instruction cannot use two memory operands";
 constexpr const char* EXECUTOR_REGISTER_OPERAND_REQUIRED_MESSAGE = "executor instruction requires a register operand";
 constexpr const char* EXECUTOR_MEMORY_OPERAND_REQUIRED_MESSAGE = "executor instruction requires a memory operand";
+constexpr const char* EXECUTOR_LOCK_PREFIX_REQUIRES_MEMORY_DESTINATION_MESSAGE =
+    "executor LOCK prefix requires a memory destination operand";
 constexpr const char* EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE = "executor jump target is out of program range";
 constexpr const char* EXECUTOR_INVALID_OPCODE_MESSAGE = "executor received invalid opcode sentinel";
 constexpr const char* EXECUTOR_INVALID_CONDITION_CODE_MESSAGE = "executor received invalid condition code sentinel";
@@ -429,6 +431,15 @@ void Executor::execute_instruction(
     case Opcode::TEST:
         this->execute_test(state, memory_bus, instruction, context);
         return;
+    case Opcode::CMPXCHG:
+        this->execute_cmpxchg(state, memory_bus, instruction, context);
+        return;
+    case Opcode::XADD:
+        this->execute_xadd(state, memory_bus, instruction, context);
+        return;
+    case Opcode::MFENCE:
+        this->execute_mfence(state, context);
+        return;
     case Opcode::PUSH:
         this->execute_push(state, memory_bus, instruction, context);
         return;
@@ -660,6 +671,62 @@ void Executor::execute_test(
         this->read_operand(state, memory_bus, instruction.first_operand()) &
         this->read_operand(state, memory_bus, instruction.second_operand());
     LogicalFlagUpdater::update(state.flags(), result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_cmpxchg(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    this->require_register_operand(instruction.second_operand());
+    this->require_locked_memory_destination(instruction);
+
+    const Qword accumulator = state.registers().read(RegisterId::RAX);
+    const Qword destination = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword comparison = accumulator - destination;
+    ArithmeticFlagUpdater::update_sub(state.flags(), accumulator, destination, comparison);
+
+    if (accumulator == destination)
+    {
+        this->write_operand(
+            state,
+            memory_bus,
+            instruction.first_operand(),
+            this->read_register_operand(state, instruction.second_operand()));
+    }
+    else
+    {
+        state.registers().write(RegisterId::RAX, destination);
+    }
+
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_xadd(
+    CpuState& state,
+    MemoryBus* const memory_bus,
+    const Instruction& instruction,
+    const ExecutionContext& context)
+{
+    this->require_at_most_one_memory_operand(instruction);
+    this->require_register_operand(instruction.second_operand());
+    this->require_locked_memory_destination(instruction);
+
+    const Qword destination = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword source = this->read_register_operand(state, instruction.second_operand());
+    const Qword result = destination + source;
+
+    this->write_register_operand(state, instruction.second_operand(), destination);
+    this->write_operand(state, memory_bus, instruction.first_operand(), result);
+    ArithmeticFlagUpdater::update_add(state.flags(), destination, source, result);
+    this->set_next_rip(state, context);
+}
+
+void Executor::execute_mfence(CpuState& state, const ExecutionContext& context) const noexcept
+{
     this->set_next_rip(state, context);
 }
 
@@ -1041,6 +1108,14 @@ void Executor::require_memory_operand(const Operand& operand) const
     if (!operand.is_memory())
     {
         throw std::logic_error{EXECUTOR_MEMORY_OPERAND_REQUIRED_MESSAGE};
+    }
+}
+
+void Executor::require_locked_memory_destination(const Instruction& instruction) const
+{
+    if (instruction.is_locked() && !instruction.first_operand().is_memory())
+    {
+        throw std::logic_error{EXECUTOR_LOCK_PREFIX_REQUIRES_MEMORY_DESTINATION_MESSAGE};
     }
 }
 

@@ -7,6 +7,7 @@
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/flags/id.hpp>
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/cpu/system/core_topology.hpp>
 #include <mnos/cpu/system/descriptor_tables.hpp>
 #include <mnos/cpu/system/interrupt_vector.hpp>
 #include <mnos/cpu/system/privilege.hpp>
@@ -38,6 +39,34 @@ constexpr std::uint16_t TEST_KERNEL_CODE_SELECTOR_INDEX = 1;
 constexpr std::uint16_t TEST_TSS_SELECTOR_INDEX = 5;
 constexpr std::uint16_t TEST_OUT_OF_RANGE_SELECTOR_INDEX =
     static_cast<std::uint16_t>(cpu_system::GDT_DESCRIPTOR_COUNT);
+constexpr std::uint32_t TEST_CORE_COUNT = std::uint32_t{4};
+constexpr cpu_system::CoreId TEST_BOOTSTRAP_CORE = cpu_system::CoreId{0};
+constexpr cpu_system::CoreId TEST_LAST_CORE = cpu_system::CoreId{3};
+constexpr cpu_system::CoreId TEST_OUT_OF_RANGE_CORE = cpu_system::CoreId{4};
+}
+
+TEST(SystemCoreTopologyTest, ModelsCoreIdsAndTopologyBounds)
+{
+    EXPECT_THAT(cpu_system::CoreId::bootstrap(), Eq(TEST_BOOTSTRAP_CORE));
+    EXPECT_TRUE(cpu_system::CoreId{1} != cpu_system::CoreId{2});
+    EXPECT_TRUE(cpu_system::CoreId{1} < cpu_system::CoreId{2});
+
+    const cpu_system::CoreTopology default_topology;
+    EXPECT_THAT(default_topology.core_count(), Eq(cpu_system::CORE_TOPOLOGY_DEFAULT_CORE_COUNT));
+    EXPECT_TRUE(default_topology.contains(cpu_system::CoreId::bootstrap()));
+
+    const cpu_system::CoreTopology single_core = cpu_system::CoreTopology::single_core();
+    EXPECT_THAT(single_core.core_count(), Eq(cpu_system::CORE_TOPOLOGY_DEFAULT_CORE_COUNT));
+    EXPECT_THAT(single_core.core_at(cpu_system::CORE_ID_BOOTSTRAP_VALUE), Eq(cpu_system::CoreId::bootstrap()));
+
+    const cpu_system::CoreTopology topology{TEST_CORE_COUNT};
+    EXPECT_THAT(topology.core_count(), Eq(TEST_CORE_COUNT));
+    EXPECT_THAT(topology.bootstrap_core(), Eq(TEST_BOOTSTRAP_CORE));
+    EXPECT_THAT(topology.core_at(TEST_LAST_CORE.value()), Eq(TEST_LAST_CORE));
+    EXPECT_TRUE(topology.contains(TEST_LAST_CORE));
+    EXPECT_FALSE(topology.contains(TEST_OUT_OF_RANGE_CORE));
+    EXPECT_THROW(static_cast<void>(topology.core_at(TEST_CORE_COUNT)), std::out_of_range);
+    EXPECT_THROW(static_cast<void>(cpu_system::CoreTopology{std::uint32_t{0}}), std::invalid_argument);
 }
 
 TEST(SystemPrivilegeTest, MapsPrivilegeLevelsToRingNumbers)

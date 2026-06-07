@@ -1,9 +1,9 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型。
 
 ```text
-Machine       模拟机器入口
+Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
 BootContext   kernel 启动资源视图
 Kernel        启动状态机
 Address/Page  物理/虚拟地址和 page 工具
@@ -30,7 +30,7 @@ RSP 指向哪个 kernel stack？
 `Machine` 是硬件 facade：
 
 ```text
-Machine = PhysicalMemory + MemoryBus
+Machine = PhysicalMemory + MemoryBus + CoreTopology
 ```
 
 `BootContext` 是 kernel 启动时的资源视图：
@@ -44,7 +44,7 @@ physical_page_count
 bootstrap_processor_count
 ```
 
-它不拥有 `Machine`，这让测试、emulator、多核拓扑和设备模型可以复用同一个硬件对象。
+`BootContext` 不拥有 `Machine`，这让测试、emulator、多核拓扑和设备模型可以复用同一个硬件对象。Stage 6 后，`BootContext` 会校验启动处理器数量不能超过 `Machine` 的 core topology。
 
 ## ThreadContext
 
@@ -75,6 +75,7 @@ x86-64 栈通常向低地址增长，所以初始 `RSP` 放在 stack top。
 ```text
 RegisterBank
 Rflags
+CoreId
 RIP
 halted
 ```
@@ -105,17 +106,28 @@ RoundRobinScheduler    管理 READY/RUNNING/BLOCKED/DEAD 的非拥有 run queue
 Kernel syscall         RAX ABI，支持 YIELD/EXIT/unsupported result
 ```
 
+Stage 6 已经完成第一版多核/原子底座：
+
+```text
+CoreTopology       固定核心数量和 bootstrap core
+CpuState core id   CPU 状态可标记运行在哪个核心
+Machine topology   platform facade 暴露 processor_count
+LOCK CMPXCHG/XADD  x86-64 原子 RMW 教学指令
+MFENCE             内存序屏障 ISA 钩子
+X86 TSO            每核心 store buffer、load forwarding、fence/drain、locked CAS/fetch-add
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. timer interrupt + APIC/IOAPIC 教学模型
+1. timer interrupt + local APIC/IOAPIC 教学模型
 2. 抢占式 context switch 和 sleep/wait 队列
-3. 原子操作、LOCK 前缀、x86 TSO 教学模型
-4. 多核心 topology、IPI、TLB shootdown
-5. 用户态 loader、内核/用户地址布局、COW fork
-6. cache/pipeline/perf counter 以及后续 fs/network/HPC/AI 路线
+3. IPI、INVLPG/PCID、TLB shootdown
+4. 用户态 loader、内核/用户地址布局、COW fork
+5. cache/pipeline/perf counter
+6. fs/network/HPC/AI 路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。
