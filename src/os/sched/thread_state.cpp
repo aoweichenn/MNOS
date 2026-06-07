@@ -28,7 +28,7 @@ public:
 
 private:
     inline static constexpr auto THREAD_STATE_NAMES = mnos::core::make_enum_name_table<mnos::os::sched::ThreadState>(
-        std::array<std::string_view, mnos::os::sched::THREAD_STATE_KIND_COUNT>{
+        std::array<std::string_view, mnos::os::sched::THREAD_STATE_COUNT>{
             "READY",
             "RUNNING",
             "BLOCKED",

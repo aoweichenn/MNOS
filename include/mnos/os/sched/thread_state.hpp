@@ -15,7 +15,7 @@ enum class ThreadState : std::uint8_t
     COUNT
 };
 
-inline constexpr std::size_t THREAD_STATE_KIND_COUNT = static_cast<std::size_t>(ThreadState::COUNT);
+inline constexpr std::size_t THREAD_STATE_COUNT = static_cast<std::size_t>(ThreadState::COUNT);
 
 [[nodiscard]] bool is_thread_state_valid(ThreadState state) noexcept;
 [[nodiscard]] std::size_t thread_state_to_index(ThreadState state) noexcept;

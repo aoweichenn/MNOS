@@ -3,16 +3,16 @@
 
 namespace
 {
-constexpr mnos::cpu::UQWORD64 RFLAGS_RAW_EMPTY_BITS = mnos::cpu::UQWORD64{0};
-constexpr mnos::cpu::UQWORD64 RFLAGS_RAW_ONE_BIT = mnos::cpu::UQWORD64{1};
+constexpr mnos::cpu::Qword RFLAGS_RAW_EMPTY_BITS = mnos::cpu::Qword{0};
+constexpr mnos::cpu::Qword RFLAGS_RAW_ONE_BIT = mnos::cpu::Qword{1};
 constexpr std::size_t RFLAGS_QWORD_SIGN_BIT_INDEX = mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1};
 
-[[nodiscard]] mnos::cpu::UQWORD64 make_flag_mask(const mnos::cpu::FlagId id)
+[[nodiscard]] mnos::cpu::Qword make_flag_mask(const mnos::cpu::FlagId id)
 {
     return RFLAGS_RAW_ONE_BIT << mnos::cpu::flag_id_to_bit_index(id);
 }
 
-[[nodiscard]] constexpr mnos::cpu::UQWORD64 make_qword_sign_mask() noexcept
+[[nodiscard]] constexpr mnos::cpu::Qword make_qword_sign_mask() noexcept
 {
     return RFLAGS_RAW_ONE_BIT << RFLAGS_QWORD_SIGN_BIT_INDEX;
 }
@@ -22,13 +22,13 @@ namespace mnos::cpu
 {
 bool Rflags::read(const FlagId id) const
 {
-    const UQWORD64 mask = make_flag_mask(id);
+    const Qword mask = make_flag_mask(id);
     return (this->raw_bits_ & mask) != RFLAGS_RAW_EMPTY_BITS;
 }
 
 void Rflags::write(const FlagId id, const bool value)
 {
-    const UQWORD64 mask = make_flag_mask(id);
+    const Qword mask = make_flag_mask(id);
     if (value)
     {
         // 写 1
@@ -44,14 +44,14 @@ void Rflags::clear_status_flags() noexcept
     this->raw_bits_ = RFLAGS_RAW_EMPTY_BITS;
 }
 
-void Rflags::update_zero_sign_from_qword(const UQWORD64 result) noexcept
+void Rflags::update_zero_sign_from_qword(const Qword result) noexcept
 {
     // 从结果中更新对应的 ZF 和 SF
-    this->write(FlagId::ZF, result == UQWORD64{0});
-    this->write(FlagId::SF, (result & make_qword_sign_mask()) != UQWORD64{0});
+    this->write(FlagId::ZF, result == Qword{0});
+    this->write(FlagId::SF, (result & make_qword_sign_mask()) != Qword{0});
 }
 
-UQWORD64 Rflags::raw_bits() const noexcept
+Qword Rflags::raw_bits() const noexcept
 {
     return this->raw_bits_;
 }

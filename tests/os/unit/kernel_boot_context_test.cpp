@@ -21,8 +21,8 @@ using ::testing::Eq;
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{2});
 constexpr std::size_t TEST_SMALL_MEMORY_SIZE_BYTES = static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES / mm::AddressValue{2});
 constexpr std::uint32_t TEST_BOOTSTRAP_PROCESSOR_COUNT = std::uint32_t{4};
-constexpr cpu::ADDRESS64 TEST_MEMORY_ADDRESS = cpu::ADDRESS64{16};
-constexpr cpu::UQWORD64 TEST_MEMORY_VALUE = cpu::UQWORD64{0x12345678ULL};
+constexpr cpu::Address64 TEST_MEMORY_ADDRESS = cpu::Address64{16};
+constexpr cpu::Qword TEST_MEMORY_VALUE = cpu::Qword{0x12345678ULL};
 }
 
 TEST(MachineTest, OwnsPhysicalMemoryAndExposesMemoryBusFacade)

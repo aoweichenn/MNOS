@@ -9,7 +9,7 @@ constexpr const char* REGISTER_BANK_ACCESS_INVALID_ID_MESSAGE = "register bank i
 
 namespace mnos::cpu
 {
-UQWORD64 RegisterBank::read(const RegisterId id) const
+Qword RegisterBank::read(const RegisterId id) const
 {
     if (!is_register_id_valid(id))
     {
@@ -18,7 +18,7 @@ UQWORD64 RegisterBank::read(const RegisterId id) const
     return this->registers_[register_id_to_index(id)];
 }
 
-void RegisterBank::write(const RegisterId id, const UQWORD64 value)
+void RegisterBank::write(const RegisterId id, const Qword value)
 {
     if (!is_register_id_valid(id))
     {

@@ -6,18 +6,15 @@
 
 namespace mnos::cpu
 {
-inline constexpr std::size_t REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT = REGISTER_ID_GENERAL_REGISTER_COUNT;
+inline constexpr std::size_t REGISTER_BANK_REGISTER_COUNT = REGISTER_ID_COUNT;
 
-// 寄存器组
 class RegisterBank
 {
 public:
-    // 从寄存器中读取数据
-    [[nodiscard]] UQWORD64 read(RegisterId id) const;
-    // 写入数据到寄存器中
-    void write(RegisterId id, UQWORD64 value);
+    [[nodiscard]] Qword read(RegisterId id) const;
+    void write(RegisterId id, Qword value);
 
 private:
-    std::array<UQWORD64, REGISTER_BANK_GENERAL_REGISTER_STORAGE_COUNT> registers_{};
+    std::array<Qword, REGISTER_BANK_REGISTER_COUNT> registers_{};
 };
 }

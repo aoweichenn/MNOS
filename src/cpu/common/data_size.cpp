@@ -34,21 +34,21 @@ public:
 
 private:
     inline static constexpr auto DATA_SIZE_BIT_COUNTS = mnos::core::make_enum_map<mnos::cpu::DataSize>(
-        std::array<std::size_t, mnos::cpu::DATA_SIZE_KIND_COUNT>{
+        std::array<std::size_t, mnos::cpu::DATA_SIZE_COUNT>{
             mnos::cpu::DATA_SIZE_BYTE_BITS,
             mnos::cpu::DATA_SIZE_WORD_BITS,
             mnos::cpu::DATA_SIZE_DWORD_BITS,
             mnos::cpu::DATA_SIZE_QWORD_BITS});
 
     inline static constexpr auto DATA_SIZE_BYTE_COUNTS = mnos::core::make_enum_map<mnos::cpu::DataSize>(
-        std::array<std::size_t, mnos::cpu::DATA_SIZE_KIND_COUNT>{
+        std::array<std::size_t, mnos::cpu::DATA_SIZE_COUNT>{
             mnos::cpu::DATA_SIZE_BYTE_BYTES,
             mnos::cpu::DATA_SIZE_WORD_BYTES,
             mnos::cpu::DATA_SIZE_DWORD_BYTES,
             mnos::cpu::DATA_SIZE_QWORD_BYTES});
 
     inline static constexpr auto DATA_SIZE_NAMES = mnos::core::make_enum_name_table<mnos::cpu::DataSize>(
-        std::array<std::string_view, mnos::cpu::DATA_SIZE_KIND_COUNT>{"BYTE", "WORD", "DWORD", "QWORD"},
+        std::array<std::string_view, mnos::cpu::DATA_SIZE_COUNT>{"BYTE", "WORD", "DWORD", "QWORD"},
         DATA_SIZE_ASSEMBLY_NAME_INVALID_TEXT);
 };
 }

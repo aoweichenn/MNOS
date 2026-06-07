@@ -15,24 +15,24 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_KIND_COUNT);
+constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_COUNT);
 
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = 128;
 constexpr std::size_t TEST_MEMORY_RESIZED_SIZE_BYTES = 32;
 constexpr std::size_t TEST_SINGLE_BYTE_COUNT = 1;
 constexpr std::size_t TEST_TWO_BYTE_COUNT = 2;
-constexpr cpu::ADDRESS64 TEST_MEMORY_BASE_ADDRESS = cpu::ADDRESS64{16};
-constexpr cpu::ADDRESS64 TEST_MEMORY_SECOND_ADDRESS = cpu::ADDRESS64{24};
-constexpr cpu::UQWORD64 TEST_MEMORY_BYTE_SOURCE_VALUE = cpu::UQWORD64{0x1234};
-constexpr cpu::UBYTE8 TEST_MEMORY_BYTE_EXPECTED_VALUE = cpu::UBYTE8{0x34};
-constexpr cpu::UWORD16 TEST_MEMORY_WORD_VALUE = cpu::UWORD16{0xABCD};
-constexpr cpu::UDWORD32 TEST_MEMORY_DWORD_VALUE = cpu::UDWORD32{0xAABBCCDD};
-constexpr cpu::UQWORD64 TEST_MEMORY_QWORD_VALUE = cpu::UQWORD64{0x1122334455667788ULL};
-constexpr cpu::UBYTE8 TEST_MEMORY_LOW_BYTE_VALUE = cpu::UBYTE8{0x88};
-constexpr cpu::UBYTE8 TEST_MEMORY_HIGH_BYTE_VALUE = cpu::UBYTE8{0x11};
-constexpr cpu::UBYTE8 TEST_MEMORY_FILL_VALUE = cpu::UBYTE8{0xA5};
-constexpr cpu::UBYTE8 TEST_MEMORY_INITIALIZER_FIRST_BYTE = cpu::UBYTE8{0x12};
-constexpr cpu::UBYTE8 TEST_MEMORY_INITIALIZER_SECOND_BYTE = cpu::UBYTE8{0x34};
+constexpr cpu::Address64 TEST_MEMORY_BASE_ADDRESS = cpu::Address64{16};
+constexpr cpu::Address64 TEST_MEMORY_SECOND_ADDRESS = cpu::Address64{24};
+constexpr cpu::Qword TEST_MEMORY_BYTE_SOURCE_VALUE = cpu::Qword{0x1234};
+constexpr cpu::Byte TEST_MEMORY_BYTE_EXPECTED_VALUE = cpu::Byte{0x34};
+constexpr cpu::Word TEST_MEMORY_WORD_VALUE = cpu::Word{0xABCD};
+constexpr cpu::Dword TEST_MEMORY_DWORD_VALUE = cpu::Dword{0xAABBCCDD};
+constexpr cpu::Qword TEST_MEMORY_QWORD_VALUE = cpu::Qword{0x1122334455667788ULL};
+constexpr cpu::Byte TEST_MEMORY_LOW_BYTE_VALUE = cpu::Byte{0x88};
+constexpr cpu::Byte TEST_MEMORY_HIGH_BYTE_VALUE = cpu::Byte{0x11};
+constexpr cpu::Byte TEST_MEMORY_FILL_VALUE = cpu::Byte{0xA5};
+constexpr cpu::Byte TEST_MEMORY_INITIALIZER_FIRST_BYTE = cpu::Byte{0x12};
+constexpr cpu::Byte TEST_MEMORY_INITIALIZER_SECOND_BYTE = cpu::Byte{0x34};
 }
 
 TEST(PhysicalMemoryTest, ContainerOperationsExposeOwnedBytes)
@@ -52,13 +52,13 @@ TEST(PhysicalMemoryTest, ContainerOperationsExposeOwnedBytes)
         TEST_MEMORY_INITIALIZER_SECOND_BYTE,
     };
     EXPECT_THAT(initialized_memory.size(), Eq(TEST_TWO_BYTE_COUNT));
-    EXPECT_THAT(initialized_memory.read_byte(cpu::ADDRESS64{0}), Eq(TEST_MEMORY_INITIALIZER_FIRST_BYTE));
+    EXPECT_THAT(initialized_memory.read_byte(cpu::Address64{0}), Eq(TEST_MEMORY_INITIALIZER_FIRST_BYTE));
 
-    std::vector<cpu::UBYTE8> raw_bytes;
+    std::vector<cpu::Byte> raw_bytes;
     raw_bytes.push_back(TEST_MEMORY_INITIALIZER_SECOND_BYTE);
     const cpu::PhysicalMemory vector_memory{std::move(raw_bytes)};
     EXPECT_THAT(vector_memory.size(), Eq(TEST_SINGLE_BYTE_COUNT));
-    EXPECT_THAT(vector_memory.read_byte(cpu::ADDRESS64{0}), Eq(TEST_MEMORY_INITIALIZER_SECOND_BYTE));
+    EXPECT_THAT(vector_memory.read_byte(cpu::Address64{0}), Eq(TEST_MEMORY_INITIALIZER_SECOND_BYTE));
 
     memory.clear();
     EXPECT_TRUE(memory.empty());

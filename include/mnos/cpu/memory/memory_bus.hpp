@@ -15,9 +15,9 @@ public:
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
-    [[nodiscard]] bool contains_range(ADDRESS64 address, std::size_t byte_count) const noexcept;
-    [[nodiscard]] UQWORD64 read(ADDRESS64 address, DataSize size) const;
-    void write(ADDRESS64 address, DataSize size, UQWORD64 value);
+    [[nodiscard]] bool contains_range(Address64 address, std::size_t byte_count) const noexcept;
+    [[nodiscard]] Qword read(Address64 address, DataSize size) const;
+    void write(Address64 address, DataSize size, Qword value);
 
 private:
     PhysicalMemory* physical_memory_;

@@ -17,14 +17,14 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr auto TEST_INVALID_REGISTER_ID = static_cast<cpu::RegisterId>(cpu::REGISTER_ID_GENERAL_REGISTER_COUNT);
-constexpr auto TEST_INVALID_FLAG_ID = static_cast<cpu::FlagId>(cpu::FLAG_ID_STATUS_FLAG_COUNT);
+constexpr auto TEST_INVALID_REGISTER_ID = static_cast<cpu::RegisterId>(cpu::REGISTER_ID_COUNT);
+constexpr auto TEST_INVALID_FLAG_ID = static_cast<cpu::FlagId>(cpu::FLAG_ID_COUNT);
 
-constexpr cpu::UQWORD64 TEST_REGISTER_VALUE = cpu::UQWORD64{0x1234ABCDULL};
-constexpr cpu::UQWORD64 TEST_SECOND_REGISTER_VALUE = cpu::UQWORD64{0xFEDCBA98ULL};
-constexpr cpu::UQWORD64 TEST_ONE_BIT = cpu::UQWORD64{1};
-constexpr cpu::UQWORD64 TEST_QWORD_SIGN_MASK = TEST_ONE_BIT << (cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
-constexpr cpu::UQWORD64 TEST_CF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_CF_BIT_INDEX;
+constexpr cpu::Qword TEST_REGISTER_VALUE = cpu::Qword{0x1234ABCDULL};
+constexpr cpu::Qword TEST_SECOND_REGISTER_VALUE = cpu::Qword{0xFEDCBA98ULL};
+constexpr cpu::Qword TEST_ONE_BIT = cpu::Qword{1};
+constexpr cpu::Qword TEST_QWORD_SIGN_MASK = TEST_ONE_BIT << (cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
+constexpr cpu::Qword TEST_CF_MASK = TEST_ONE_BIT << cpu::FLAG_ID_CF_BIT_INDEX;
 
 struct RegisterCase
 {
@@ -33,7 +33,7 @@ struct RegisterCase
     std::string_view assembly_name;
 };
 
-constexpr std::array<RegisterCase, cpu::REGISTER_ID_GENERAL_REGISTER_COUNT> REGISTER_CASES{
+constexpr std::array<RegisterCase, cpu::REGISTER_ID_COUNT> REGISTER_CASES{
     RegisterCase{cpu::RegisterId::RAX, 0, "RAX"},   RegisterCase{cpu::RegisterId::RBX, 1, "RBX"},
     RegisterCase{cpu::RegisterId::RCX, 2, "RCX"},   RegisterCase{cpu::RegisterId::RDX, 3, "RDX"},
     RegisterCase{cpu::RegisterId::RSI, 4, "RSI"},   RegisterCase{cpu::RegisterId::RDI, 5, "RDI"},
@@ -51,7 +51,7 @@ struct FlagCase
     std::string_view assembly_name;
 };
 
-constexpr std::array<FlagCase, cpu::FLAG_ID_STATUS_FLAG_COUNT> FLAG_CASES{
+constexpr std::array<FlagCase, cpu::FLAG_ID_COUNT> FLAG_CASES{
     FlagCase{cpu::FlagId::CF, 0, cpu::FLAG_ID_CF_BIT_INDEX, "CF"},
     FlagCase{cpu::FlagId::ZF, 1, cpu::FLAG_ID_ZF_BIT_INDEX, "ZF"},
     FlagCase{cpu::FlagId::SF, 2, cpu::FLAG_ID_SF_BIT_INDEX, "SF"},
@@ -74,7 +74,7 @@ TEST(RegisterIdTest, CatalogMapsIdsToIndicesAndNames)
 TEST(RegisterBankTest, ReadsWritesAndRejectsInvalidIds)
 {
     cpu::RegisterBank bank;
-    EXPECT_THAT(bank.read(cpu::RegisterId::RAX), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(bank.read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
 
     bank.write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
     bank.write(cpu::RegisterId::R15, TEST_SECOND_REGISTER_VALUE);
@@ -103,7 +103,7 @@ TEST(FlagIdTest, CatalogMapsIdsToIndicesBitsAndNames)
 TEST(RflagsTest, StoresStatusBitsAndUpdatesZeroSignFlags)
 {
     cpu::Rflags flags;
-    EXPECT_THAT(flags.raw_bits(), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(flags.raw_bits(), Eq(cpu::Qword{0}));
 
     flags.write(cpu::FlagId::CF, true);
     EXPECT_TRUE(flags.read(cpu::FlagId::CF));
@@ -112,7 +112,7 @@ TEST(RflagsTest, StoresStatusBitsAndUpdatesZeroSignFlags)
     flags.write(cpu::FlagId::CF, false);
     EXPECT_FALSE(flags.read(cpu::FlagId::CF));
 
-    flags.update_zero_sign_from_qword(cpu::UQWORD64{0});
+    flags.update_zero_sign_from_qword(cpu::Qword{0});
     EXPECT_TRUE(flags.read(cpu::FlagId::ZF));
     EXPECT_FALSE(flags.read(cpu::FlagId::SF));
 
@@ -121,7 +121,7 @@ TEST(RflagsTest, StoresStatusBitsAndUpdatesZeroSignFlags)
     EXPECT_TRUE(flags.read(cpu::FlagId::SF));
 
     flags.clear_status_flags();
-    EXPECT_THAT(flags.raw_bits(), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(flags.raw_bits(), Eq(cpu::Qword{0}));
     EXPECT_THROW(static_cast<void>(flags.read(TEST_INVALID_FLAG_ID)), std::out_of_range);
     EXPECT_THROW(flags.write(TEST_INVALID_FLAG_ID, true), std::out_of_range);
 }

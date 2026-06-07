@@ -22,7 +22,7 @@ enum class OperandKind : std::uint8_t
 
 inline constexpr std::size_t OPERAND_KIND_COUNT = static_cast<std::size_t>(OperandKind::COUNT);
 
-inline constexpr SQWORD64 OPERAND_MEMORY_DEFAULT_DISPLACEMENT = SQWORD64{0};
+inline constexpr SignedQword OPERAND_MEMORY_DEFAULT_DISPLACEMENT = SignedQword{0};
 
 [[nodiscard]] bool is_operand_kind_valid(OperandKind kind) noexcept;
 
@@ -35,8 +35,8 @@ class Operand
 public:
     [[nodiscard]] static Operand none() noexcept;
     [[nodiscard]] static Operand reg(RegisterId id);
-    [[nodiscard]] static Operand imm(SQWORD64 value) noexcept;
-    [[nodiscard]] static Operand mem(RegisterId base_register, SQWORD64 displacement, DataSize data_size);
+    [[nodiscard]] static Operand imm(SignedQword value) noexcept;
+    [[nodiscard]] static Operand mem(RegisterId base_register, SignedQword displacement, DataSize data_size);
 
     [[nodiscard]] OperandKind kind() const noexcept;
     [[nodiscard]] bool is_none() const noexcept;
@@ -45,9 +45,9 @@ public:
     [[nodiscard]] bool is_memory() const noexcept;
 
     [[nodiscard]] RegisterId register_id() const;
-    [[nodiscard]] SQWORD64 immediate_value() const;
+    [[nodiscard]] SignedQword immediate_value() const;
     [[nodiscard]] RegisterId memory_base_register() const;
-    [[nodiscard]] SQWORD64 memory_displacement() const;
+    [[nodiscard]] SignedQword memory_displacement() const;
     [[nodiscard]] DataSize memory_data_size() const;
 
 private:
@@ -58,13 +58,13 @@ private:
 
     struct ImmediatePayload
     {
-        SQWORD64 value;
+        SignedQword value;
     };
 
     struct MemoryPayload
     {
         RegisterId base_register;
-        SQWORD64 displacement;
+        SignedQword displacement;
         DataSize data_size;
     };
 

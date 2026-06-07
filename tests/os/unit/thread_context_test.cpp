@@ -19,14 +19,14 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr auto TEST_INVALID_THREAD_STATE = static_cast<sched::ThreadState>(sched::THREAD_STATE_KIND_COUNT);
+constexpr auto TEST_INVALID_THREAD_STATE = static_cast<sched::ThreadState>(sched::THREAD_STATE_COUNT);
 constexpr sched::ThreadId::value_type TEST_THREAD_ID_VALUE = sched::THREAD_ID_FIRST_KERNEL_VALUE;
 constexpr mm::AddressValue TEST_STACK_BOTTOM_VALUE = mm::AddressValue{0x8000};
 constexpr mm::AddressValue TEST_SECOND_STACK_BOTTOM_VALUE = mm::AddressValue{0xC000};
 constexpr mm::AddressValue TEST_UNALIGNED_STACK_BOTTOM_VALUE = TEST_STACK_BOTTOM_VALUE + mm::AddressValue{1};
 constexpr std::uint64_t TEST_CUSTOM_STACK_SIZE_BYTES = mm::MM_PAGE_SIZE_BYTES * std::uint64_t{2};
 constexpr std::uint64_t TEST_UNALIGNED_STACK_SIZE_BYTES = mm::MM_PAGE_SIZE_BYTES + std::uint64_t{1};
-constexpr cpu::UQWORD64 TEST_REGISTER_VALUE = cpu::UQWORD64{0xFEEDBEEFULL};
+constexpr cpu::Qword TEST_REGISTER_VALUE = cpu::Qword{0xFEEDBEEFULL};
 }
 
 TEST(ThreadIdTest, ProvidesInvalidAndFirstKernelIdSentinels)
@@ -71,7 +71,7 @@ TEST(ThreadContextTest, InitializesKernelStackAndCpuContext)
         Eq(TEST_STACK_BOTTOM_VALUE + sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES));
     EXPECT_THAT(
         const_thread.cpu_state().registers().read(cpu::RegisterId::RSP),
-        Eq(static_cast<cpu::UQWORD64>(thread.kernel_stack_top().value())));
+        Eq(static_cast<cpu::Qword>(thread.kernel_stack_top().value())));
     EXPECT_TRUE(thread.contains_kernel_stack_address(thread.kernel_stack_bottom()));
     EXPECT_TRUE(thread.contains_kernel_stack_address(thread.kernel_stack_top() - mm::AddressValue{1}));
     EXPECT_FALSE(thread.contains_kernel_stack_address(thread.kernel_stack_top()));
@@ -85,7 +85,7 @@ TEST(ThreadContextTest, SupportsStateTransitionsAndCpuReset)
         TEST_CUSTOM_STACK_SIZE_BYTES};
 
     EXPECT_THAT(thread.kernel_stack_size_bytes(), Eq(TEST_CUSTOM_STACK_SIZE_BYTES));
-    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RSP), Eq(static_cast<cpu::UQWORD64>(thread.kernel_stack_top().value())));
+    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RSP), Eq(static_cast<cpu::Qword>(thread.kernel_stack_top().value())));
 
     thread.set_state(sched::ThreadState::RUNNING);
     EXPECT_THAT(thread.state(), Eq(sched::ThreadState::RUNNING));
@@ -101,9 +101,9 @@ TEST(ThreadContextTest, SupportsStateTransitionsAndCpuReset)
     thread.cpu_state().registers().write(cpu::RegisterId::RAX, TEST_REGISTER_VALUE);
     thread.cpu_state().halt();
     thread.reset_cpu_state();
-    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RAX), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_FALSE(thread.cpu_state().is_halted());
-    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RSP), Eq(static_cast<cpu::UQWORD64>(thread.kernel_stack_top().value())));
+    EXPECT_THAT(thread.cpu_state().registers().read(cpu::RegisterId::RSP), Eq(static_cast<cpu::Qword>(thread.kernel_stack_top().value())));
 }
 
 TEST(ThreadContextTest, RejectsInvalidIdsStacksAndStates)

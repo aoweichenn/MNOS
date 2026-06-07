@@ -15,31 +15,31 @@ namespace cpu = mnos::cpu;
 
 [[nodiscard]] inline cpu::Instruction make_mov_imm(
     const cpu::RegisterId destination,
-    const cpu::SQWORD64 value)
+    const cpu::SignedQword value)
 {
     return cpu::Instruction::make_mov(cpu::Operand::reg(destination), cpu::Operand::imm(value));
 }
 
 [[nodiscard]] inline cpu::Instruction make_add_imm(
     const cpu::RegisterId destination,
-    const cpu::SQWORD64 value)
+    const cpu::SignedQword value)
 {
     return cpu::Instruction::make_add(cpu::Operand::reg(destination), cpu::Operand::imm(value));
 }
 
 [[nodiscard]] inline cpu::Instruction make_sub_imm(
     const cpu::RegisterId destination,
-    const cpu::SQWORD64 value)
+    const cpu::SignedQword value)
 {
     return cpu::Instruction::make_sub(cpu::Operand::reg(destination), cpu::Operand::imm(value));
 }
 
-[[nodiscard]] inline cpu::Instruction make_cmp_imm(const cpu::RegisterId left, const cpu::SQWORD64 right)
+[[nodiscard]] inline cpu::Instruction make_cmp_imm(const cpu::RegisterId left, const cpu::SignedQword right)
 {
     return cpu::Instruction::make_cmp(cpu::Operand::reg(left), cpu::Operand::imm(right));
 }
 
-[[nodiscard]] inline cpu::Instruction make_jump_imm(const cpu::Opcode opcode, const cpu::SQWORD64 target)
+[[nodiscard]] inline cpu::Instruction make_jump_imm(const cpu::Opcode opcode, const cpu::SignedQword target)
 {
     switch (opcode)
     {
@@ -63,7 +63,7 @@ namespace cpu = mnos::cpu;
 
 [[nodiscard]] inline cpu::Operand make_mem(
     const cpu::RegisterId base_register,
-    const cpu::SQWORD64 displacement,
+    const cpu::SignedQword displacement,
     const cpu::DataSize data_size)
 {
     return cpu::Operand::mem(base_register, displacement, data_size);

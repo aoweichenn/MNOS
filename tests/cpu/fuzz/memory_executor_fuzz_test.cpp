@@ -28,13 +28,13 @@ constexpr std::uint64_t FUZZ_SEED = 0xF00D1234ULL;
 constexpr std::size_t FUZZ_MEMORY_SIZE_BYTES = 256;
 constexpr std::size_t FUZZ_MEMORY_CASE_COUNT = 192;
 constexpr std::size_t FUZZ_EXECUTOR_CASE_COUNT = 80;
-constexpr cpu::ADDRESS64 FUZZ_BASE_ADDRESS = cpu::ADDRESS64{32};
-constexpr cpu::SQWORD64 FUZZ_BASE_REGISTER_VALUE = static_cast<cpu::SQWORD64>(FUZZ_BASE_ADDRESS);
-constexpr cpu::UQWORD64 FUZZ_BYTE_MASK = cpu::UQWORD64{0xFF};
+constexpr cpu::Address64 FUZZ_BASE_ADDRESS = cpu::Address64{32};
+constexpr cpu::SignedQword FUZZ_BASE_REGISTER_VALUE = static_cast<cpu::SignedQword>(FUZZ_BASE_ADDRESS);
+constexpr cpu::Qword FUZZ_BYTE_MASK = cpu::Qword{0xFF};
 
 [[nodiscard]] cpu::DataSize fuzz_data_size(test::DeterministicPrng& prng) noexcept
 {
-    switch (prng.next_bounded(cpu::DATA_SIZE_KIND_COUNT))
+    switch (prng.next_bounded(cpu::DATA_SIZE_COUNT))
     {
     case 0:
         return cpu::DataSize::BYTE;
@@ -47,39 +47,39 @@ constexpr cpu::UQWORD64 FUZZ_BYTE_MASK = cpu::UQWORD64{0xFF};
     }
 }
 
-[[nodiscard]] cpu::UQWORD64 read_model(
-    const std::array<cpu::UBYTE8, FUZZ_MEMORY_SIZE_BYTES>& model,
-    const cpu::ADDRESS64 address,
+[[nodiscard]] cpu::Qword read_model(
+    const std::array<cpu::Byte, FUZZ_MEMORY_SIZE_BYTES>& model,
+    const cpu::Address64 address,
     const std::size_t byte_count) noexcept
 {
-    cpu::UQWORD64 value = cpu::UQWORD64{0};
+    cpu::Qword value = cpu::Qword{0};
     const std::size_t start_index = static_cast<std::size_t>(address);
     for (std::size_t byte_index = 0; byte_index < byte_count; ++byte_index)
     {
         const std::size_t bit_shift = byte_index * cpu::DATA_SIZE_BYTE_BITS;
-        value |= static_cast<cpu::UQWORD64>(model[start_index + byte_index]) << bit_shift;
+        value |= static_cast<cpu::Qword>(model[start_index + byte_index]) << bit_shift;
     }
     return value;
 }
 
 void write_model(
-    std::array<cpu::UBYTE8, FUZZ_MEMORY_SIZE_BYTES>& model,
-    const cpu::ADDRESS64 address,
+    std::array<cpu::Byte, FUZZ_MEMORY_SIZE_BYTES>& model,
+    const cpu::Address64 address,
     const std::size_t byte_count,
-    const cpu::UQWORD64 value) noexcept
+    const cpu::Qword value) noexcept
 {
     const std::size_t start_index = static_cast<std::size_t>(address);
     for (std::size_t byte_index = 0; byte_index < byte_count; ++byte_index)
     {
         const std::size_t bit_shift = byte_index * cpu::DATA_SIZE_BYTE_BITS;
-        model[start_index + byte_index] = static_cast<cpu::UBYTE8>((value >> bit_shift) & FUZZ_BYTE_MASK);
+        model[start_index + byte_index] = static_cast<cpu::Byte>((value >> bit_shift) & FUZZ_BYTE_MASK);
     }
 }
 
-[[nodiscard]] cpu::ADDRESS64 fuzz_valid_address(test::DeterministicPrng& prng, const std::size_t byte_count) noexcept
+[[nodiscard]] cpu::Address64 fuzz_valid_address(test::DeterministicPrng& prng, const std::size_t byte_count) noexcept
 {
     const std::size_t address_limit = FUZZ_MEMORY_SIZE_BYTES - byte_count;
-    return static_cast<cpu::ADDRESS64>(prng.next_bounded(address_limit + std::size_t{1}));
+    return static_cast<cpu::Address64>(prng.next_bounded(address_limit + std::size_t{1}));
 }
 }
 
@@ -88,14 +88,14 @@ TEST(MemoryExecutorFuzzTest, MemoryBusMatchesByteModel)
     test::DeterministicPrng prng{FUZZ_SEED};
     cpu::PhysicalMemory memory(FUZZ_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};
-    std::array<cpu::UBYTE8, FUZZ_MEMORY_SIZE_BYTES> model{};
+    std::array<cpu::Byte, FUZZ_MEMORY_SIZE_BYTES> model{};
 
     for (std::size_t case_index = 0; case_index < FUZZ_MEMORY_CASE_COUNT; ++case_index)
     {
         const cpu::DataSize data_size = fuzz_data_size(prng);
         const std::size_t byte_count = cpu::data_size_to_bytes(data_size);
-        const cpu::ADDRESS64 address = fuzz_valid_address(prng, byte_count);
-        const cpu::UQWORD64 value = prng.next();
+        const cpu::Address64 address = fuzz_valid_address(prng, byte_count);
+        const cpu::Qword value = prng.next();
 
         memory_bus.write(address, data_size, value);
         write_model(model, address, byte_count, value);
@@ -113,8 +113,8 @@ TEST(MemoryExecutorFuzzTest, MemoryBusRejectsOutOfRangeReads)
     for (std::size_t case_index = 0; case_index < FUZZ_EXECUTOR_CASE_COUNT; ++case_index)
     {
         const cpu::DataSize data_size = fuzz_data_size(prng);
-        const cpu::ADDRESS64 address =
-            static_cast<cpu::ADDRESS64>(FUZZ_MEMORY_SIZE_BYTES + prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES));
+        const cpu::Address64 address =
+            static_cast<cpu::Address64>(FUZZ_MEMORY_SIZE_BYTES + prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES));
         EXPECT_THROW(static_cast<void>(memory_bus.read(address, data_size)), std::out_of_range);
     }
 }
@@ -125,10 +125,10 @@ TEST(MemoryExecutorFuzzTest, ExecutorRoundTripsValidMemoryShapes)
 
     for (std::size_t case_index = 0; case_index < FUZZ_EXECUTOR_CASE_COUNT; ++case_index)
     {
-        const cpu::SQWORD64 displacement = static_cast<cpu::SQWORD64>(
+        const cpu::SignedQword displacement = static_cast<cpu::SignedQword>(
             prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES - static_cast<std::size_t>(FUZZ_BASE_ADDRESS) -
                               cpu::DATA_SIZE_QWORD_BYTES));
-        const cpu::SQWORD64 value = static_cast<cpu::SQWORD64>(prng.next());
+        const cpu::SignedQword value = static_cast<cpu::SignedQword>(prng.next());
 
         cpu::Program program{
             cpu_support::make_mov_imm(cpu::RegisterId::RBP, FUZZ_BASE_REGISTER_VALUE),
@@ -148,7 +148,7 @@ TEST(MemoryExecutorFuzzTest, ExecutorRoundTripsValidMemoryShapes)
         cpu::Executor executor;
         static_cast<void>(executor.run(state, program, memory_bus));
 
-        EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(value)));
+        EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(value)));
     }
 }
 
@@ -164,10 +164,10 @@ TEST(MemoryExecutorFuzzTest, ExecutorRejectsInvalidMemoryShapes)
         state.registers().write(cpu::RegisterId::RBP, FUZZ_BASE_ADDRESS);
         cpu::Executor executor;
 
-        const cpu::SQWORD64 left_displacement =
-            static_cast<cpu::SQWORD64>(prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES / cpu::DATA_SIZE_QWORD_BYTES));
-        const cpu::SQWORD64 right_displacement =
-            static_cast<cpu::SQWORD64>(prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES / cpu::DATA_SIZE_QWORD_BYTES));
+        const cpu::SignedQword left_displacement =
+            static_cast<cpu::SignedQword>(prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES / cpu::DATA_SIZE_QWORD_BYTES));
+        const cpu::SignedQword right_displacement =
+            static_cast<cpu::SignedQword>(prng.next_bounded(FUZZ_MEMORY_SIZE_BYTES / cpu::DATA_SIZE_QWORD_BYTES));
         cpu::Program program{
             cpu::Instruction::make_mov(
                 cpu_support::make_mem(cpu::RegisterId::RBP, left_displacement, cpu::DataSize::QWORD),

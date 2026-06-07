@@ -90,8 +90,8 @@ private:
 using PhysicalAddress = BasicAddress<PhysicalAddressTag>;
 using VirtualAddress = BasicAddress<VirtualAddressTag>;
 
-[[nodiscard]] constexpr cpu::ADDRESS64 to_cpu_address(const PhysicalAddress address) noexcept
+[[nodiscard]] constexpr cpu::Address64 to_cpu_address(const PhysicalAddress address) noexcept
 {
-    return static_cast<cpu::ADDRESS64>(address.value());
+    return static_cast<cpu::Address64>(address.value());
 }
 }

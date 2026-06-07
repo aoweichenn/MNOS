@@ -13,7 +13,7 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_KIND_COUNT);
+constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_COUNT);
 
 struct DataSizeCase
 {
@@ -23,7 +23,7 @@ struct DataSizeCase
     std::string_view assembly_name;
 };
 
-constexpr std::array<DataSizeCase, cpu::DATA_SIZE_KIND_COUNT> DATA_SIZE_CASES{
+constexpr std::array<DataSizeCase, cpu::DATA_SIZE_COUNT> DATA_SIZE_CASES{
     DataSizeCase{cpu::DataSize::BYTE, cpu::DATA_SIZE_BYTE_BITS, cpu::DATA_SIZE_BYTE_BYTES, "BYTE"},
     DataSizeCase{cpu::DataSize::WORD, cpu::DATA_SIZE_WORD_BITS, cpu::DATA_SIZE_WORD_BYTES, "WORD"},
     DataSizeCase{cpu::DataSize::DWORD, cpu::DATA_SIZE_DWORD_BITS, cpu::DATA_SIZE_DWORD_BYTES, "DWORD"},

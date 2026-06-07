@@ -26,16 +26,16 @@ namespace
 using ::testing::Eq;
 
 constexpr std::uint64_t CHAOS_SEED = 0xC001CAFEULL;
-constexpr std::size_t CHAOS_OPERATION_COUNT = 96;
+constexpr std::size_t CHAOS_PROGRAM_OPERATION_COUNT = 96;
 constexpr std::size_t CHAOS_PROGRAM_EXTRA_INSTRUCTIONS = 3;
-constexpr std::size_t CHAOS_PROGRAM_CAPACITY = CHAOS_OPERATION_COUNT + CHAOS_PROGRAM_EXTRA_INSTRUCTIONS;
+constexpr std::size_t CHAOS_PROGRAM_CAPACITY = CHAOS_PROGRAM_OPERATION_COUNT + CHAOS_PROGRAM_EXTRA_INSTRUCTIONS;
 constexpr std::size_t CHAOS_MEMORY_SIZE_BYTES = 512;
 constexpr std::size_t CHAOS_MEMORY_SLOT_COUNT = 16;
-constexpr cpu::ADDRESS64 CHAOS_MEMORY_BASE_ADDRESS = cpu::ADDRESS64{128};
-constexpr cpu::SQWORD64 CHAOS_MAX_IMMEDIATE = cpu::SQWORD64{127};
-constexpr cpu::SQWORD64 CHAOS_RBP_INITIAL_VALUE = static_cast<cpu::SQWORD64>(CHAOS_MEMORY_BASE_ADDRESS);
-constexpr cpu::UQWORD64 CHAOS_INITIAL_RAX = cpu::UQWORD64{0};
-constexpr cpu::UQWORD64 CHAOS_INITIAL_RBX = cpu::UQWORD64{0};
+constexpr cpu::Address64 CHAOS_MEMORY_BASE_ADDRESS = cpu::Address64{128};
+constexpr cpu::SignedQword CHAOS_MAX_IMMEDIATE = cpu::SignedQword{127};
+constexpr cpu::SignedQword CHAOS_RBP_INITIAL_VALUE = static_cast<cpu::SignedQword>(CHAOS_MEMORY_BASE_ADDRESS);
+constexpr cpu::Qword CHAOS_INITIAL_RAX = cpu::Qword{0};
+constexpr cpu::Qword CHAOS_INITIAL_RBX = cpu::Qword{0};
 
 enum class ChaosOperation : std::uint8_t
 {
@@ -47,12 +47,12 @@ enum class ChaosOperation : std::uint8_t
     COUNT
 };
 
-inline constexpr std::uint64_t CHAOS_OPERATION_KIND_COUNT = static_cast<std::uint64_t>(ChaosOperation::COUNT);
+inline constexpr std::uint64_t CHAOS_OPERATION_VARIANT_COUNT = static_cast<std::uint64_t>(ChaosOperation::COUNT);
 
-[[nodiscard]] cpu::SQWORD64 next_small_immediate(test::DeterministicPrng& prng) noexcept
+[[nodiscard]] cpu::SignedQword next_small_immediate(test::DeterministicPrng& prng) noexcept
 {
-    const auto raw_value = static_cast<cpu::SQWORD64>(prng.next_bounded(static_cast<std::uint64_t>(CHAOS_MAX_IMMEDIATE)));
-    return raw_value - (CHAOS_MAX_IMMEDIATE / cpu::SQWORD64{2});
+    const auto raw_value = static_cast<cpu::SignedQword>(prng.next_bounded(static_cast<std::uint64_t>(CHAOS_MAX_IMMEDIATE)));
+    return raw_value - (CHAOS_MAX_IMMEDIATE / cpu::SignedQword{2});
 }
 
 [[nodiscard]] std::size_t next_memory_slot(test::DeterministicPrng& prng) noexcept
@@ -60,9 +60,9 @@ inline constexpr std::uint64_t CHAOS_OPERATION_KIND_COUNT = static_cast<std::uin
     return static_cast<std::size_t>(prng.next_bounded(CHAOS_MEMORY_SLOT_COUNT));
 }
 
-[[nodiscard]] cpu::SQWORD64 slot_displacement(const std::size_t slot) noexcept
+[[nodiscard]] cpu::SignedQword slot_displacement(const std::size_t slot) noexcept
 {
-    return static_cast<cpu::SQWORD64>(slot * cpu::DATA_SIZE_QWORD_BYTES);
+    return static_cast<cpu::SignedQword>(slot * cpu::DATA_SIZE_QWORD_BYTES);
 }
 }
 
@@ -73,33 +73,33 @@ TEST(ExecutorChaosTest, RunsDeterministicLongProgramAgainstModel)
     program.reserve(CHAOS_PROGRAM_CAPACITY);
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, CHAOS_RBP_INITIAL_VALUE));
 
-    std::array<cpu::UQWORD64, CHAOS_MEMORY_SLOT_COUNT> expected_memory{};
-    cpu::UQWORD64 expected_rax = CHAOS_INITIAL_RAX;
-    cpu::UQWORD64 expected_rbx = CHAOS_INITIAL_RBX;
+    std::array<cpu::Qword, CHAOS_MEMORY_SLOT_COUNT> expected_memory{};
+    cpu::Qword expected_rax = CHAOS_INITIAL_RAX;
+    cpu::Qword expected_rbx = CHAOS_INITIAL_RBX;
 
-    for (std::size_t operation_index = 0; operation_index < CHAOS_OPERATION_COUNT; ++operation_index)
+    for (std::size_t operation_index = 0; operation_index < CHAOS_PROGRAM_OPERATION_COUNT; ++operation_index)
     {
-        const auto operation = static_cast<ChaosOperation>(prng.next_bounded(CHAOS_OPERATION_KIND_COUNT));
+        const auto operation = static_cast<ChaosOperation>(prng.next_bounded(CHAOS_OPERATION_VARIANT_COUNT));
         switch (operation)
         {
         case ChaosOperation::MOV_RAX_IMM:
         {
-            const cpu::SQWORD64 immediate = next_small_immediate(prng);
-            expected_rax = static_cast<cpu::UQWORD64>(immediate);
+            const cpu::SignedQword immediate = next_small_immediate(prng);
+            expected_rax = static_cast<cpu::Qword>(immediate);
             program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, immediate));
             break;
         }
         case ChaosOperation::ADD_RAX_IMM:
         {
-            const cpu::SQWORD64 immediate = next_small_immediate(prng);
-            expected_rax += static_cast<cpu::UQWORD64>(immediate);
+            const cpu::SignedQword immediate = next_small_immediate(prng);
+            expected_rax += static_cast<cpu::Qword>(immediate);
             program.push_back(cpu_support::make_add_imm(cpu::RegisterId::RAX, immediate));
             break;
         }
         case ChaosOperation::SUB_RAX_IMM:
         {
-            const cpu::SQWORD64 immediate = next_small_immediate(prng);
-            expected_rax -= static_cast<cpu::UQWORD64>(immediate);
+            const cpu::SignedQword immediate = next_small_immediate(prng);
+            expected_rax -= static_cast<cpu::Qword>(immediate);
             program.push_back(cpu_support::make_sub_imm(cpu::RegisterId::RAX, immediate));
             break;
         }
@@ -145,7 +145,7 @@ TEST(ExecutorChaosTest, RunsDeterministicLongProgramAgainstModel)
 
     for (std::size_t slot = 0; slot < CHAOS_MEMORY_SLOT_COUNT; ++slot)
     {
-        const cpu::ADDRESS64 address = CHAOS_MEMORY_BASE_ADDRESS + static_cast<cpu::ADDRESS64>(slot_displacement(slot));
+        const cpu::Address64 address = CHAOS_MEMORY_BASE_ADDRESS + static_cast<cpu::Address64>(slot_displacement(slot));
         EXPECT_THAT(memory.read_qword(address), Eq(expected_memory[slot]));
     }
 }

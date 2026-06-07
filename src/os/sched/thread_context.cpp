@@ -133,6 +133,6 @@ void ThreadContext::reset_cpu_state()
 
 void ThreadContext::initialize_cpu_stack_pointer()
 {
-    this->cpu_state_.registers().write(cpu::RegisterId::RSP, static_cast<cpu::UQWORD64>(this->kernel_stack_top_.value()));
+    this->cpu_state_.registers().write(cpu::RegisterId::RSP, static_cast<cpu::Qword>(this->kernel_stack_top_.value()));
 }
 }

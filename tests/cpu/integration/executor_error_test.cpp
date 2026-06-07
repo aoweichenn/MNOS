@@ -19,14 +19,14 @@ namespace cpu_support = mnos::test::cpu_support;
 
 namespace
 {
-constexpr cpu::SQWORD64 TEST_IMMEDIATE_VALUE = cpu::SQWORD64{-42};
-constexpr cpu::SQWORD64 TEST_MEMORY_DISPLACEMENT = cpu::SQWORD64{16};
-constexpr cpu::SQWORD64 TEST_LOOP_TARGET = cpu::SQWORD64{0};
+constexpr cpu::SignedQword TEST_IMMEDIATE_VALUE = cpu::SignedQword{-42};
+constexpr cpu::SignedQword TEST_MEMORY_DISPLACEMENT = cpu::SignedQword{16};
+constexpr cpu::SignedQword TEST_LOOP_TARGET = cpu::SignedQword{0};
 constexpr std::size_t TEST_LOOP_MAX_STEPS = 3;
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = 128;
-constexpr cpu::ADDRESS64 TEST_MEMORY_BASE_ADDRESS = cpu::ADDRESS64{16};
-constexpr cpu::SQWORD64 TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SQWORD64{16};
-constexpr cpu::SQWORD64 TEST_PROGRAM_INITIAL_VALUE = cpu::SQWORD64{1};
+constexpr cpu::Address64 TEST_MEMORY_BASE_ADDRESS = cpu::Address64{16};
+constexpr cpu::SignedQword TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SignedQword{16};
+constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
 }
 
 TEST(ExecutorErrorTest, RejectsInvalidJumpTarget)
@@ -80,7 +80,7 @@ TEST(ExecutorErrorTest, RejectsOutOfRangeMemoryExecution)
             cpu::Operand::reg(cpu::RegisterId::RAX),
             cpu_support::make_mem(
                 cpu::RegisterId::RBP,
-                static_cast<cpu::SQWORD64>(TEST_MEMORY_SIZE_BYTES),
+                static_cast<cpu::SignedQword>(TEST_MEMORY_SIZE_BYTES),
                 cpu::DataSize::QWORD)),
     };
     cpu::CpuState out_of_range_memory_state;

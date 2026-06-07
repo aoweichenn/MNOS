@@ -11,9 +11,9 @@ namespace
 {
 constexpr std::string_view OPERAND_KIND_ASSEMBLY_NAME_INVALID_TEXT = "<invalid>";
 constexpr const char* OPERAND_ACCESS_INVALID_KIND_MESSAGE = "operand kind does not match requested payload";
-constexpr const char* OPERAND_REGISTER_INVALID_ID_MESSAGE = "Operand invalid register id";
-constexpr const char* OPERAND_MEMORY_INVALID_BASE_REGISTER_MESSAGE = "Operand invalid memory base register";
-constexpr const char* OPERAND_MEMORY_INVALID_DATA_SIZE_MESSAGE = "Operand invalid memory data size";
+constexpr const char* OPERAND_REGISTER_INVALID_ID_MESSAGE = "operand register id is invalid";
+constexpr const char* OPERAND_MEMORY_INVALID_BASE_REGISTER_MESSAGE = "operand memory base register id is invalid";
+constexpr const char* OPERAND_MEMORY_INVALID_DATA_SIZE_MESSAGE = "operand memory data size is invalid";
 
 class OperandKindCatalog
 {
@@ -103,12 +103,12 @@ Operand Operand::reg(const RegisterId id)
     return Operand{RegisterPayload{id}};
 }
 
-Operand Operand::imm(const SQWORD64 value) noexcept
+Operand Operand::imm(const SignedQword value) noexcept
 {
     return Operand{ImmediatePayload{value}};
 }
 
-Operand Operand::mem(const RegisterId base_register, const SQWORD64 displacement, const DataSize data_size)
+Operand Operand::mem(const RegisterId base_register, const SignedQword displacement, const DataSize data_size)
 {
     OperandValidator::require_register_id(base_register, OPERAND_MEMORY_INVALID_BASE_REGISTER_MESSAGE);
     OperandValidator::require_memory_data_size(data_size);
@@ -145,7 +145,7 @@ RegisterId Operand::register_id() const
     return this->payload<RegisterPayload>().id;
 }
 
-SQWORD64 Operand::immediate_value() const
+SignedQword Operand::immediate_value() const
 {
     return this->payload<ImmediatePayload>().value;
 }
@@ -160,7 +160,7 @@ DataSize Operand::memory_data_size() const
     return this->payload<MemoryPayload>().data_size;
 }
 
-SQWORD64 Operand::memory_displacement() const
+SignedQword Operand::memory_displacement() const
 {
     return this->payload<MemoryPayload>().displacement;
 }

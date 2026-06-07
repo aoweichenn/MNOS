@@ -28,7 +28,7 @@ public:
 
 private:
     inline static constexpr auto REGISTER_ID_NAMES = mnos::core::make_enum_name_table<mnos::cpu::RegisterId>(
-        std::array<std::string_view, mnos::cpu::REGISTER_ID_GENERAL_REGISTER_COUNT>{
+        std::array<std::string_view, mnos::cpu::REGISTER_ID_COUNT>{
             "RAX",
             "RBX",
             "RCX",

@@ -28,7 +28,7 @@ public:
 
 private:
     inline static constexpr auto OPCODE_NAMES = mnos::core::make_enum_name_table<mnos::cpu::Opcode>(
-        std::array<std::string_view, mnos::cpu::OPCODE_INSTRUCTION_KIND_COUNT>{
+        std::array<std::string_view, mnos::cpu::OPCODE_COUNT>{
             "MOV",
             "ADD",
             "SUB",

@@ -27,10 +27,10 @@ public:
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] std::span<const Instruction> instructions() const noexcept;
-    [[nodiscard]] bool contains_rip(RIP64 rip) const noexcept;
+    [[nodiscard]] bool contains_rip(InstructionPointer rip) const noexcept;
 
     [[nodiscard]] const Instruction& at(std::size_t index) const;
-    [[nodiscard]] const Instruction& instruction_at(RIP64 rip) const;
+    [[nodiscard]] const Instruction& instruction_at(InstructionPointer rip) const;
 
     [[nodiscard]] const_iterator begin() const noexcept;
     [[nodiscard]] const_iterator end() const noexcept;

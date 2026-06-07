@@ -48,9 +48,9 @@ std::span<const Instruction> Program::instructions() const noexcept
     return std::span<const Instruction>{this->instructions_};
 }
 
-bool Program::contains_rip(const RIP64 rip) const noexcept
+bool Program::contains_rip(const InstructionPointer rip) const noexcept
 {
-    return rip < static_cast<RIP64>(this->instructions_.size());
+    return rip < static_cast<InstructionPointer>(this->instructions_.size());
 }
 
 const Instruction& Program::at(const std::size_t index) const
@@ -58,7 +58,7 @@ const Instruction& Program::at(const std::size_t index) const
     return this->instructions_.at(index);
 }
 
-const Instruction& Program::instruction_at(const RIP64 rip) const
+const Instruction& Program::instruction_at(const InstructionPointer rip) const
 {
     if (!this->contains_rip(rip))
     {

@@ -11,9 +11,9 @@ namespace mnos::cpu
 {
 struct ExecutionTraceEntry
 {
-    UQWORD64 cycle;
-    RIP64 rip_before;
-    RIP64 rip_after;
+    CycleCount cycle_count;
+    InstructionPointer rip_before;
+    InstructionPointer rip_after;
     Opcode opcode;
     bool halted_after;
 };

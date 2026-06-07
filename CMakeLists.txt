@@ -216,7 +216,7 @@ macro(mnos_add_os_test target_name source_file)
 endmacro()
 
 mnos_add_cpu_test(mnos_cpu_common_unit_tests tests/cpu/unit/common_data_size_test.cpp)
-mnos_add_cpu_test(mnos_cpu_register_unit_tests tests/cpu/unit/register_flags_test.cpp)
+mnos_add_cpu_test(mnos_cpu_register_flags_unit_tests tests/cpu/unit/register_flags_test.cpp)
 mnos_add_cpu_test(mnos_cpu_instruction_unit_tests tests/cpu/unit/instruction_test.cpp)
 mnos_add_cpu_test(mnos_cpu_execution_state_unit_tests tests/cpu/unit/execution_state_test.cpp)
 mnos_add_cpu_test(mnos_cpu_memory_unit_tests tests/cpu/unit/memory_test.cpp)

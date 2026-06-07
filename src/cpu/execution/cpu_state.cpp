@@ -22,12 +22,12 @@ const Rflags& CpuState::flags() const noexcept
     return this->flags_;
 }
 
-RIP64 CpuState::rip() const noexcept
+InstructionPointer CpuState::rip() const noexcept
 {
     return this->rip_;
 }
 
-void CpuState::set_rip(const RIP64 value) noexcept
+void CpuState::set_rip(const InstructionPointer value) noexcept
 {
     this->rip_ = value;
 }

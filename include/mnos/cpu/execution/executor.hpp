@@ -25,7 +25,7 @@ enum class StepResult : std::uint8_t
 class Executor
 {
 public:
-    [[nodiscard]] UQWORD64 cycle_count() const noexcept;
+    [[nodiscard]] CycleCount cycle_count() const noexcept;
     void reset() noexcept;
 
     [[nodiscard]] StepResult step(CpuState& state, const Program& program, ExecutionTrace* trace = nullptr);
@@ -73,18 +73,18 @@ private:
     void execute_jne(CpuState& state, const Program& program, MemoryBus* memory_bus, const Instruction& instruction);
     void execute_hlt(CpuState& state) const noexcept;
 
-    [[nodiscard]] UQWORD64 read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
-    void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, UQWORD64 value) const;
-    [[nodiscard]] UQWORD64 read_memory_operand(
+    [[nodiscard]] Qword read_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand) const;
+    void write_operand(CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
+    [[nodiscard]] Qword read_memory_operand(
         const CpuState& state,
         MemoryBus* memory_bus,
         const Operand& operand) const;
-    void write_memory_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand, UQWORD64 value) const;
+    void write_memory_operand(const CpuState& state, MemoryBus* memory_bus, const Operand& operand, Qword value) const;
     [[nodiscard]] MemoryBus& require_memory_bus(MemoryBus* memory_bus) const;
-    [[nodiscard]] ADDRESS64 calculate_effective_address(const CpuState& state, const Operand& operand) const;
+    [[nodiscard]] Address64 calculate_effective_address(const CpuState& state, const Operand& operand) const;
     void require_at_most_one_memory_operand(const Instruction& instruction) const;
-    void jump_to(CpuState& state, const Program& program, UQWORD64 target) const;
+    void jump_to(CpuState& state, const Program& program, InstructionPointer target) const;
 
-    UQWORD64 cycle_count_ = UQWORD64{0};
+    CycleCount cycle_count_ = CycleCount{0};
 };
 }

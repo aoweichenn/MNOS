@@ -8,7 +8,7 @@
 
 ```cpp
 constexpr std::size_t REGISTER_COUNT = 16;
-std::array<cpu::UQWORD64, REGISTER_COUNT> registers{};
+std::array<cpu::Qword, REGISTER_COUNT> registers{};
 ```
 
 运行时常量初始化后不能修改，但值到运行时才知道：

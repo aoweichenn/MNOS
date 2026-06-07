@@ -6,8 +6,8 @@
 
 namespace mnos::cpu
 {
-inline constexpr RIP64 CPU_STATE_INITIAL_RIP = RIP64{0};
-inline constexpr RIP64 CPU_STATE_NEXT_INSTRUCTION_OFFSET = RIP64{1};
+inline constexpr InstructionPointer CPU_STATE_INITIAL_RIP = InstructionPointer{0};
+inline constexpr InstructionPointer CPU_STATE_NEXT_INSTRUCTION_OFFSET = InstructionPointer{1};
 
 class CpuState
 {
@@ -18,8 +18,8 @@ public:
     [[nodiscard]] Rflags& flags() noexcept;
     [[nodiscard]] const Rflags& flags() const noexcept;
 
-    [[nodiscard]] RIP64 rip() const noexcept;
-    void set_rip(RIP64 value) noexcept;
+    [[nodiscard]] InstructionPointer rip() const noexcept;
+    void set_rip(InstructionPointer value) noexcept;
     void advance_rip() noexcept;
 
     [[nodiscard]] bool is_halted() const noexcept;
@@ -30,7 +30,7 @@ public:
 private:
     RegisterBank registers_;
     Rflags flags_;
-    RIP64 rip_ = CPU_STATE_INITIAL_RIP;
+    InstructionPointer rip_ = CPU_STATE_INITIAL_RIP;
     bool halted_ = false;
 };
 }

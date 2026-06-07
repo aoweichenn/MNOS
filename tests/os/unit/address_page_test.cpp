@@ -39,7 +39,7 @@ TEST(AddressTest, StrongTypesKeepPhysicalAndVirtualAddressesExplicit)
     EXPECT_THAT((mm::PhysicalAddress{TEST_SECOND_ADDRESS_VALUE} - mm::MM_PAGE_SIZE_BYTES).value(), Eq(TEST_BASE_ADDRESS_VALUE));
     EXPECT_THAT(mm::PhysicalAddress{TEST_SECOND_ADDRESS_VALUE} - physical_address, Eq(mm::MM_PAGE_SIZE_BYTES));
     EXPECT_TRUE(physical_address < mm::PhysicalAddress{TEST_SECOND_ADDRESS_VALUE});
-    EXPECT_THAT(mm::to_cpu_address(physical_address), Eq(static_cast<mnos::cpu::ADDRESS64>(TEST_BASE_ADDRESS_VALUE)));
+    EXPECT_THAT(mm::to_cpu_address(physical_address), Eq(static_cast<mnos::cpu::Address64>(TEST_BASE_ADDRESS_VALUE)));
     EXPECT_THAT(virtual_address.value(), Eq(TEST_BASE_ADDRESS_VALUE));
     EXPECT_THAT((virtual_address + mm::MM_PAGE_SIZE_BYTES).value(), Eq(TEST_SECOND_ADDRESS_VALUE));
     EXPECT_THAT((mm::VirtualAddress{TEST_SECOND_ADDRESS_VALUE} - mm::MM_PAGE_SIZE_BYTES).value(), Eq(TEST_BASE_ADDRESS_VALUE));

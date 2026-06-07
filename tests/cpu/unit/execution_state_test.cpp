@@ -22,15 +22,15 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr cpu::UQWORD64 TEST_REGISTER_VALUE = cpu::UQWORD64{0x1234ABCDULL};
-constexpr cpu::SQWORD64 TEST_PROGRAM_INITIAL_VALUE = cpu::SQWORD64{1};
+constexpr cpu::Qword TEST_REGISTER_VALUE = cpu::Qword{0x1234ABCDULL};
+constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
 constexpr std::size_t TEST_PROGRAM_RESERVE_COUNT = 8;
 constexpr std::size_t TEST_SINGLE_ENTRY_COUNT = 1;
 constexpr std::size_t TEST_TWO_INSTRUCTION_COUNT = 2;
-constexpr cpu::RIP64 TEST_FIRST_RIP = cpu::RIP64{0};
-constexpr cpu::RIP64 TEST_SECOND_RIP = cpu::RIP64{1};
-constexpr cpu::RIP64 TEST_TWO_INSTRUCTION_END_RIP = cpu::RIP64{2};
-constexpr cpu::UQWORD64 TEST_TRACE_FIRST_CYCLE = cpu::UQWORD64{1};
+constexpr cpu::InstructionPointer TEST_FIRST_RIP = cpu::InstructionPointer{0};
+constexpr cpu::InstructionPointer TEST_SECOND_RIP = cpu::InstructionPointer{1};
+constexpr cpu::InstructionPointer TEST_TWO_INSTRUCTION_END_RIP = cpu::InstructionPointer{2};
+constexpr cpu::CycleCount TEST_TRACE_FIRST_CYCLE = cpu::CycleCount{1};
 constexpr bool TEST_TRACE_NOT_HALTED = false;
 }
 
@@ -57,7 +57,7 @@ TEST(CpuStateTest, TracksRegistersFlagsRipAndHaltState)
 
     state.reset();
     EXPECT_THAT(state.rip(), Eq(cpu::CPU_STATE_INITIAL_RIP));
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_FALSE(state.flags().read(cpu::FlagId::ZF));
 }
 
@@ -117,7 +117,7 @@ TEST(ExecutionTraceTest, ProvidesStandardContainerForTraceEntries)
     EXPECT_THAT(trace.size(), Eq(TEST_SINGLE_ENTRY_COUNT));
     EXPECT_THAT(trace.at(0).opcode, Eq(cpu::Opcode::MOV));
     EXPECT_THAT(trace.entries().front().rip_after, Eq(TEST_SECOND_RIP));
-    EXPECT_THAT(trace.begin()->cycle, Eq(TEST_TRACE_FIRST_CYCLE));
+    EXPECT_THAT(trace.begin()->cycle_count, Eq(TEST_TRACE_FIRST_CYCLE));
 
     auto trace_iterator = trace.begin();
     ++trace_iterator;

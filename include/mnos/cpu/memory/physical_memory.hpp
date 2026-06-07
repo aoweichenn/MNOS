@@ -13,40 +13,40 @@ namespace mnos::cpu
 class PhysicalMemory
 {
 public:
-    using container_type = std::vector<UBYTE8>;
+    using container_type = std::vector<Byte>;
 
     PhysicalMemory() = default;
     explicit PhysicalMemory(std::size_t size_bytes);
     explicit PhysicalMemory(container_type bytes) noexcept;
-    PhysicalMemory(std::initializer_list<UBYTE8> bytes);
+    PhysicalMemory(std::initializer_list<Byte> bytes);
 
     void resize(std::size_t size_bytes);
     void clear() noexcept;
-    void fill(UBYTE8 value) noexcept;
+    void fill(Byte value) noexcept;
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
-    [[nodiscard]] std::span<UBYTE8> bytes() noexcept;
-    [[nodiscard]] std::span<const UBYTE8> bytes() const noexcept;
-    [[nodiscard]] bool contains_range(ADDRESS64 address, std::size_t byte_count) const noexcept;
+    [[nodiscard]] std::span<Byte> bytes() noexcept;
+    [[nodiscard]] std::span<const Byte> bytes() const noexcept;
+    [[nodiscard]] bool contains_range(Address64 address, std::size_t byte_count) const noexcept;
 
-    [[nodiscard]] UBYTE8 read_byte(ADDRESS64 address) const;
-    [[nodiscard]] UWORD16 read_word(ADDRESS64 address) const;
-    [[nodiscard]] UDWORD32 read_dword(ADDRESS64 address) const;
-    [[nodiscard]] UQWORD64 read_qword(ADDRESS64 address) const;
-    [[nodiscard]] UQWORD64 read(ADDRESS64 address, DataSize size) const;
+    [[nodiscard]] Byte read_byte(Address64 address) const;
+    [[nodiscard]] Word read_word(Address64 address) const;
+    [[nodiscard]] Dword read_dword(Address64 address) const;
+    [[nodiscard]] Qword read_qword(Address64 address) const;
+    [[nodiscard]] Qword read(Address64 address, DataSize size) const;
 
-    void write_byte(ADDRESS64 address, UBYTE8 value);
-    void write_word(ADDRESS64 address, UWORD16 value);
-    void write_dword(ADDRESS64 address, UDWORD32 value);
-    void write_qword(ADDRESS64 address, UQWORD64 value);
-    void write(ADDRESS64 address, DataSize size, UQWORD64 value);
+    void write_byte(Address64 address, Byte value);
+    void write_word(Address64 address, Word value);
+    void write_dword(Address64 address, Dword value);
+    void write_qword(Address64 address, Qword value);
+    void write(Address64 address, DataSize size, Qword value);
 
 private:
-    [[nodiscard]] UQWORD64 read_little_endian(ADDRESS64 address, std::size_t byte_count) const;
-    void write_little_endian(ADDRESS64 address, std::size_t byte_count, UQWORD64 value);
-    [[nodiscard]] std::size_t checked_index(ADDRESS64 address, std::size_t byte_count) const;
+    [[nodiscard]] Qword read_little_endian_value(Address64 address, std::size_t byte_count) const;
+    void write_little_endian_value(Address64 address, std::size_t byte_count, Qword value);
+    [[nodiscard]] std::size_t checked_start_index(Address64 address, std::size_t byte_count) const;
 
-    std::vector<UBYTE8> bytes_;
+    std::vector<Byte> bytes_;
 };
 }

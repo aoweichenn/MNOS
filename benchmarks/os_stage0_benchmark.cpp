@@ -22,7 +22,7 @@ constexpr std::size_t BENCHMARK_MACHINE_MEMORY_SIZE_BYTES =
     static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{64});
 constexpr std::uint32_t BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT = std::uint32_t{4};
 constexpr mm::AddressValue BENCHMARK_STACK_BOTTOM_VALUE = mm::AddressValue{0x40000};
-constexpr cpu::UQWORD64 BENCHMARK_RAX_VALUE = cpu::UQWORD64{0x1234ABCDULL};
+constexpr cpu::Qword BENCHMARK_RAX_VALUE = cpu::Qword{0x1234ABCDULL};
 }
 
 static void BM_OSKernelBoot(benchmark::State& state)

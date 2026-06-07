@@ -20,10 +20,10 @@ namespace cpu_support = mnos::test::cpu_support;
 namespace
 {
 constexpr std::size_t BENCHMARK_MEMORY_SIZE_BYTES = 4096;
-constexpr cpu::SQWORD64 BENCHMARK_INITIAL_VALUE = cpu::SQWORD64{1};
-constexpr cpu::SQWORD64 BENCHMARK_INCREMENT_VALUE = cpu::SQWORD64{41};
-constexpr cpu::SQWORD64 BENCHMARK_MEMORY_BASE_VALUE = cpu::SQWORD64{128};
-constexpr cpu::SQWORD64 BENCHMARK_MEMORY_DISPLACEMENT = cpu::SQWORD64{32};
+constexpr cpu::SignedQword BENCHMARK_INITIAL_VALUE = cpu::SignedQword{1};
+constexpr cpu::SignedQword BENCHMARK_INCREMENT_VALUE = cpu::SignedQword{41};
+constexpr cpu::SignedQword BENCHMARK_MEMORY_BASE_VALUE = cpu::SignedQword{128};
+constexpr cpu::SignedQword BENCHMARK_MEMORY_DISPLACEMENT = cpu::SignedQword{32};
 
 [[nodiscard]] cpu::Program make_register_program()
 {

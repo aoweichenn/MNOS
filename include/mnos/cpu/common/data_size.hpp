@@ -15,7 +15,7 @@ enum class DataSize : std::uint8_t
     COUNT
 };
 
-inline constexpr std::size_t DATA_SIZE_KIND_COUNT = static_cast<std::size_t>(DataSize::COUNT);
+inline constexpr std::size_t DATA_SIZE_COUNT = static_cast<std::size_t>(DataSize::COUNT);
 
 // 数据大小的不同表示
 inline constexpr std::size_t DATA_SIZE_BYTE_BITS = 8;

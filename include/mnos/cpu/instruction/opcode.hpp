@@ -19,7 +19,7 @@ enum class Opcode : std::uint8_t
     COUNT
 };
 
-inline constexpr std::size_t OPCODE_INSTRUCTION_KIND_COUNT = static_cast<std::size_t>(Opcode::COUNT);
+inline constexpr std::size_t OPCODE_COUNT = static_cast<std::size_t>(Opcode::COUNT);
 
 [[nodiscard]] bool is_opcode_valid(Opcode opcode) noexcept;
 

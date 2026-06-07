@@ -23,41 +23,41 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr cpu::SQWORD64 TEST_PROGRAM_INITIAL_VALUE = cpu::SQWORD64{1};
-constexpr cpu::SQWORD64 TEST_LINEAR_ADD_VALUE = cpu::SQWORD64{2};
-constexpr cpu::SQWORD64 TEST_LINEAR_SUB_VALUE = cpu::SQWORD64{1};
-constexpr cpu::UQWORD64 TEST_LINEAR_EXPECTED_RAX = cpu::UQWORD64{2};
-constexpr cpu::SQWORD64 TEST_EXECUTOR_EXPECTED_VALUE = cpu::SQWORD64{42};
-constexpr cpu::SQWORD64 TEST_SKIPPED_BRANCH_VALUE = cpu::SQWORD64{13};
-constexpr cpu::SQWORD64 TEST_FALLTHROUGH_BRANCH_VALUE = cpu::SQWORD64{7};
-constexpr cpu::SQWORD64 TEST_SIGNED_QWORD_MAX = std::numeric_limits<cpu::SQWORD64>::max();
-constexpr cpu::SQWORD64 TEST_ADD_CARRY_LEFT_VALUE = cpu::SQWORD64{-1};
-constexpr cpu::SQWORD64 TEST_ADD_CARRY_RIGHT_VALUE = cpu::SQWORD64{1};
-constexpr cpu::SQWORD64 TEST_SUB_BORROW_LEFT_VALUE = cpu::SQWORD64{0};
-constexpr cpu::SQWORD64 TEST_SUB_BORROW_RIGHT_VALUE = cpu::SQWORD64{1};
+constexpr cpu::SignedQword TEST_PROGRAM_INITIAL_VALUE = cpu::SignedQword{1};
+constexpr cpu::SignedQword TEST_LINEAR_ADD_VALUE = cpu::SignedQword{2};
+constexpr cpu::SignedQword TEST_LINEAR_SUB_VALUE = cpu::SignedQword{1};
+constexpr cpu::Qword TEST_LINEAR_EXPECTED_RAX = cpu::Qword{2};
+constexpr cpu::SignedQword TEST_EXECUTOR_EXPECTED_VALUE = cpu::SignedQword{42};
+constexpr cpu::SignedQword TEST_SKIPPED_BRANCH_VALUE = cpu::SignedQword{13};
+constexpr cpu::SignedQword TEST_FALLTHROUGH_BRANCH_VALUE = cpu::SignedQword{7};
+constexpr cpu::SignedQword TEST_SIGNED_QWORD_MAX = std::numeric_limits<cpu::SignedQword>::max();
+constexpr cpu::SignedQword TEST_ADD_CARRY_LEFT_VALUE = cpu::SignedQword{-1};
+constexpr cpu::SignedQword TEST_ADD_CARRY_RIGHT_VALUE = cpu::SignedQword{1};
+constexpr cpu::SignedQword TEST_SUB_BORROW_LEFT_VALUE = cpu::SignedQword{0};
+constexpr cpu::SignedQword TEST_SUB_BORROW_RIGHT_VALUE = cpu::SignedQword{1};
 constexpr std::size_t TEST_PROGRAM_RESERVE_COUNT = 8;
 constexpr std::size_t TEST_LINEAR_PROGRAM_STEP_COUNT = 4;
 constexpr std::size_t TEST_BRANCH_PROGRAM_STEP_COUNT = 5;
-constexpr cpu::SQWORD64 TEST_BRANCH_TARGET = cpu::SQWORD64{4};
-constexpr cpu::SQWORD64 TEST_JUMP_END_TARGET = cpu::SQWORD64{5};
-constexpr cpu::RIP64 TEST_FIRST_RIP = cpu::RIP64{0};
-constexpr cpu::RIP64 TEST_BRANCH_PROGRAM_FINAL_RIP = cpu::RIP64{6};
+constexpr cpu::SignedQword TEST_BRANCH_TARGET = cpu::SignedQword{4};
+constexpr cpu::SignedQword TEST_JUMP_END_TARGET = cpu::SignedQword{5};
+constexpr cpu::InstructionPointer TEST_FIRST_RIP = cpu::InstructionPointer{0};
+constexpr cpu::InstructionPointer TEST_BRANCH_PROGRAM_FINAL_RIP = cpu::InstructionPointer{6};
 
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = 128;
-constexpr cpu::ADDRESS64 TEST_MEMORY_BASE_ADDRESS = cpu::ADDRESS64{16};
-constexpr cpu::ADDRESS64 TEST_MEMORY_SECOND_ADDRESS = cpu::ADDRESS64{24};
-constexpr cpu::ADDRESS64 TEST_MEMORY_EFFECTIVE_ADDRESS = cpu::ADDRESS64{32};
-constexpr cpu::SQWORD64 TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SQWORD64{16};
-constexpr cpu::SQWORD64 TEST_MEMORY_NEGATIVE_BASE = cpu::SQWORD64{32};
-constexpr cpu::SQWORD64 TEST_MEMORY_NEGATIVE_DISPLACEMENT = cpu::SQWORD64{-8};
-constexpr cpu::SQWORD64 TEST_MEMORY_EXECUTOR_VALUE = cpu::SQWORD64{0x123456789ABCDEF0LL};
-constexpr cpu::SQWORD64 TEST_MEMORY_ADD_INITIAL_VALUE = cpu::SQWORD64{10};
-constexpr cpu::SQWORD64 TEST_MEMORY_ADD_INCREMENT = cpu::SQWORD64{32};
-constexpr cpu::SQWORD64 TEST_MEMORY_ADD_EXPECTED_VALUE = cpu::SQWORD64{42};
+constexpr cpu::Address64 TEST_MEMORY_BASE_ADDRESS = cpu::Address64{16};
+constexpr cpu::Address64 TEST_MEMORY_SECOND_ADDRESS = cpu::Address64{24};
+constexpr cpu::Address64 TEST_MEMORY_EFFECTIVE_ADDRESS = cpu::Address64{32};
+constexpr cpu::SignedQword TEST_MEMORY_POSITIVE_DISPLACEMENT = cpu::SignedQword{16};
+constexpr cpu::SignedQword TEST_MEMORY_NEGATIVE_BASE = cpu::SignedQword{32};
+constexpr cpu::SignedQword TEST_MEMORY_NEGATIVE_DISPLACEMENT = cpu::SignedQword{-8};
+constexpr cpu::SignedQword TEST_MEMORY_EXECUTOR_VALUE = cpu::SignedQword{0x123456789ABCDEF0LL};
+constexpr cpu::SignedQword TEST_MEMORY_ADD_INITIAL_VALUE = cpu::SignedQword{10};
+constexpr cpu::SignedQword TEST_MEMORY_ADD_INCREMENT = cpu::SignedQword{32};
+constexpr cpu::SignedQword TEST_MEMORY_ADD_EXPECTED_VALUE = cpu::SignedQword{42};
 constexpr std::size_t TEST_MEMORY_MOV_PROGRAM_STEP_COUNT = 5;
 constexpr std::size_t TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT = 6;
 constexpr std::size_t TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT = 4;
-constexpr cpu::SQWORD64 TEST_MEMORY_BRANCH_TARGET = cpu::SQWORD64{5};
+constexpr cpu::SignedQword TEST_MEMORY_BRANCH_TARGET = cpu::SignedQword{5};
 }
 
 TEST(ExecutorProgramTest, RunsLinearProgramAndRecordsTrace)
@@ -86,7 +86,7 @@ TEST(ExecutorProgramTest, RunsLinearProgramAndRecordsTrace)
     EXPECT_TRUE(trace.at(TEST_LINEAR_PROGRAM_STEP_COUNT - std::size_t{1}).halted_after);
 
     executor.reset();
-    EXPECT_THAT(executor.cycle_count(), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(executor.cycle_count(), Eq(cpu::Qword{0}));
     EXPECT_THAT(executor.step(state, program), Eq(cpu::StepResult::HALTED));
 }
 
@@ -106,7 +106,7 @@ TEST(ExecutorProgramTest, RunsConditionalBranchProgram)
     const std::size_t executed_steps = executor.run(state, program);
 
     EXPECT_THAT(executed_steps, Eq(TEST_BRANCH_PROGRAM_STEP_COUNT));
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
     EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
     EXPECT_THAT(state.rip(), Eq(TEST_BRANCH_PROGRAM_FINAL_RIP));
 }
@@ -125,7 +125,7 @@ TEST(ExecutorProgramTest, LetsJneFallThroughWhenZeroFlagIsSet)
     cpu::Executor executor;
     static_cast<void>(executor.run(state, program));
 
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_FALLTHROUGH_BRANCH_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_FALLTHROUGH_BRANCH_VALUE)));
     EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
 }
 
@@ -144,7 +144,7 @@ TEST(ExecutorProgramTest, RunsUnconditionalJumpProgram)
     cpu::Executor executor;
     static_cast<void>(executor.run(state, program));
 
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
 }
 
 TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
@@ -158,7 +158,7 @@ TEST(ExecutorProgramTest, UpdatesArithmeticFlags)
     cpu::CpuState carry_state;
     cpu::Executor executor;
     static_cast<void>(executor.run(carry_state, carry_program));
-    EXPECT_THAT(carry_state.registers().read(cpu::RegisterId::RAX), Eq(cpu::UQWORD64{0}));
+    EXPECT_THAT(carry_state.registers().read(cpu::RegisterId::RAX), Eq(cpu::Qword{0}));
     EXPECT_TRUE(carry_state.flags().read(cpu::FlagId::CF));
     EXPECT_TRUE(carry_state.flags().read(cpu::FlagId::ZF));
 
@@ -194,7 +194,7 @@ TEST(ExecutorProgramTest, MovesValuesThroughMemory)
 
     cpu::Program program;
     program.reserve(TEST_MEMORY_MOV_PROGRAM_STEP_COUNT);
-    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SignedQword>(TEST_MEMORY_BASE_ADDRESS)));
     program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RAX, TEST_MEMORY_EXECUTOR_VALUE));
     program.push_back(cpu::Instruction::make_mov(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
@@ -209,19 +209,19 @@ TEST(ExecutorProgramTest, MovesValuesThroughMemory)
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
     EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_MOV_PROGRAM_STEP_COUNT));
-    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE)));
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_EXECUTOR_VALUE)));
+    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::Qword>(TEST_MEMORY_EXECUTOR_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RBX), Eq(static_cast<cpu::Qword>(TEST_MEMORY_EXECUTOR_VALUE)));
 }
 
 TEST(ExecutorProgramTest, RunsArithmeticAgainstMemoryOperands)
 {
     cpu::PhysicalMemory memory(TEST_MEMORY_SIZE_BYTES);
     cpu::MemoryBus memory_bus{memory};
-    memory.write_qword(TEST_MEMORY_EFFECTIVE_ADDRESS, static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_INITIAL_VALUE));
+    memory.write_qword(TEST_MEMORY_EFFECTIVE_ADDRESS, static_cast<cpu::Qword>(TEST_MEMORY_ADD_INITIAL_VALUE));
 
     cpu::Program program;
     program.reserve(TEST_PROGRAM_RESERVE_COUNT);
-    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SQWORD64>(TEST_MEMORY_BASE_ADDRESS)));
+    program.push_back(cpu_support::make_mov_imm(cpu::RegisterId::RBP, static_cast<cpu::SignedQword>(TEST_MEMORY_BASE_ADDRESS)));
     program.push_back(cpu::Instruction::make_add(
         cpu_support::make_mem(cpu::RegisterId::RBP, TEST_MEMORY_POSITIVE_DISPLACEMENT, cpu::DataSize::QWORD),
         cpu::Operand::imm(TEST_MEMORY_ADD_INCREMENT)));
@@ -238,9 +238,9 @@ TEST(ExecutorProgramTest, RunsArithmeticAgainstMemoryOperands)
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
     EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_ARITHMETIC_PROGRAM_STEP_COUNT));
-    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::UQWORD64>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
+    EXPECT_THAT(memory.read_qword(TEST_MEMORY_EFFECTIVE_ADDRESS), Eq(static_cast<cpu::Qword>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
     EXPECT_TRUE(state.flags().read(cpu::FlagId::ZF));
-    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::UQWORD64>(TEST_EXECUTOR_EXPECTED_VALUE)));
+    EXPECT_THAT(state.registers().read(cpu::RegisterId::RAX), Eq(static_cast<cpu::Qword>(TEST_EXECUTOR_EXPECTED_VALUE)));
 }
 
 TEST(ExecutorProgramTest, SupportsNegativeMemoryDisplacement)
@@ -262,5 +262,5 @@ TEST(ExecutorProgramTest, SupportsNegativeMemoryDisplacement)
     const std::size_t executed_steps = executor.run(state, program, memory_bus);
 
     EXPECT_THAT(executed_steps, Eq(TEST_MEMORY_NEGATIVE_PROGRAM_STEP_COUNT));
-    EXPECT_THAT(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS), Eq(static_cast<cpu::UDWORD32>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
+    EXPECT_THAT(memory.read_dword(TEST_MEMORY_SECOND_ADDRESS), Eq(static_cast<cpu::Dword>(TEST_MEMORY_ADD_EXPECTED_VALUE)));
 }

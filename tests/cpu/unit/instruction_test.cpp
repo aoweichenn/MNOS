@@ -17,13 +17,13 @@ namespace
 {
 using ::testing::Eq;
 
-constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_KIND_COUNT);
-constexpr auto TEST_INVALID_REGISTER_ID = static_cast<cpu::RegisterId>(cpu::REGISTER_ID_GENERAL_REGISTER_COUNT);
-constexpr auto TEST_INVALID_OPCODE = static_cast<cpu::Opcode>(cpu::OPCODE_INSTRUCTION_KIND_COUNT);
+constexpr auto TEST_INVALID_DATA_SIZE = static_cast<cpu::DataSize>(cpu::DATA_SIZE_COUNT);
+constexpr auto TEST_INVALID_REGISTER_ID = static_cast<cpu::RegisterId>(cpu::REGISTER_ID_COUNT);
+constexpr auto TEST_INVALID_OPCODE = static_cast<cpu::Opcode>(cpu::OPCODE_COUNT);
 constexpr auto TEST_INVALID_OPERAND_KIND = static_cast<cpu::OperandKind>(cpu::OPERAND_KIND_COUNT);
 
-constexpr cpu::SQWORD64 TEST_IMMEDIATE_VALUE = cpu::SQWORD64{-42};
-constexpr cpu::SQWORD64 TEST_MEMORY_DISPLACEMENT = cpu::SQWORD64{16};
+constexpr cpu::SignedQword TEST_IMMEDIATE_VALUE = cpu::SignedQword{-42};
+constexpr cpu::SignedQword TEST_MEMORY_DISPLACEMENT = cpu::SignedQword{16};
 
 struct OpcodeCase
 {
@@ -32,7 +32,7 @@ struct OpcodeCase
     std::string_view assembly_name;
 };
 
-constexpr std::array<OpcodeCase, cpu::OPCODE_INSTRUCTION_KIND_COUNT> OPCODE_CASES{
+constexpr std::array<OpcodeCase, cpu::OPCODE_COUNT> OPCODE_CASES{
     OpcodeCase{cpu::Opcode::MOV, 0, "MOV"},   OpcodeCase{cpu::Opcode::ADD, 1, "ADD"},
     OpcodeCase{cpu::Opcode::SUB, 2, "SUB"},   OpcodeCase{cpu::Opcode::CMP, 3, "CMP"},
     OpcodeCase{cpu::Opcode::JMP, 4, "JMP"},   OpcodeCase{cpu::Opcode::JE, 5, "JE"},

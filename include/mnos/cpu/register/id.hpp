@@ -27,7 +27,7 @@ enum class RegisterId : std::uint8_t
     COUNT
 };
 
-inline constexpr std::size_t REGISTER_ID_GENERAL_REGISTER_COUNT = static_cast<std::size_t>(RegisterId::COUNT);
+inline constexpr std::size_t REGISTER_ID_COUNT = static_cast<std::size_t>(RegisterId::COUNT);
 
 [[nodiscard]] bool is_register_id_valid(RegisterId id) noexcept;
 

@@ -15,7 +15,7 @@ enum class FlagId : std::uint8_t
     COUNT, // flags count
 };
 
-inline constexpr std::size_t FLAG_ID_STATUS_FLAG_COUNT = static_cast<std::size_t>(FlagId::COUNT);
+inline constexpr std::size_t FLAG_ID_COUNT = static_cast<std::size_t>(FlagId::COUNT);
 inline constexpr std::size_t FLAG_ID_CF_BIT_INDEX = 0;
 inline constexpr std::size_t FLAG_ID_ZF_BIT_INDEX = 6;
 inline constexpr std::size_t FLAG_ID_SF_BIT_INDEX = 7;

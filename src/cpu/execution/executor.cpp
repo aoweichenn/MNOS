@@ -16,13 +16,13 @@ constexpr const char* EXECUTOR_TWO_MEMORY_OPERANDS_MESSAGE =
     "executor binary instruction cannot use two memory operands";
 constexpr const char* EXECUTOR_JUMP_TARGET_OUT_OF_RANGE_MESSAGE = "executor jump target is out of program range";
 constexpr const char* EXECUTOR_INVALID_OPCODE_MESSAGE = "executor received invalid opcode sentinel";
-constexpr mnos::cpu::UQWORD64 EXECUTOR_ONE_BIT = mnos::cpu::UQWORD64{1};
-constexpr mnos::cpu::UQWORD64 EXECUTOR_QWORD_SIGN_MASK =
+constexpr mnos::cpu::Qword EXECUTOR_ONE_BIT = mnos::cpu::Qword{1};
+constexpr mnos::cpu::Qword EXECUTOR_QWORD_SIGN_MASK =
     EXECUTOR_ONE_BIT << (mnos::cpu::DATA_SIZE_QWORD_BITS - std::size_t{1});
 
-[[nodiscard]] bool has_qword_sign_bit(const mnos::cpu::UQWORD64 value) noexcept
+[[nodiscard]] bool has_qword_sign_bit(const mnos::cpu::Qword value) noexcept
 {
-    return (value & EXECUTOR_QWORD_SIGN_MASK) != mnos::cpu::UQWORD64{0};
+    return (value & EXECUTOR_QWORD_SIGN_MASK) != mnos::cpu::Qword{0};
 }
 
 class ArithmeticFlagUpdater
@@ -30,9 +30,9 @@ class ArithmeticFlagUpdater
 public:
     static void update_add(
         mnos::cpu::Rflags& flags,
-        const mnos::cpu::UQWORD64 left,
-        const mnos::cpu::UQWORD64 right,
-        const mnos::cpu::UQWORD64 result) noexcept
+        const mnos::cpu::Qword left,
+        const mnos::cpu::Qword right,
+        const mnos::cpu::Qword result) noexcept
     {
         flags.update_zero_sign_from_qword(result);
         flags.write(mnos::cpu::FlagId::CF, result < left);
@@ -44,9 +44,9 @@ public:
 
     static void update_sub(
         mnos::cpu::Rflags& flags,
-        const mnos::cpu::UQWORD64 left,
-        const mnos::cpu::UQWORD64 right,
-        const mnos::cpu::UQWORD64 result) noexcept
+        const mnos::cpu::Qword left,
+        const mnos::cpu::Qword right,
+        const mnos::cpu::Qword result) noexcept
     {
         flags.update_zero_sign_from_qword(result);
         flags.write(mnos::cpu::FlagId::CF, left < right);
@@ -60,14 +60,14 @@ public:
 
 namespace mnos::cpu
 {
-UQWORD64 Executor::cycle_count() const noexcept
+CycleCount Executor::cycle_count() const noexcept
 {
     return this->cycle_count_;
 }
 
 void Executor::reset() noexcept
 {
-    this->cycle_count_ = UQWORD64{0};
+    this->cycle_count_ = CycleCount{0};
 }
 
 StepResult Executor::step(CpuState& state, const Program& program, ExecutionTrace* const trace)
@@ -114,7 +114,7 @@ StepResult Executor::step_with_memory(
         return StepResult::HALTED;
     }
 
-    const RIP64 rip_before = state.rip();
+    const InstructionPointer rip_before = state.rip();
     const Instruction& instruction = program.instruction_at(rip_before);
     this->execute_instruction(state, program, memory_bus, instruction);
     ++this->cycle_count_;
@@ -209,9 +209,9 @@ void Executor::execute_mov(CpuState& state, MemoryBus* const memory_bus, const I
 void Executor::execute_add(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
     this->require_at_most_one_memory_operand(instruction);
-    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
-    const UQWORD64 result = left + right;
+    const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword right = this->read_operand(state, memory_bus, instruction.second_operand());
+    const Qword result = left + right;
     this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_add(state.flags(), left, right, result);
     state.advance_rip();
@@ -220,9 +220,9 @@ void Executor::execute_add(CpuState& state, MemoryBus* const memory_bus, const I
 void Executor::execute_sub(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
     this->require_at_most_one_memory_operand(instruction);
-    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
-    const UQWORD64 result = left - right;
+    const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword right = this->read_operand(state, memory_bus, instruction.second_operand());
+    const Qword result = left - right;
     this->write_operand(state, memory_bus, instruction.first_operand(), result);
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
     state.advance_rip();
@@ -231,9 +231,9 @@ void Executor::execute_sub(CpuState& state, MemoryBus* const memory_bus, const I
 void Executor::execute_cmp(CpuState& state, MemoryBus* const memory_bus, const Instruction& instruction)
 {
     this->require_at_most_one_memory_operand(instruction);
-    const UQWORD64 left = this->read_operand(state, memory_bus, instruction.first_operand());
-    const UQWORD64 right = this->read_operand(state, memory_bus, instruction.second_operand());
-    const UQWORD64 result = left - right;
+    const Qword left = this->read_operand(state, memory_bus, instruction.first_operand());
+    const Qword right = this->read_operand(state, memory_bus, instruction.second_operand());
+    const Qword result = left - right;
     ArithmeticFlagUpdater::update_sub(state.flags(), left, right, result);
     state.advance_rip();
 }
@@ -281,7 +281,7 @@ void Executor::execute_hlt(CpuState& state) const noexcept
     state.halt();
 }
 
-UQWORD64 Executor::read_operand(const CpuState& state, MemoryBus* const memory_bus, const Operand& operand) const
+Qword Executor::read_operand(const CpuState& state, MemoryBus* const memory_bus, const Operand& operand) const
 {
     if (operand.is_register())
     {
@@ -290,7 +290,7 @@ UQWORD64 Executor::read_operand(const CpuState& state, MemoryBus* const memory_b
 
     if (operand.is_immediate())
     {
-        return static_cast<UQWORD64>(operand.immediate_value());
+        return static_cast<Qword>(operand.immediate_value());
     }
 
     if (operand.is_memory())
@@ -305,7 +305,7 @@ void Executor::write_operand(
     CpuState& state,
     MemoryBus* const memory_bus,
     const Operand& operand,
-    const UQWORD64 value) const
+    const Qword value) const
 {
     if (operand.is_register())
     {
@@ -322,7 +322,7 @@ void Executor::write_operand(
     throw std::logic_error{EXECUTOR_REGISTER_DESTINATION_REQUIRED_MESSAGE};
 }
 
-UQWORD64 Executor::read_memory_operand(
+Qword Executor::read_memory_operand(
     const CpuState& state,
     MemoryBus* const memory_bus,
     const Operand& operand) const
@@ -336,7 +336,7 @@ void Executor::write_memory_operand(
     const CpuState& state,
     MemoryBus* const memory_bus,
     const Operand& operand,
-    const UQWORD64 value) const
+    const Qword value) const
 {
     this->require_memory_bus(memory_bus).write(
         this->calculate_effective_address(state, operand),
@@ -354,10 +354,10 @@ MemoryBus& Executor::require_memory_bus(MemoryBus* const memory_bus) const
     return *memory_bus;
 }
 
-ADDRESS64 Executor::calculate_effective_address(const CpuState& state, const Operand& operand) const
+Address64 Executor::calculate_effective_address(const CpuState& state, const Operand& operand) const
 {
-    const UQWORD64 base_address = state.registers().read(operand.memory_base_register());
-    const UQWORD64 displacement = static_cast<UQWORD64>(operand.memory_displacement());
+    const Qword base_address = state.registers().read(operand.memory_base_register());
+    const Qword displacement = static_cast<Qword>(operand.memory_displacement());
 
     // x86-64 effective address addition wraps in the address width before memory range checks.
     return base_address + displacement;
@@ -371,7 +371,7 @@ void Executor::require_at_most_one_memory_operand(const Instruction& instruction
     }
 }
 
-void Executor::jump_to(CpuState& state, const Program& program, const UQWORD64 target) const
+void Executor::jump_to(CpuState& state, const Program& program, const InstructionPointer target) const
 {
     if (!program.contains_rip(target))
     {
