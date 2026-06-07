@@ -1,7 +1,9 @@
 #include <limits>
 #include <stdexcept>
 
+#include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/memory/page_table_builder.hpp>
+#include <mnos/cpu/memory/page_table_walker.hpp>
 #include <mnos/os/mm/address_space.hpp>
 
 namespace
@@ -22,6 +24,8 @@ constexpr const char* ADDRESS_SPACE_VIRTUAL_RANGE_OVERFLOW_MESSAGE =
     "address space virtual mapping range overflows address value";
 constexpr const char* ADDRESS_SPACE_PHYSICAL_RANGE_OVERFLOW_MESSAGE =
     "address space physical mapping range overflows address value";
+constexpr const char* ADDRESS_SPACE_LARGE_PAGE_PERMISSION_MESSAGE =
+    "address space can only update permissions for a 4KiB page";
 
 [[nodiscard]] std::size_t page_size_as_size_t() noexcept
 {
@@ -168,6 +172,50 @@ void AddressSpace::activate(cpu::CpuState& cpu_state) const
 {
     cpu_state.paging().load_cr3(to_cpu_address(this->root_table_address_));
     cpu_state.paging().enable();
+}
+
+void AddressSpace::activate(
+    cpu::CpuState& cpu_state,
+    const cpu::memory::ProcessContextId context_id,
+    const cpu::memory::Cr3TlbFlushMode flush_mode) const
+{
+    if (context_id != cpu::memory::ProcessContextId::kernel())
+    {
+        cpu_state.paging().set_process_context_id_enabled(true);
+    }
+    cpu_state.paging().load_cr3(to_cpu_address(this->root_table_address_), context_id, flush_mode);
+    cpu_state.paging().enable();
+}
+
+cpu::memory::PageTranslation AddressSpace::page_translation(
+    const VirtualAddress virtual_address,
+    const cpu::memory::MemoryAccessKind access_kind,
+    const cpu::system::PrivilegeLevel privilege_level)
+{
+    cpu::memory::PagingState paging_state;
+    paging_state.load_cr3(to_cpu_address(this->root_table_address_));
+    paging_state.enable();
+    cpu::memory::PageTableWalker walker;
+    return walker.translate(*this->memory_bus_, paging_state, to_cpu_address(virtual_address), access_kind, privilege_level);
+}
+
+void AddressSpace::set_page_permissions(
+    const VirtualAddress virtual_address,
+    const cpu::memory::PagePermissions permissions)
+{
+    this->require_page_aligned(virtual_address);
+    const cpu::memory::PageTranslation translation = this->page_translation(virtual_address);
+    if (translation.page_size_bytes() != cpu::memory::PAGE_SIZE_4K_BYTES)
+    {
+        throw std::logic_error{ADDRESS_SPACE_LARGE_PAGE_PERMISSION_MESSAGE};
+    }
+
+    const cpu::memory::PageTableEntry entry{
+        this->memory_bus_->read(translation.leaf_entry_address(), cpu::DataSize::QWORD)};
+    this->memory_bus_->write(
+        translation.leaf_entry_address(),
+        cpu::DataSize::QWORD,
+        entry.with_permissions(permissions).raw_bits());
 }
 
 void AddressSpace::require_page_aligned(const VirtualAddress address) const

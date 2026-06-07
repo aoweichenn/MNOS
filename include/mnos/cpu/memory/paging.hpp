@@ -192,6 +192,7 @@ public:
 
     [[nodiscard]] PageTableEntry with_accessed() const noexcept;
     [[nodiscard]] PageTableEntry with_dirty() const noexcept;
+    [[nodiscard]] PageTableEntry with_permissions(PagePermissions permissions) const noexcept;
 
 private:
     [[nodiscard]] static PageTableEntry present_entry(Address64 address, Address64 alignment, PagePermissions permissions);

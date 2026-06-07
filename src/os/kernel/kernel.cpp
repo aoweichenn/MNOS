@@ -13,6 +13,7 @@ constexpr const char* KERNEL_NOT_BOOTED_MESSAGE = "kernel has not booted";
 constexpr const char* KERNEL_STAGE5_NOT_READY_MESSAGE = "kernel stage5 services are not initialized";
 constexpr const char* KERNEL_STAGE7_NOT_READY_MESSAGE = "kernel stage7 services are not initialized";
 constexpr const char* KERNEL_STAGE9_NOT_READY_MESSAGE = "kernel stage9 services are not initialized";
+constexpr const char* KERNEL_STAGE10_NOT_READY_MESSAGE = "kernel stage10 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
@@ -125,6 +126,11 @@ bool Kernel::has_stage9_services() const noexcept
     return this->has_stage7_services() && this->smp_scheduler_.has_value();
 }
 
+bool Kernel::has_stage10_services() const noexcept
+{
+    return this->has_stage9_services();
+}
+
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
 {
     this->require_stage5_services();
@@ -203,6 +209,26 @@ const cpu::memory::TlbShootdownController& Kernel::tlb_shootdown_controller() co
     return this->tlb_shootdown_controller_;
 }
 
+proc::CopyOnWriteManager& Kernel::copy_on_write_manager() noexcept
+{
+    return this->copy_on_write_manager_;
+}
+
+const proc::CopyOnWriteManager& Kernel::copy_on_write_manager() const noexcept
+{
+    return this->copy_on_write_manager_;
+}
+
+proc::FutexTable& Kernel::futex_table() noexcept
+{
+    return this->futex_table_;
+}
+
+const proc::FutexTable& Kernel::futex_table() const noexcept
+{
+    return this->futex_table_;
+}
+
 proc::Process& Kernel::create_process()
 {
     this->require_stage5_services();
@@ -257,6 +283,50 @@ sched::ThreadContext& Kernel::create_thread_on_core(
     sched::ThreadContext& thread = process.create_thread(thread_id, kernel_stack_bottom, kernel_stack_size_bytes);
     this->smp_scheduler_.value().enqueue(thread, target_core);
     return thread;
+}
+
+proc::UserProcessImage Kernel::load_user_program(
+    proc::Process& process,
+    const proc::UserProgram& program)
+{
+    this->require_stage10_services();
+    proc::UserLoader loader{this->physical_page_allocator_.value(), this->boot_context_->memory_bus()};
+    return loader.load(program, process);
+}
+
+sched::ThreadContext& Kernel::create_user_thread(
+    proc::Process& process,
+    const proc::UserProcessImage& image)
+{
+    this->require_stage10_services();
+    const sched::ThreadId thread_id{this->next_thread_id_value_};
+    ++this->next_thread_id_value_;
+    sched::ThreadContext& thread = process.create_thread(
+        thread_id,
+        this->next_kernel_stack_bottom(),
+        sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
+    proc::UserLoader loader{this->physical_page_allocator_.value(), this->boot_context_->memory_bus()};
+    loader.initialize_user_thread(image, process, thread);
+    this->scheduler_.enqueue(thread);
+    return thread;
+}
+
+proc::Process& Kernel::create_user_process(const proc::UserProgram& program)
+{
+    proc::Process& process = this->create_process();
+    const proc::UserProcessImage image = this->load_user_program(process, program);
+    static_cast<void>(this->create_user_thread(process, image));
+    return process;
+}
+
+proc::Process& Kernel::fork_process_cow(
+    proc::Process& parent_process,
+    std::span<const mm::VirtualAddress> cow_pages)
+{
+    this->require_stage10_services();
+    proc::Process& child_process = this->create_process();
+    static_cast<void>(this->copy_on_write_manager_.share_pages(parent_process, child_process, cow_pages));
+    return child_process;
 }
 
 std::size_t Kernel::process_count() const noexcept
@@ -543,6 +613,59 @@ bool Kernel::apply_next_tlb_shootdown_for_core(
     return true;
 }
 
+proc::CowFaultResult Kernel::handle_cow_write_fault(
+    proc::Process& process,
+    sched::ThreadContext& thread)
+{
+    this->require_stage10_services();
+    return this->copy_on_write_manager_.resolve_write_fault(
+        this->physical_page_allocator_.value(),
+        this->boot_context_->memory_bus(),
+        process,
+        thread.cpu_state());
+}
+
+sched::ThreadContext* Kernel::wait_on_futex(
+    proc::Process& process,
+    const mm::VirtualAddress address,
+    sched::ThreadContext& thread)
+{
+    this->require_stage10_services();
+    this->futex_table_.wait(proc::FutexKey{process.id(), address}, thread);
+    if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
+    {
+        return this->scheduler_.block_current();
+    }
+    return nullptr;
+}
+
+sched::ThreadContext* Kernel::wake_one_futex(
+    proc::Process& process,
+    const mm::VirtualAddress address)
+{
+    this->require_stage10_services();
+    sched::ThreadContext* const thread = this->futex_table_.wake_one(proc::FutexKey{process.id(), address});
+    if (thread != nullptr)
+    {
+        this->scheduler_.wake(*thread);
+    }
+    return thread;
+}
+
+std::vector<sched::ThreadContext*> Kernel::wake_all_futex(
+    proc::Process& process,
+    const mm::VirtualAddress address)
+{
+    this->require_stage10_services();
+    std::vector<sched::ThreadContext*> threads =
+        this->futex_table_.wake_all(proc::FutexKey{process.id(), address});
+    for (sched::ThreadContext* const thread : threads)
+    {
+        this->scheduler_.wake(*thread);
+    }
+    return threads;
+}
+
 std::size_t Kernel::scheduler_handoff_count() const noexcept
 {
     return this->scheduler_handoffs_.size();
@@ -618,6 +741,15 @@ void Kernel::require_stage9_services() const
     if (!this->has_stage9_services())
     {
         throw std::logic_error{KERNEL_STAGE9_NOT_READY_MESSAGE};
+    }
+}
+
+void Kernel::require_stage10_services() const
+{
+    this->require_booted();
+    if (!this->has_stage10_services())
+    {
+        throw std::logic_error{KERNEL_STAGE10_NOT_READY_MESSAGE};
     }
 }
 

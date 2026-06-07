@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <span>
+#include <vector>
 
 #include <mnos/cpu/memory/mmu.hpp>
 #include <mnos/cpu/memory/tlb_shootdown.hpp>
@@ -13,7 +15,10 @@
 #include <mnos/os/mm/address_space.hpp>
 #include <mnos/os/mm/page_fault_handler.hpp>
 #include <mnos/os/mm/physical_page_allocator.hpp>
+#include <mnos/os/proc/copy_on_write.hpp>
+#include <mnos/os/proc/futex.hpp>
 #include <mnos/os/proc/process.hpp>
+#include <mnos/os/proc/user_loader.hpp>
 #include <mnos/os/sched/round_robin_scheduler.hpp>
 #include <mnos/os/sched/sleep_queue.hpp>
 #include <mnos/os/sched/smp_scheduler.hpp>
@@ -22,7 +27,7 @@ namespace mnos::os::kernel
 {
 inline constexpr std::uint64_t KERNEL_RESERVED_LOW_PAGE_COUNT = std::uint64_t{1};
 inline constexpr std::uint64_t KERNEL_MIN_BOOTABLE_PAGE_COUNT = KERNEL_RESERVED_LOW_PAGE_COUNT + std::uint64_t{1};
-inline constexpr std::uint64_t KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT = std::uint64_t{8};
+inline constexpr std::uint64_t KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT = std::uint64_t{16};
 inline constexpr mm::AddressValue KERNEL_DEFAULT_THREAD_STACK_BASE = mm::AddressValue{0x7000'0000};
 inline constexpr mm::AddressValue KERNEL_THREAD_STACK_STRIDE = mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{16};
 inline constexpr sched::SchedulerTick KERNEL_STAGE7_DEFAULT_TIMER_INTERVAL_TICKS = sched::SchedulerTick{1};
@@ -65,6 +70,7 @@ public:
     [[nodiscard]] bool has_stage5_services() const noexcept;
     [[nodiscard]] bool has_stage7_services() const noexcept;
     [[nodiscard]] bool has_stage9_services() const noexcept;
+    [[nodiscard]] bool has_stage10_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -80,6 +86,10 @@ public:
     [[nodiscard]] const sched::SleepQueue& sleep_queue() const noexcept;
     [[nodiscard]] cpu::memory::TlbShootdownController& tlb_shootdown_controller() noexcept;
     [[nodiscard]] const cpu::memory::TlbShootdownController& tlb_shootdown_controller() const noexcept;
+    [[nodiscard]] proc::CopyOnWriteManager& copy_on_write_manager() noexcept;
+    [[nodiscard]] const proc::CopyOnWriteManager& copy_on_write_manager() const noexcept;
+    [[nodiscard]] proc::FutexTable& futex_table() noexcept;
+    [[nodiscard]] const proc::FutexTable& futex_table() const noexcept;
 
     [[nodiscard]] proc::Process& create_process();
     [[nodiscard]] sched::ThreadContext& create_thread(proc::Process& process);
@@ -95,6 +105,14 @@ public:
         cpu::system::CoreId target_core,
         mm::VirtualAddress kernel_stack_bottom,
         std::uint64_t kernel_stack_size_bytes = sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
+    [[nodiscard]] proc::UserProcessImage load_user_program(proc::Process& process, const proc::UserProgram& program);
+    [[nodiscard]] sched::ThreadContext& create_user_thread(
+        proc::Process& process,
+        const proc::UserProcessImage& image);
+    [[nodiscard]] proc::Process& create_user_process(const proc::UserProgram& program);
+    [[nodiscard]] proc::Process& fork_process_cow(
+        proc::Process& parent_process,
+        std::span<const mm::VirtualAddress> cow_pages);
     [[nodiscard]] std::size_t process_count() const noexcept;
     [[nodiscard]] proc::Process& process_at(std::size_t index);
     [[nodiscard]] const proc::Process& process_at(std::size_t index) const;
@@ -134,6 +152,17 @@ public:
     [[nodiscard]] bool apply_next_tlb_shootdown_for_core(
         cpu::system::CoreId core_id,
         cpu::memory::MemoryManagementUnit& mmu);
+    [[nodiscard]] proc::CowFaultResult handle_cow_write_fault(
+        proc::Process& process,
+        sched::ThreadContext& thread);
+    [[nodiscard]] sched::ThreadContext* wait_on_futex(
+        proc::Process& process,
+        mm::VirtualAddress address,
+        sched::ThreadContext& thread);
+    [[nodiscard]] sched::ThreadContext* wake_one_futex(proc::Process& process, mm::VirtualAddress address);
+    [[nodiscard]] std::vector<sched::ThreadContext*> wake_all_futex(
+        proc::Process& process,
+        mm::VirtualAddress address);
     [[nodiscard]] std::size_t scheduler_handoff_count() const noexcept;
     [[nodiscard]] const SchedulerHandoff& scheduler_handoff_at(std::size_t index) const;
 
@@ -144,6 +173,7 @@ private:
     void require_stage5_services() const;
     void require_stage7_services() const;
     void require_stage9_services() const;
+    void require_stage10_services() const;
     void configure_stage7_services();
     void configure_stage9_services();
     void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;
@@ -162,6 +192,8 @@ private:
     sched::RoundRobinScheduler scheduler_;
     sched::SleepQueue sleep_queue_;
     cpu::memory::TlbShootdownController tlb_shootdown_controller_;
+    proc::CopyOnWriteManager copy_on_write_manager_;
+    proc::FutexTable futex_table_;
     std::deque<proc::Process> processes_;
     std::deque<SchedulerHandoff> scheduler_handoffs_;
     proc::ProcessId::value_type next_process_id_value_ = proc::PROCESS_ID_FIRST_USER_VALUE;

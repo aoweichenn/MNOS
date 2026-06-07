@@ -427,6 +427,29 @@ PageTableEntry PageTableEntry::with_dirty() const noexcept
     return PageTableEntry{this->raw_bits_ | PAGE_TABLE_ENTRY_ACCESSED_BIT | PAGE_TABLE_ENTRY_DIRTY_BIT};
 }
 
+PageTableEntry PageTableEntry::with_permissions(const PagePermissions permissions) const noexcept
+{
+    Qword permission_bits = Qword{0};
+    if (permissions.writable())
+    {
+        permission_bits |= PAGE_TABLE_ENTRY_WRITABLE_BIT;
+    }
+    if (permissions.user_accessible())
+    {
+        permission_bits |= PAGE_TABLE_ENTRY_USER_BIT;
+    }
+    if (!permissions.executable())
+    {
+        permission_bits |= PAGE_TABLE_ENTRY_NO_EXECUTE_BIT;
+    }
+
+    return PageTableEntry{
+        (this->raw_bits_ & ~(PAGE_TABLE_ENTRY_WRITABLE_BIT |
+                             PAGE_TABLE_ENTRY_USER_BIT |
+                             PAGE_TABLE_ENTRY_NO_EXECUTE_BIT)) |
+        permission_bits};
+}
+
 PageTableEntry PageTableEntry::present_entry(
     const Address64 address,
     const Address64 alignment,

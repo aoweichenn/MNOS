@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 9 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环。
+当前已经完成 x86-64 Stage 10 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -34,9 +34,9 @@ include/mnos/
   os/
     platform/           Machine facade，持有内存和 core topology
     kernel/             BootContext、Kernel、syscall ABI
-    mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、PhysicalPageAllocator、AddressSpace、PageFaultHandler
-    proc/               ProcessId、Process
-    sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue
+    mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、AddressLayout、PhysicalPageAllocator、AddressSpace、PageFaultHandler
+    proc/               ProcessId、Process、UserProgram/UserLoader、CopyOnWriteManager、FutexTable
+    sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue、Event
 ```
 
 依赖方向必须保持：
@@ -147,6 +147,18 @@ ready migration        只迁移 queued READY thread，不伪造 running thread 
 rebalance_once         从 ready 队列最重的 core 向最轻 core 迁移一个 runnable thread
 Kernel Stage9 facade   create_thread_on_core、handle_smp_timer_interrupt、request_smp_migration
 TLB shootdown apply    Kernel 可让目标 core take/apply/ack pending shootdown request
+```
+
+Stage 10 当前语义：
+
+```text
+AddressLayout          user low/text/heap/stack top 和 canonical kernel high 边界
+UserProgram/UserLoader text/data/bss segment 权限、entry 校验、用户栈映射、ring3 RIP/RSP/PCID 初始化
+AddressSpace           支持 PCID CR3 activate、page translation 查询、4KiB PTE 权限更新
+CopyOnWriteManager     writable page fork 后降为 read-only，嵌套 fork 增加 frame ref，写 fault 时复制或最后引用恢复
+FutexTable             process-scoped user futex word key，等待线程仍由 Process/ThreadContext 拥有
+Event                  manual-reset event 风格等待对象，signal 后返回待调度线程
+Kernel Stage10 facade  create_user_process、fork_process_cow、handle_cow_write_fault、wait/wake futex
 ```
 
 Stage 3 当前语义：

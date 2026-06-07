@@ -1,11 +1,11 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
 BootContext   kernel 启动资源视图
-Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown + Stage9 SMP 编排
+Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown + Stage9 SMP + Stage10 user/COW/futex 编排
 Address/Page  物理/虚拟地址和 page 工具
 ThreadContext CPU 状态 + kernel stack + 线程状态
 ```
@@ -153,16 +153,27 @@ TLB local apply       目标 core take/apply/ack pending shootdown request
 Benchmark             SMP scheduler cycle 与 Kernel SMP timer 已进入 benchmark smoke
 ```
 
+Stage 10 已经完成第一版用户进程与等待语义：
+
+```text
+AddressLayout       明确 user low/text/heap/stack/kernel high 的地址边界和 user stack bottom 计算
+UserProgram/Segment 描述教学级用户镜像，区分 text/data/bss 权限和 entry 可执行性
+UserLoader          分配并清零物理页，复制 segment bytes，映射用户栈，初始化 ring3 RIP/RSP/PCID
+AddressSpace        支持按 PCID 激活、查询 page translation、更新 4KiB PTE 权限
+COW fork            可共享 writable page 为只读 COW，支持嵌套 fork、写时复制、最后引用恢复权限
+Futex/Event         进程作用域 futex word key、非拥有等待队列、signal/wake 后交给 scheduler 恢复 READY
+Kernel facade       create_user_process、fork_process_cow、handle_cow_write_fault、wait/wake futex
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. 用户态 loader、内核/用户地址布局、COW fork
-2. signal/event/futex 风格等待语义
-3. fs/block device/network
-4. cache coherence / branch predictor / uop cache / SIMD
-5. HPC/SIMD/AI 路线
+1. fs/block device/VFS
+2. network device + packet ring + high-performance network path
+3. cache coherence / branch predictor / uop cache / SIMD
+4. HPC/SIMD/AI 推理训练路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

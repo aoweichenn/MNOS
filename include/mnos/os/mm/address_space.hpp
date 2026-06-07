@@ -45,6 +45,15 @@ public:
         AddressValue byte_count,
         cpu::memory::PagePermissions permissions);
     void activate(cpu::CpuState& cpu_state) const;
+    void activate(
+        cpu::CpuState& cpu_state,
+        cpu::memory::ProcessContextId context_id,
+        cpu::memory::Cr3TlbFlushMode flush_mode) const;
+    [[nodiscard]] cpu::memory::PageTranslation page_translation(
+        VirtualAddress virtual_address,
+        cpu::memory::MemoryAccessKind access_kind = cpu::memory::MemoryAccessKind::READ,
+        cpu::system::PrivilegeLevel privilege_level = cpu::system::PrivilegeLevel::RING0);
+    void set_page_permissions(VirtualAddress virtual_address, cpu::memory::PagePermissions permissions);
 
 private:
     void require_page_aligned(VirtualAddress address) const;
