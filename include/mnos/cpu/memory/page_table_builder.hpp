@@ -10,6 +10,11 @@ class PageTableBuilder final
 {
 public:
     PageTableBuilder(MemoryBus& memory_bus, Address64 root_table_address, Address64 next_free_table_address);
+    PageTableBuilder(
+        MemoryBus& memory_bus,
+        Address64 root_table_address,
+        Address64 next_free_table_address,
+        Address64 table_arena_end_address);
 
     void clear_root_table();
     void map_4k(Address64 linear_address, Address64 physical_address, PagePermissions permissions);
@@ -34,5 +39,6 @@ private:
     MemoryBus* memory_bus_;
     Address64 root_table_address_;
     Address64 next_free_table_address_;
+    Address64 table_arena_end_address_;
 };
 }

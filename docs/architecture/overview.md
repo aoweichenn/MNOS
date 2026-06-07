@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 4 CPU/OS 内存管理底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入。
+当前已经完成 x86-64 Stage 5 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -32,9 +32,10 @@ include/mnos/
     execution/          CpuState、Program、ExecutionTrace、Executor
   os/
     platform/           Machine facade
-    kernel/             BootContext、Kernel boot skeleton
-    mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具
-    sched/              ThreadId、ThreadState、ThreadContext
+    kernel/             BootContext、Kernel、syscall ABI
+    mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、PhysicalPageAllocator、AddressSpace、PageFaultHandler
+    proc/               ProcessId、Process
+    sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler
 ```
 
 依赖方向必须保持：
@@ -172,9 +173,9 @@ Executor::step
 
 没有 per-instruction 虚函数分发，也没有每条指令堆分配。`Operand` 使用 `std::variant` 是为了清晰表达寄存器、立即数和内存操作数的合法形状；执行热路径仍是直接 switch。
 
-## 当前 OS Stage 0
+## 当前 OS Stage 0/5
 
-OS 目前建立硬件和 kernel 的最小边界：
+OS 先建立硬件和 kernel 的最小边界：
 
 ```text
 Machine       = PhysicalMemory + MemoryBus
@@ -184,7 +185,17 @@ Address/Page  = 物理/虚拟地址和 4KiB page 工具
 ThreadContext = CpuState + kernel stack + ThreadState
 ```
 
-`ThreadContext` 会把 `RSP` 初始化到 kernel stack top，并能保存 CPU pending trapframe 的快照。Stage 4 已经让 page fault 进入 `TrapController`，后续 context switch、syscall ABI、page fault handler 和 scheduler 都会建立在这个 CPU 上下文保存模型上。
+`ThreadContext` 会把 `RSP` 初始化到 kernel stack top，并能保存 CPU pending trapframe 的快照。Stage 4 已经让 page fault 进入 `TrapController`，Stage 5 在此基础上补齐了 OS 侧内存和调度底座：
+
+```text
+PhysicalPageAllocator  bitmap 风格物理页分配，支持单页/连续页、保留页和错误路径
+AddressSpace           拥有 page-table root/table arena 状态，通过 PageTableBuilder 建立映射并激活 CR3
+PageFaultHandler       处理 not-present #PF，分配并清零物理页，建立 demand mapping，失败时回滚
+Process                拥有一个 AddressSpace 和稳定地址的 ThreadContext deque
+RoundRobinScheduler    非拥有调度队列，READY/RUNNING/BLOCKED/DEAD 状态转换
+Syscall ABI            RAX 传 syscall number，支持 YIELD/EXIT 和 unsupported result
+Kernel                 boot 后编排 allocator/address space/process/thread/scheduler/page fault/syscall
+```
 
 ## 工程原则
 
@@ -208,7 +219,7 @@ RIP-relative addressing
 DecodeError 非法编码入口
 ```
 
-后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。下一步应沿进程地址空间、page fault handler、物理页分配器和 scheduler 行为推进，每个新增硬件行为都要有 unit/integration/benchmark/docs 支撑。
+后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 5 已经把进程地址空间、page fault handler、物理页分配器和 scheduler 行为接入 Kernel；下一步应沿原子操作、多核、APIC/timer 和 TLB shootdown 推进，每个新增硬件行为都要有 unit/integration/benchmark/docs 支撑。
 
 ### Stage 2: 更完整的整数 ISA 已完成当前教学范围
 
@@ -247,21 +258,22 @@ TrapController #PF integration
 PageTableBuilder for future OS address spaces
 ```
 
-Stage 4 仍刻意不做全部内存系统：5-level paging、PCID、INVLPG 指令编码、TLB shootdown、多核一致性、物理页分配器、demand paging 和 COW 放到 Stage 5/6 与进程/多核一起推进。
+Stage 4 仍刻意不做全部内存系统：5-level paging、PCID、INVLPG 指令编码、TLB shootdown、多核一致性、物理页分配器、demand paging 和 COW 放到 Stage 5/6 与进程/多核一起推进。其中物理页分配器、进程地址空间、基础 demand paging 已在 Stage 5 完成，COW、PCID、INVLPG 和 shootdown 继续留到多核阶段。
 
-### Stage 5: 线程、进程、scheduler
+### Stage 5: 线程、进程、scheduler 已完成当前底座
 
 ```text
-trapframe
-context switch
-run queue
-process + address space
-syscall ABI
-sleep/wait/exit/yield
-page fault handler
 physical page allocator
-kernel/user virtual layout
+process + address space
+page fault handler
+run queue
+round-robin scheduler
+syscall ABI: yield/exit/unsupported
+kernel process/thread creation facade
+unit/integration/chaos/fuzz/benchmark/docs
 ```
+
+Stage 5 仍不假装已经完成完整现代内核：真实 timer tick、抢占式 context switch、用户态 ELF loader、COW fork、wait/sleep 队列、信号、APIC/IOAPIC、PCID/INVLPG/TLB shootdown、多核同步都留给 Stage 6+。
 
 ### Stage 6: 原子操作、多核、内存模型
 

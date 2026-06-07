@@ -94,4 +94,9 @@ using VirtualAddress = BasicAddress<VirtualAddressTag>;
 {
     return static_cast<cpu::Address64>(address.value());
 }
+
+[[nodiscard]] constexpr cpu::Address64 to_cpu_address(const VirtualAddress address) noexcept
+{
+    return static_cast<cpu::Address64>(address.value());
+}
 }

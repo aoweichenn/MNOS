@@ -136,8 +136,14 @@ set(
     MNOS_OS_SOURCES
         src/os/kernel/boot_context.cpp
         src/os/kernel/kernel.cpp
+        src/os/kernel/syscall.cpp
+        src/os/mm/address_space.cpp
         src/os/mm/page.cpp
+        src/os/mm/page_fault_handler.cpp
+        src/os/mm/physical_page_allocator.cpp
         src/os/platform/machine.cpp
+        src/os/proc/process.cpp
+        src/os/sched/round_robin_scheduler.cpp
         src/os/sched/thread_state.cpp
         src/os/sched/thread_context.cpp
 )
@@ -243,11 +249,18 @@ mnos_add_cpu_test(mnos_cpu_executor_chaos_tests tests/cpu/chaos/executor_chaos_t
 mnos_add_cpu_test(mnos_cpu_memory_executor_fuzz_tests tests/cpu/fuzz/memory_executor_fuzz_test.cpp)
 
 mnos_add_os_test(mnos_os_address_page_unit_tests tests/os/unit/address_page_test.cpp)
+mnos_add_os_test(mnos_os_physical_page_allocator_unit_tests tests/os/unit/physical_page_allocator_test.cpp)
+mnos_add_os_test(mnos_os_address_space_unit_tests tests/os/unit/address_space_test.cpp)
+mnos_add_os_test(mnos_os_page_fault_handler_unit_tests tests/os/unit/page_fault_handler_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_context_unit_tests tests/os/unit/kernel_boot_context_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_unit_tests tests/os/unit/thread_context_test.cpp)
+mnos_add_os_test(mnos_os_process_scheduler_unit_tests tests/os/unit/process_scheduler_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
+mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
+mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz_test.cpp)
+mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
 
 if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_program(MNOS_GCOV_EXECUTABLE gcov)

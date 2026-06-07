@@ -12,6 +12,8 @@ constexpr const char* PAGE_TABLE_BUILDER_LEAF_CONFLICT_MESSAGE =
     "page table builder cannot split an existing large-page mapping";
 constexpr const char* PAGE_TABLE_BUILDER_CHILD_TABLE_CONFLICT_MESSAGE =
     "page table builder cannot replace an existing child table with a leaf mapping";
+constexpr const char* PAGE_TABLE_BUILDER_ARENA_ORDER_MESSAGE =
+    "page table builder arena end must be after the next free table address";
 
 [[nodiscard]] mnos::cpu::Address64 entry_address_for_index(
     const mnos::cpu::Address64 table_address,
@@ -51,11 +53,30 @@ PageTableBuilder::PageTableBuilder(
     MemoryBus& memory_bus,
     const Address64 root_table_address,
     const Address64 next_free_table_address) :
+    PageTableBuilder(memory_bus, root_table_address, next_free_table_address, Address64{0})
+{
+}
+
+PageTableBuilder::PageTableBuilder(
+    MemoryBus& memory_bus,
+    const Address64 root_table_address,
+    const Address64 next_free_table_address,
+    const Address64 table_arena_end_address) :
     memory_bus_(&memory_bus),
-    root_table_address_(root_table_address), next_free_table_address_(next_free_table_address)
+    root_table_address_(root_table_address),
+    next_free_table_address_(next_free_table_address),
+    table_arena_end_address_(table_arena_end_address)
 {
     this->require_aligned_address(root_table_address, PAGE_SIZE_4K_BYTES);
     this->require_aligned_address(next_free_table_address, PAGE_SIZE_4K_BYTES);
+    if (this->table_arena_end_address_ != Address64{0})
+    {
+        this->require_aligned_address(this->table_arena_end_address_, PAGE_SIZE_4K_BYTES);
+        if (this->next_free_table_address_ > this->table_arena_end_address_)
+        {
+            throw std::out_of_range{PAGE_TABLE_BUILDER_ARENA_ORDER_MESSAGE};
+        }
+    }
 }
 
 void PageTableBuilder::clear_root_table()
@@ -145,6 +166,12 @@ Address64 PageTableBuilder::next_free_table_address() const noexcept
 Address64 PageTableBuilder::allocate_table()
 {
     if (!this->memory_bus_->contains_range(this->next_free_table_address_, static_cast<std::size_t>(PAGE_SIZE_4K_BYTES)))
+    {
+        throw std::out_of_range{PAGE_TABLE_BUILDER_TABLE_SPACE_MESSAGE};
+    }
+
+    if (this->table_arena_end_address_ != Address64{0} &&
+        this->next_free_table_address_ > this->table_arena_end_address_ - PAGE_SIZE_4K_BYTES)
     {
         throw std::out_of_range{PAGE_TABLE_BUILDER_TABLE_SPACE_MESSAGE};
     }

@@ -118,7 +118,7 @@ CPL
 optional error code
 ```
 
-`INT/INT3` 通过 IDT 进入 handler，`IRET` 从 `TrapFrame` 恢复；`SYSCALL` 保存 `RCX/R11` 并进入 syscall entry，`SYSRET` 返回。`ThreadContext` 可以保存最后一次 pending trapframe 的快照，为后续 scheduler、syscall ABI 和 page fault 做准备。
+`INT/INT3` 通过 IDT 进入 handler，`IRET` 从 `TrapFrame` 恢复；`SYSCALL` 保存 `RCX/R11` 并进入 syscall entry，`SYSRET` 返回。`ThreadContext` 可以保存最后一次 pending trapframe 的快照；Stage 5 已把这条路径接到 scheduler、syscall ABI 和 page fault handler 的第一版 OS 底座。
 
 ## 8. DataSize
 

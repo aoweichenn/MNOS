@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和 syscall ABI。
 
 ```text
 Machine       模拟机器入口
@@ -92,19 +92,30 @@ CPL + IF
 ThreadContext trapframe snapshot
 ```
 
-Stage 4 已经把 paging/MMU/TLB 和 memory fault 接入 `TrapController`：`CpuState` 保存 CR3/CR2 风格状态，MMU 做 4-level walk/TLB 查询，缺页会产生 `#PF` trapframe 和 x86-64 page fault error code。OS 下一步可以在这个基础上实现真实 page fault handler、物理页分配器和进程地址空间。
+Stage 4 已经把 paging/MMU/TLB 和 memory fault 接入 `TrapController`：`CpuState` 保存 CR3/CR2 风格状态，MMU 做 4-level walk/TLB 查询，缺页会产生 `#PF` trapframe 和 x86-64 page fault error code。Stage 5 直接复用这套 fault/trap 流程实现 OS 侧缺页处理、物理页分配器和进程地址空间。
+
+Stage 5 已经完成第一版 OS 内存与调度底座：
+
+```text
+PhysicalPageAllocator  管理物理页、保留低端页、支持连续页和错误路径
+AddressSpace           管理进程 page-table root/table arena，复用 CPU PageTableBuilder
+PageFaultHandler       处理 not-present #PF，分配/清零/映射 demand page，失败回滚
+Process                拥有进程 ID、地址空间和线程上下文
+RoundRobinScheduler    管理 READY/RUNNING/BLOCKED/DEAD 的非拥有 run queue
+Kernel syscall         RAX ABI，支持 YIELD/EXIT/unsupported result
+```
 
 ## 下一步
 
 合理顺序：
 
 ```text
-1. page fault handler + physical page allocator
-2. trapframe + context switch
-3. syscall ABI + scheduler
-4. timer interrupt + APIC/IOAPIC 教学模型
-5. 进程地址空间和用户/内核切换
-6. 原子操作、多核、cache/TLB 交互
+1. timer interrupt + APIC/IOAPIC 教学模型
+2. 抢占式 context switch 和 sleep/wait 队列
+3. 原子操作、LOCK 前缀、x86 TSO 教学模型
+4. 多核心 topology、IPI、TLB shootdown
+5. 用户态 loader、内核/用户地址布局、COW fork
+6. cache/pipeline/perf counter 以及后续 fs/network/HPC/AI 路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。
