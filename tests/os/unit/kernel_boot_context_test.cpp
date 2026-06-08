@@ -1,4 +1,5 @@
 #include <stdexcept>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -22,6 +23,7 @@ namespace sched = mnos::os::sched;
 namespace
 {
 using ::testing::Eq;
+using ::testing::SizeIs;
 
 constexpr std::size_t TEST_MEMORY_SIZE_BYTES = static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{2});
 constexpr std::size_t TEST_SMALL_MEMORY_SIZE_BYTES = static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES / mm::AddressValue{2});
@@ -29,6 +31,9 @@ constexpr std::uint32_t TEST_BOOTSTRAP_PROCESSOR_COUNT = std::uint32_t{4};
 constexpr cpu::Address64 TEST_MEMORY_ADDRESS = cpu::Address64{16};
 constexpr cpu::Qword TEST_MEMORY_VALUE = cpu::Qword{0x12345678ULL};
 constexpr mm::VirtualAddress TEST_KERNEL_STACK_BOTTOM{mm::AddressValue{0x20000}};
+constexpr mm::VirtualAddress TEST_SECOND_KERNEL_STACK_BOTTOM{mm::AddressValue{0x30000}};
+constexpr sched::ThreadId TEST_FUTEX_FIRST_THREAD_ID{sched::ThreadId::value_type{1000}};
+constexpr sched::ThreadId TEST_FUTEX_SECOND_THREAD_ID{sched::ThreadId::value_type{1001}};
 }
 
 TEST(MachineTest, OwnsPhysicalMemoryAndExposesMemoryBusFacade)
@@ -146,4 +151,28 @@ TEST(KernelTest, OwnsProcessesAndRejectsOutOfRangeProcessAccess)
     EXPECT_THAT(const_kernel.process_at(std::size_t{0}).thread_at(std::size_t{0}).id(), Eq(thread.id()));
     EXPECT_THROW(static_cast<void>(os_kernel.process_at(std::size_t{1})), std::out_of_range);
     EXPECT_THROW(static_cast<void>(const_kernel.process_at(std::size_t{1})), std::out_of_range);
+
+    sched::ThreadContext& first_waiter =
+        process.create_thread(TEST_FUTEX_FIRST_THREAD_ID, TEST_KERNEL_STACK_BOTTOM);
+    sched::ThreadContext& second_waiter =
+        process.create_thread(TEST_FUTEX_SECOND_THREAD_ID, TEST_SECOND_KERNEL_STACK_BOTTOM);
+    EXPECT_EQ(os_kernel.wait_on_futex(process, TEST_KERNEL_STACK_BOTTOM, first_waiter), nullptr);
+    EXPECT_EQ(os_kernel.wait_on_futex(process, TEST_KERNEL_STACK_BOTTOM, second_waiter), nullptr);
+    EXPECT_THAT(first_waiter.state(), Eq(sched::ThreadState::BLOCKED));
+    EXPECT_THAT(second_waiter.state(), Eq(sched::ThreadState::BLOCKED));
+    EXPECT_THAT(
+        os_kernel.futex_table().waiter_count(proc::FutexKey{process.id(), TEST_KERNEL_STACK_BOTTOM}),
+        Eq(std::size_t{2}));
+
+    const std::vector<sched::ThreadContext*> woken_threads =
+        os_kernel.wake_all_futex(process, TEST_KERNEL_STACK_BOTTOM);
+    ASSERT_THAT(woken_threads, SizeIs(2));
+    EXPECT_EQ(woken_threads.at(std::size_t{0}), &first_waiter);
+    EXPECT_EQ(woken_threads.at(std::size_t{1}), &second_waiter);
+    EXPECT_THAT(first_waiter.state(), Eq(sched::ThreadState::READY));
+    EXPECT_THAT(second_waiter.state(), Eq(sched::ThreadState::READY));
+    EXPECT_THAT(os_kernel.scheduler().ready_count(), Eq(std::size_t{3}));
+    EXPECT_THAT(
+        os_kernel.futex_table().waiter_count(proc::FutexKey{process.id(), TEST_KERNEL_STACK_BOTTOM}),
+        Eq(std::size_t{0}));
 }
