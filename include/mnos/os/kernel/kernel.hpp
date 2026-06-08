@@ -5,6 +5,7 @@
 #include <deque>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 #include <mnos/cpu/memory/mmu.hpp>
@@ -22,6 +23,7 @@
 #include <mnos/os/sched/round_robin_scheduler.hpp>
 #include <mnos/os/sched/sleep_queue.hpp>
 #include <mnos/os/sched/smp_scheduler.hpp>
+#include <mnos/os/tty/console.hpp>
 
 namespace mnos::cpu::system
 {
@@ -95,6 +97,7 @@ public:
     [[nodiscard]] bool has_stage9_services() const noexcept;
     [[nodiscard]] bool has_stage10_services() const noexcept;
     [[nodiscard]] bool has_stage11_services() const noexcept;
+    [[nodiscard]] bool has_stage12_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -114,6 +117,8 @@ public:
     [[nodiscard]] const proc::CopyOnWriteManager& copy_on_write_manager() const noexcept;
     [[nodiscard]] proc::FutexTable& futex_table() noexcept;
     [[nodiscard]] const proc::FutexTable& futex_table() const noexcept;
+    [[nodiscard]] tty::Console& console() noexcept;
+    [[nodiscard]] const tty::Console& console() const noexcept;
 
     [[nodiscard]] proc::Process& create_process();
     [[nodiscard]] sched::ThreadContext& create_thread(proc::Process& process);
@@ -157,6 +162,11 @@ public:
         proc::Process& process,
         sched::ThreadContext& thread,
         mm::VirtualAddress virtual_page);
+    void console_write(std::string_view text);
+    [[nodiscard]] tty::ConsoleReadResult console_read(
+        sched::ThreadContext& thread,
+        std::span<char> destination);
+    [[nodiscard]] std::vector<sched::ThreadContext*> submit_terminal_input(std::string_view text);
     [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
     [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
@@ -212,6 +222,7 @@ private:
     void require_stage9_services() const;
     void require_stage10_services() const;
     void require_stage11_services() const;
+    void require_stage12_services() const;
     void configure_stage7_services();
     void configure_stage9_services();
     [[nodiscard]] SyscallResult dispatch_syscall_for_process(
@@ -249,6 +260,7 @@ private:
     cpu::memory::TlbShootdownController tlb_shootdown_controller_;
     proc::CopyOnWriteManager copy_on_write_manager_;
     proc::FutexTable futex_table_;
+    tty::Console console_;
     std::deque<proc::Process> processes_;
     std::deque<SchedulerHandoff> scheduler_handoffs_;
     proc::ProcessId::value_type next_process_id_value_ = proc::PROCESS_ID_FIRST_USER_VALUE;

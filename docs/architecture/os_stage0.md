@@ -1,11 +1,11 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口。
 
 ```text
-Machine       模拟机器入口，持有物理内存、MemoryBus、core topology
-BootContext   kernel 启动资源视图
-Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown + Stage9 SMP + Stage10 user/COW/futex + Stage11 syscall/trap 编排
+Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
+BootContext   kernel 启动资源视图，暴露 terminal 设备
+Kernel        启动状态机 + Stage7 APIC/timer/sleep/shootdown + Stage9 SMP + Stage10 user/COW/futex + Stage11 syscall/trap + Stage12 console/TTY 编排
 Address/Page  物理/虚拟地址和 page 工具
 ThreadContext CPU 状态 + kernel stack + 线程状态
 ```
@@ -178,16 +178,30 @@ PCID helper       ProcessId -> x86-64 PCID 规则抽到 process_context，UserLo
 SYSRET guard      CPU TrapController 校验返回 RIP/RSP canonical，避免非法用户返回状态静默扩散
 ```
 
+Stage 12 已经完成第一版终端交互底座：
+
+```text
+TextDisplayBuffer   可配置文本显存，保存 char/attribute、cursor、clear、scroll、render
+KeyboardInputQueue  确定性 key event FIFO，支持容量限制和 drain
+TerminalDevice      display + keyboard 的机器硬件 facade，由 Machine 持有并通过 BootContext 暴露
+Console             kernel console write、TTY canonical line input、echo、backspace、enter 成行
+TTY wait path       read 无完整行时进入 WaitQueue，终端输入完成一行后返回可唤醒线程
+Kernel facade       console_write、console_read、submit_terminal_input，负责与 scheduler wake/block 集成
+Emulator smoke      启动时写入模拟终端，并打印 stage12=ready
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. fs/block device/VFS + fd table + open/read/write/close syscall
-2. exec/wait/process lifecycle，把 user loader、syscall 和 fd 语义连成可运行用户程序闭环
-3. network device + packet ring + high-performance network path
-4. cache coherence / branch predictor / uop cache / SIMD
-5. HPC/SIMD/AI 推理训练路线
+1. shell parser + builtin command registry，把 console/TTY 变成真正命令入口
+2. fd table + read/write syscall，把 stdin/stdout/stderr 接到 TTY
+3. fs/block device/VFS + open/read/write/close syscall
+4. exec/wait/process lifecycle，把 user loader、syscall 和 fd 语义连成可运行用户程序闭环
+5. network device + packet ring + high-performance network path
+6. cache coherence / branch predictor / uop cache / SIMD
+7. HPC/SIMD/AI 推理训练路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

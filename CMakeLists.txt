@@ -145,6 +145,7 @@ set(
         src/os/kernel/kernel.cpp
         src/os/kernel/syscall.cpp
         src/os/kernel/user_trap.cpp
+        src/os/dev/terminal.cpp
         src/os/mm/address_layout.cpp
         src/os/mm/address_space.cpp
         src/os/mm/page.cpp
@@ -162,6 +163,7 @@ set(
         src/os/sched/wait_queue.cpp
         src/os/sched/thread_state.cpp
         src/os/sched/thread_context.cpp
+        src/os/tty/console.cpp
 )
 
 add_library(mnos_os STATIC ${MNOS_OS_SOURCES})
@@ -284,12 +286,14 @@ mnos_add_os_test(mnos_os_smp_scheduler_unit_tests tests/os/unit/smp_scheduler_te
 mnos_add_os_test(mnos_os_stage10_user_loader_unit_tests tests/os/unit/stage10_user_loader_test.cpp)
 mnos_add_os_test(mnos_os_stage10_sync_cow_unit_tests tests/os/unit/stage10_sync_cow_test.cpp)
 mnos_add_os_test(mnos_os_stage11_syscall_abi_unit_tests tests/os/unit/stage11_syscall_abi_test.cpp)
+mnos_add_os_test(mnos_os_stage12_terminal_unit_tests tests/os/unit/stage12_terminal_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage7_integration_tests tests/os/integration/stage7_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage9_integration_tests tests/os/integration/stage9_smp_scheduler_test.cpp)
 mnos_add_os_test(mnos_os_stage10_integration_tests tests/os/integration/stage10_user_process_test.cpp)
 mnos_add_os_test(mnos_os_stage11_integration_tests tests/os/integration/stage11_syscall_trap_test.cpp)
+mnos_add_os_test(mnos_os_stage12_integration_tests tests/os/integration/stage12_terminal_console_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
 mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_stage7_chaos_tests tests/os/chaos/stage7_scheduler_chaos_test.cpp)

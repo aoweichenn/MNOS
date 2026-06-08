@@ -67,6 +67,16 @@ const cpu::MemoryBus& BootContext::memory_bus() const noexcept
     return this->machine_->memory_bus();
 }
 
+dev::TerminalDevice& BootContext::terminal_device() noexcept
+{
+    return this->machine_->terminal_device();
+}
+
+const dev::TerminalDevice& BootContext::terminal_device() const noexcept
+{
+    return this->machine_->terminal_device();
+}
+
 std::size_t BootContext::physical_memory_size_bytes() const noexcept
 {
     return this->machine_->physical_memory_size_bytes();

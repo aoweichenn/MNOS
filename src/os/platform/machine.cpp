@@ -48,6 +48,16 @@ std::uint32_t Machine::processor_count() const noexcept
     return this->core_topology_.core_count();
 }
 
+dev::TerminalDevice& Machine::terminal_device() noexcept
+{
+    return this->terminal_device_;
+}
+
+const dev::TerminalDevice& Machine::terminal_device() const noexcept
+{
+    return this->terminal_device_;
+}
+
 std::size_t Machine::physical_memory_size_bytes() const noexcept
 {
     return this->physical_memory_.size();

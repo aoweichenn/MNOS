@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 11 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流。
+当前已经完成 x86-64 Stage 12 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -32,11 +32,13 @@ include/mnos/
     execution/          CpuState、Program、ExecutionTrace、InOrderPipeline、Executor
     perf/               Stage8PerformanceModel、PerformanceCounters
   os/
-    platform/           Machine facade，持有内存和 core topology
+    dev/                TextDisplayBuffer、KeyboardInputQueue、TerminalDevice
+    platform/           Machine facade，持有内存、core topology 和 terminal device
     kernel/             BootContext、Kernel、syscall ABI
     mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、AddressLayout、PhysicalPageAllocator、AddressSpace、PageFaultHandler
     proc/               ProcessId、Process、process_context、UserProgram/UserLoader、CopyOnWriteManager、FutexTable
     sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue、Event
+    tty/                Console、TTY canonical line input、console read/write result
 ```
 
 依赖方向必须保持：
@@ -171,6 +173,19 @@ Stage10 syscall hook  getpid、map anonymous page、fork COW range、futex wait/
 User page fault path  ring3 #PF 先尝试 COW write fault，再尝试 demand page，非法用户地址 kill thread
 TrapController        restore_trap_frame 公共入口，SYSRET 前校验返回 RIP/RSP canonical
 Process context       ProcessId -> PCID 规则集中到 process_context，UserLoader/Kernel 共用
+```
+
+Stage 12 当前语义：
+
+```text
+TextDisplayBuffer     文本显存 char/attribute、cursor、clear、scroll、render_text
+KeyboardInputQueue    key event FIFO，支持容量限制、pop、drain
+TerminalDevice        display + keyboard 的硬件 facade，由 Machine 持有
+BootContext           暴露 terminal_device，kernel 和测试共享同一个硬件对象
+Console write         kernel console 输出写入 TextDisplayBuffer
+TTY canonical input   printable echo、backspace 删除、enter 提交整行，read 返回包含 newline 的字节
+Blocking read         无完整行时线程进入 WaitQueue；输入完成一行后由 Kernel 唤醒 scheduler
+Kernel Stage12 facade console_write、console_read、submit_terminal_input
 ```
 
 Stage 3 当前语义：
@@ -437,7 +452,31 @@ FUTEX_WAIT / FUTEX_WAKE_ONE / FUTEX_WAKE_ALL
 canonical SYSRET guard
 ```
 
-### Stage 12: 文件系统、块设备、进程 API
+### Stage 12: display terminal / console / TTY 交互地基
+
+```text
+TextDisplayBuffer
+KeyboardInputQueue
+TerminalDevice in Machine
+BootContext terminal resource
+Kernel console_write/console_read
+TTY canonical line discipline
+blocking read + terminal input wakeup
+emulator stage12 smoke
+```
+
+### Stage 13: shell + fd/stdin/stdout/stderr
+
+```text
+ShellParser
+builtin command registry
+help/clear/echo/ps/mem/cpu/ticks/exit
+FileDescriptor value object
+stdin/stdout/stderr
+read/write syscall 接 TTY
+```
+
+### Stage 14: 文件系统、块设备、进程 API
 
 ```text
 block device + DMA
@@ -448,7 +487,7 @@ open/read/write/close
 exec/wait/process lifecycle
 ```
 
-### Stage 13: 高性能网络
+### Stage 15: 高性能网络
 
 ```text
 NIC descriptor ring
@@ -457,7 +496,7 @@ zero-copy
 高性能网络 benchmark
 ```
 
-### Stage 14: HPC、SIMD、AI 推理/训练
+### Stage 16: HPC、SIMD、AI 推理/训练
 
 ```text
 SSE/AVX/AVX2/AVX-512 教学模拟路线

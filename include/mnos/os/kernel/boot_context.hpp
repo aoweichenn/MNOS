@@ -5,6 +5,7 @@
 
 #include <mnos/cpu/memory/memory_bus.hpp>
 #include <mnos/cpu/memory/physical_memory.hpp>
+#include <mnos/os/dev/terminal.hpp>
 #include <mnos/os/platform/machine.hpp>
 
 namespace mnos::os::kernel
@@ -25,6 +26,8 @@ public:
 
     [[nodiscard]] cpu::MemoryBus& memory_bus() noexcept;
     [[nodiscard]] const cpu::MemoryBus& memory_bus() const noexcept;
+    [[nodiscard]] dev::TerminalDevice& terminal_device() noexcept;
+    [[nodiscard]] const dev::TerminalDevice& terminal_device() const noexcept;
 
     [[nodiscard]] std::size_t physical_memory_size_bytes() const noexcept;
     [[nodiscard]] std::uint64_t physical_page_count() const noexcept;

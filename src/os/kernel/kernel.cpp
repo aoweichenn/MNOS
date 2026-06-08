@@ -13,6 +13,7 @@ constexpr const char* KERNEL_STAGE5_NOT_READY_MESSAGE = "kernel stage5 services 
 constexpr const char* KERNEL_STAGE7_NOT_READY_MESSAGE = "kernel stage7 services are not initialized";
 constexpr const char* KERNEL_STAGE9_NOT_READY_MESSAGE = "kernel stage9 services are not initialized";
 constexpr const char* KERNEL_STAGE10_NOT_READY_MESSAGE = "kernel stage10 services are not initialized";
+constexpr const char* KERNEL_STAGE12_NOT_READY_MESSAGE = "kernel stage12 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
@@ -55,7 +56,9 @@ sched::ThreadId SchedulerHandoff::thread_id() const noexcept
     return this->thread_id_;
 }
 
-Kernel::Kernel(BootContext& boot_context) noexcept : boot_context_(&boot_context)
+Kernel::Kernel(BootContext& boot_context) noexcept :
+    boot_context_(&boot_context),
+    console_(boot_context.terminal_device())
 {
 }
 
@@ -133,6 +136,11 @@ bool Kernel::has_stage10_services() const noexcept
 bool Kernel::has_stage11_services() const noexcept
 {
     return this->has_stage10_services();
+}
+
+bool Kernel::has_stage12_services() const noexcept
+{
+    return this->has_stage11_services();
 }
 
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
@@ -231,6 +239,16 @@ proc::FutexTable& Kernel::futex_table() noexcept
 const proc::FutexTable& Kernel::futex_table() const noexcept
 {
     return this->futex_table_;
+}
+
+tty::Console& Kernel::console() noexcept
+{
+    return this->console_;
+}
+
+const tty::Console& Kernel::console() const noexcept
+{
+    return this->console_;
 }
 
 proc::Process& Kernel::create_process()
@@ -374,6 +392,36 @@ mm::PageFaultResult Kernel::handle_page_fault(proc::Process& process, sched::Thr
         process.address_space(),
         this->boot_context_->memory_bus()};
     return handler.handle(thread.cpu_state().pending_trap(), thread.cpu_state());
+}
+
+void Kernel::console_write(const std::string_view text)
+{
+    this->require_stage12_services();
+    this->console_.write(text);
+}
+
+tty::ConsoleReadResult Kernel::console_read(
+    sched::ThreadContext& thread,
+    std::span<char> destination)
+{
+    this->require_stage12_services();
+    const tty::ConsoleReadResult result = this->console_.read(destination, thread);
+    if (result.is_blocked() && this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
+    {
+        static_cast<void>(this->scheduler_.block_current());
+    }
+    return result;
+}
+
+std::vector<sched::ThreadContext*> Kernel::submit_terminal_input(const std::string_view text)
+{
+    this->require_stage12_services();
+    std::vector<sched::ThreadContext*> readers = this->console_.submit_input(text);
+    for (sched::ThreadContext* const reader : readers)
+    {
+        this->scheduler_.wake(*reader);
+    }
+    return readers;
 }
 
 sched::SchedulerTick Kernel::scheduler_tick_count() const noexcept
@@ -715,6 +763,15 @@ void Kernel::require_stage10_services() const
     if (!this->has_stage10_services())
     {
         throw std::logic_error{KERNEL_STAGE10_NOT_READY_MESSAGE};
+    }
+}
+
+void Kernel::require_stage12_services() const
+{
+    this->require_booted();
+    if (!this->has_stage12_services())
+    {
+        throw std::logic_error{KERNEL_STAGE12_NOT_READY_MESSAGE};
     }
 }
 
