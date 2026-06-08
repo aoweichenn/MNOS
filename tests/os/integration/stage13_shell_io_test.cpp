@@ -385,7 +385,7 @@ TEST(Stage13ShellIoIntegrationTest, ShellExecutesBuiltinsThroughKernelConsole)
     EXPECT_THAT(machine.terminal_device().display().line(std::size_t{0}), HasSubstr("alpha two words"));
 
     EXPECT_THAT(session.execute_line("help").status(), Eq(shell::ShellCommandStatus::HANDLED));
-    EXPECT_THAT(display_text(machine), HasSubstr("builtins: help clear echo ps mem cpu ticks exit"));
+    EXPECT_THAT(display_text(machine), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
 
     EXPECT_THAT(session.execute_line("clear").status(), Eq(shell::ShellCommandStatus::HANDLED));
     EXPECT_TRUE(machine.terminal_device().display().empty());

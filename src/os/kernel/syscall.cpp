@@ -40,7 +40,11 @@ private:
             "FUTEX_WAKE_ONE",
             "FUTEX_WAKE_ALL",
             "READ",
-            "WRITE"},
+            "WRITE",
+            "OPEN",
+            "CLOSE",
+            "STAT",
+            "READDIR"},
         SYSCALL_NUMBER_INVALID_NAME);
 };
 

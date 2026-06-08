@@ -22,6 +22,10 @@ enum class SyscallNumber : std::uint64_t
     FUTEX_WAKE_ALL = 7,
     READ = 8,
     WRITE = 9,
+    OPEN = 10,
+    CLOSE = 11,
+    STAT = 12,
+    READDIR = 13,
     COUNT
 };
 
@@ -35,18 +39,24 @@ enum class SyscallResult : std::uint8_t
     BAD_DESCRIPTOR,
     BAD_ADDRESS,
     OUT_OF_MEMORY,
+    NOT_FOUND,
+    NO_SPACE,
     COUNT
 };
 
 enum class SyscallError : std::int64_t
 {
     SUCCESS = 0,
+    NO_ENTRY = 2,
     BAD_FILE_DESCRIPTOR = 9,
     AGAIN = 11,
     NO_MEMORY = 12,
     BAD_ADDRESS = 14,
     ALREADY_EXISTS = 17,
+    NOT_DIRECTORY = 20,
+    IS_DIRECTORY = 21,
     INVALID_ARGUMENT = 22,
+    NO_SPACE = 28,
     NO_SYS = 38,
     OPERATION_NOT_SUPPORTED = 95,
 };
@@ -67,7 +77,23 @@ inline constexpr std::size_t SYSCALL_ARGUMENT_COUNT = static_cast<std::size_t>(S
 inline constexpr cpu::Qword SYSCALL_SUCCESS_RESULT = cpu::Qword{0};
 inline constexpr std::uint64_t SYSCALL_FORK_MAX_COW_PAGE_COUNT = std::uint64_t{256};
 inline constexpr std::size_t SYSCALL_IO_MAX_TRANSFER_BYTES = std::size_t{4096};
+inline constexpr std::size_t SYSCALL_PATH_MAX_BYTES = std::size_t{256};
 inline constexpr cpu::Qword SYSCALL_FUTEX_WORD_MASK = cpu::Qword{0xFFFF'FFFF};
+inline constexpr std::uint64_t SYSCALL_OPEN_FLAG_READ = std::uint64_t{1};
+inline constexpr std::uint64_t SYSCALL_OPEN_FLAG_WRITE = std::uint64_t{2};
+inline constexpr std::uint64_t SYSCALL_OPEN_FLAG_CREATE = std::uint64_t{4};
+inline constexpr std::uint64_t SYSCALL_OPEN_FLAG_VALID_MASK =
+    SYSCALL_OPEN_FLAG_READ | SYSCALL_OPEN_FLAG_WRITE | SYSCALL_OPEN_FLAG_CREATE;
+inline constexpr std::uint64_t SYSCALL_FILE_KIND_FILE = std::uint64_t{1};
+inline constexpr std::uint64_t SYSCALL_FILE_KIND_DIRECTORY = std::uint64_t{2};
+inline constexpr std::size_t SYSCALL_STAT_FIELD_COUNT = std::size_t{3};
+inline constexpr std::size_t SYSCALL_STAT_RECORD_SIZE_BYTES = sizeof(std::uint64_t) * SYSCALL_STAT_FIELD_COUNT;
+inline constexpr std::size_t SYSCALL_DIRENT_HEADER_FIELD_COUNT = std::size_t{3};
+inline constexpr std::size_t SYSCALL_DIRENT_HEADER_SIZE_BYTES =
+    sizeof(std::uint64_t) * SYSCALL_DIRENT_HEADER_FIELD_COUNT;
+inline constexpr std::size_t SYSCALL_DIRENT_NAME_BYTES = std::size_t{56};
+inline constexpr std::size_t SYSCALL_DIRENT_RECORD_SIZE_BYTES =
+    SYSCALL_DIRENT_HEADER_SIZE_BYTES + SYSCALL_DIRENT_NAME_BYTES;
 
 [[nodiscard]] constexpr cpu::Qword syscall_error_result(const SyscallError error) noexcept
 {

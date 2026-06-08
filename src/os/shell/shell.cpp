@@ -1,21 +1,40 @@
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include <mnos/cpu/common/types.hpp>
+#include <mnos/os/fs/vfs.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/sched/thread_state.hpp>
 #include <mnos/os/shell/shell.hpp>
 
 namespace
 {
-constexpr std::size_t SHELL_BUILTIN_COUNT = std::size_t{8};
+constexpr std::size_t SHELL_BUILTIN_COUNT = std::size_t{13};
 constexpr std::string_view SHELL_UNKNOWN_COMMAND_PREFIX = "unknown command: ";
 constexpr std::string_view SHELL_PARSE_ERROR_UNTERMINATED_QUOTE = "parse error: unterminated quote\n";
 constexpr std::string_view SHELL_ARGUMENT_SEPARATOR = " ";
 constexpr std::string_view SHELL_LINE_ENDING = "\n";
+constexpr std::string_view SHELL_ROOT_PATH = "/";
+constexpr std::string_view SHELL_DIRECTORY_SUFFIX = "/";
+constexpr std::string_view SHELL_USAGE_LS = "usage: ls [path]\n";
+constexpr std::string_view SHELL_USAGE_CAT = "usage: cat path\n";
+constexpr std::string_view SHELL_USAGE_TOUCH = "usage: touch path\n";
+constexpr std::string_view SHELL_USAGE_WRITE = "usage: write path text...\n";
+constexpr std::string_view SHELL_USAGE_STAT = "usage: stat path\n";
+constexpr std::string_view SHELL_FS_NOT_FOUND_PREFIX = "not found: ";
+constexpr std::string_view SHELL_FS_INVALID_PATH_PREFIX = "invalid path: ";
+constexpr std::string_view SHELL_FS_NOT_DIRECTORY_PREFIX = "not a directory: ";
+constexpr std::string_view SHELL_FS_IS_DIRECTORY_PREFIX = "is a directory: ";
+constexpr std::string_view SHELL_FS_NO_SPACE_PREFIX = "no space: ";
+constexpr std::string_view SHELL_KIND_FILE = "file";
+constexpr std::string_view SHELL_KIND_DIRECTORY = "directory";
+constexpr std::string_view SHELL_KIND_UNKNOWN = "unknown";
 constexpr const char* SHELL_COMMAND_MISSING_MESSAGE = "shell parse result does not contain a command";
 constexpr const char* SHELL_ARGUMENT_INDEX_OUT_OF_RANGE_MESSAGE = "shell command argument index is out of range";
 constexpr const char* SHELL_BUILTIN_INDEX_OUT_OF_RANGE_MESSAGE = "shell builtin index is out of range";
@@ -60,6 +79,58 @@ void shell_write(mnos::os::shell::ShellContext& context, const std::string_view 
     return output;
 }
 
+[[nodiscard]] std::string shell_join_arguments_from(
+    const mnos::os::shell::ShellCommand& command,
+    const std::size_t first_argument)
+{
+    std::string output;
+    for (std::size_t argument_index = first_argument; argument_index < command.argument_count(); ++argument_index)
+    {
+        if (argument_index != first_argument)
+        {
+            output.append(SHELL_ARGUMENT_SEPARATOR);
+        }
+        output.append(command.argument_at(argument_index));
+    }
+    return output;
+}
+
+void shell_write_path_error(
+    mnos::os::shell::ShellContext& context,
+    const std::string_view prefix,
+    const std::string_view path)
+{
+    std::string output{prefix};
+    output.append(path);
+    output.append(SHELL_LINE_ENDING);
+    shell_write(context, output);
+}
+
+[[nodiscard]] std::string_view shell_node_kind_name(const mnos::os::fs::SimpleFsNodeKind kind) noexcept
+{
+    switch (kind)
+    {
+    case mnos::os::fs::SimpleFsNodeKind::FILE:
+        return SHELL_KIND_FILE;
+    case mnos::os::fs::SimpleFsNodeKind::DIRECTORY:
+        return SHELL_KIND_DIRECTORY;
+    case mnos::os::fs::SimpleFsNodeKind::COUNT:
+        break;
+    }
+    return SHELL_KIND_UNKNOWN;
+}
+
+[[nodiscard]] std::vector<mnos::cpu::Byte> shell_bytes_from_text(const std::string_view text)
+{
+    std::vector<mnos::cpu::Byte> bytes;
+    bytes.reserve(text.size());
+    for (const char character : text)
+    {
+        bytes.push_back(static_cast<mnos::cpu::Byte>(static_cast<unsigned char>(character)));
+    }
+    return bytes;
+}
+
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_help(
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context);
@@ -81,6 +152,21 @@ void shell_write(mnos::os::shell::ShellContext& context, const std::string_view 
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_ticks(
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_ls(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_cat(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_touch(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_write(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_stat(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_exit(
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context);
@@ -95,6 +181,11 @@ void shell_write(mnos::os::shell::ShellContext& context, const std::string_view 
         ShellBuiltinSpec{"mem", handle_mem},
         ShellBuiltinSpec{"cpu", handle_cpu},
         ShellBuiltinSpec{"ticks", handle_ticks},
+        ShellBuiltinSpec{"ls", handle_ls},
+        ShellBuiltinSpec{"cat", handle_cat},
+        ShellBuiltinSpec{"touch", handle_touch},
+        ShellBuiltinSpec{"write", handle_write},
+        ShellBuiltinSpec{"stat", handle_stat},
         ShellBuiltinSpec{"exit", handle_exit}};
     return CATALOG;
 }
@@ -203,6 +294,228 @@ void shell_write(mnos::os::shell::ShellContext& context, const std::string_view 
     output.append(SHELL_LINE_ENDING);
     shell_write(context, output);
     return mnos::os::shell::ShellCommandResult::handled();
+}
+
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_ls(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() > std::size_t{1})
+    {
+        shell_write(context, SHELL_USAGE_LS);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path =
+        command.argument_count() == std::size_t{0} ? SHELL_ROOT_PATH : command.argument_at(std::size_t{0});
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (!node.has_value())
+        {
+            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+        if (!node->is_directory())
+        {
+            shell_write_path_error(context, SHELL_FS_NOT_DIRECTORY_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+
+        std::string output;
+        for (const mnos::os::fs::SimpleFsDirectoryEntry& entry : context.os_kernel().vfs().read_directory(path))
+        {
+            output.append(entry.name());
+            if (entry.is_directory())
+            {
+                output.append(SHELL_DIRECTORY_SUFFIX);
+            }
+            output.append(SHELL_LINE_ENDING);
+        }
+        shell_write(context, output);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+}
+
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_cat(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() != std::size_t{1})
+    {
+        shell_write(context, SHELL_USAGE_CAT);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path = command.argument_at(std::size_t{0});
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (!node.has_value())
+        {
+            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+        if (node->is_directory())
+        {
+            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+
+        mnos::os::fs::VfsFile file =
+            context.os_kernel().vfs().open_file(path, mnos::os::fs::VfsOpenMode::READ_ONLY);
+        std::vector<mnos::cpu::Byte> bytes(static_cast<std::size_t>(file.size_bytes()));
+        const std::size_t byte_count = file.read(bytes);
+        std::string output;
+        output.reserve(byte_count);
+        for (std::size_t byte_index = std::size_t{0}; byte_index < byte_count; ++byte_index)
+        {
+            output.push_back(static_cast<char>(bytes[byte_index]));
+        }
+        shell_write(context, output);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+}
+
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_touch(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() != std::size_t{1})
+    {
+        shell_write(context, SHELL_USAGE_TOUCH);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path = command.argument_at(std::size_t{0});
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (node.has_value() && node->is_directory())
+        {
+            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+        if (!node.has_value())
+        {
+            static_cast<void>(context.os_kernel().vfs().create_file(path));
+        }
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::length_error&)
+    {
+        shell_write_path_error(context, SHELL_FS_NO_SPACE_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::out_of_range&)
+    {
+        shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+}
+
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_write(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() < std::size_t{2})
+    {
+        shell_write(context, SHELL_USAGE_WRITE);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path = command.argument_at(std::size_t{0});
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (node.has_value() && node->is_directory())
+        {
+            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+        if (!node.has_value())
+        {
+            static_cast<void>(context.os_kernel().vfs().create_file(path));
+        }
+
+        std::string text = shell_join_arguments_from(command, std::size_t{1});
+        text.append(SHELL_LINE_ENDING);
+        std::vector<mnos::cpu::Byte> bytes = shell_bytes_from_text(text);
+        mnos::os::fs::VfsFile file =
+            context.os_kernel().vfs().open_file(path, mnos::os::fs::VfsOpenMode::READ_WRITE);
+        file.seek(file.size_bytes());
+        static_cast<void>(file.write(bytes));
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::length_error&)
+    {
+        shell_write_path_error(context, SHELL_FS_NO_SPACE_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::out_of_range&)
+    {
+        shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+}
+
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_stat(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() != std::size_t{1})
+    {
+        shell_write(context, SHELL_USAGE_STAT);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path = command.argument_at(std::size_t{0});
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (!node.has_value())
+        {
+            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+
+        std::string output{"path="};
+        output.append(path);
+        output.append(" kind=");
+        output.append(shell_node_kind_name(node->kind()));
+        output.append(" inode=");
+        output.append(std::to_string(node->inode().value()));
+        output.append(" size=");
+        output.append(std::to_string(node->size_bytes()));
+        output.append(SHELL_LINE_ENDING);
+        shell_write(context, output);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
 }
 
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_exit(

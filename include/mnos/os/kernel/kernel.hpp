@@ -11,6 +11,9 @@
 #include <mnos/cpu/memory/mmu.hpp>
 #include <mnos/cpu/memory/tlb_shootdown.hpp>
 #include <mnos/cpu/system/apic.hpp>
+#include <mnos/os/block/block_device.hpp>
+#include <mnos/os/block/buffer_cache.hpp>
+#include <mnos/os/fs/vfs.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/syscall.hpp>
 #include <mnos/os/io/file_descriptor.hpp>
@@ -40,6 +43,9 @@ inline constexpr mm::AddressValue KERNEL_DEFAULT_THREAD_STACK_BASE = mm::Address
 inline constexpr mm::AddressValue KERNEL_THREAD_STACK_STRIDE = mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{16};
 inline constexpr sched::SchedulerTick KERNEL_STAGE7_DEFAULT_TIMER_INTERVAL_TICKS = sched::SchedulerTick{1};
 inline constexpr std::uint64_t KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE = std::uint64_t{1};
+inline constexpr std::uint64_t KERNEL_STAGE15_ROOT_BLOCK_COUNT = std::uint64_t{4096};
+inline constexpr std::size_t KERNEL_STAGE15_BUFFER_CACHE_BLOCKS = std::size_t{64};
+inline constexpr std::uint32_t KERNEL_STAGE15_ROOT_INODE_COUNT = std::uint32_t{128};
 
 enum class UserTrapResult : std::uint8_t
 {
@@ -100,6 +106,7 @@ public:
     [[nodiscard]] bool has_stage11_services() const noexcept;
     [[nodiscard]] bool has_stage12_services() const noexcept;
     [[nodiscard]] bool has_stage13_services() const noexcept;
+    [[nodiscard]] bool has_stage15_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -121,6 +128,8 @@ public:
     [[nodiscard]] const proc::FutexTable& futex_table() const noexcept;
     [[nodiscard]] tty::Console& console() noexcept;
     [[nodiscard]] const tty::Console& console() const noexcept;
+    [[nodiscard]] fs::Vfs& vfs();
+    [[nodiscard]] const fs::Vfs& vfs() const;
 
     [[nodiscard]] proc::Process& create_process();
     [[nodiscard]] sched::ThreadContext& create_thread(proc::Process& process);
@@ -178,6 +187,12 @@ public:
         proc::Process& process,
         io::FileDescriptor descriptor,
         std::string_view text);
+    [[nodiscard]] io::FileDescriptor open_file(
+        proc::Process& process,
+        std::string_view path,
+        io::FileAccessMode access_mode,
+        bool create_if_missing);
+    [[nodiscard]] bool close_fd(proc::Process& process, io::FileDescriptor descriptor);
     [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
     [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
@@ -235,8 +250,10 @@ private:
     void require_stage11_services() const;
     void require_stage12_services() const;
     void require_stage13_services() const;
+    void require_stage15_services() const;
     void configure_stage7_services();
     void configure_stage9_services();
+    void configure_stage15_services();
     [[nodiscard]] SyscallResult dispatch_syscall_for_process(
         proc::Process* process,
         sched::ThreadContext& thread);
@@ -257,6 +274,19 @@ private:
         sched::ThreadContext& thread,
         SyscallFrame& frame);
     [[nodiscard]] SyscallResult dispatch_write(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_open(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_close(proc::Process* process, SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_stat(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_readdir(
         proc::Process* process,
         sched::ThreadContext& thread,
         SyscallFrame& frame);
@@ -281,6 +311,10 @@ private:
     proc::CopyOnWriteManager copy_on_write_manager_;
     proc::FutexTable futex_table_;
     tty::Console console_;
+    std::optional<block::MemoryBlockDevice> root_block_device_;
+    std::optional<block::BufferCache> root_buffer_cache_;
+    std::optional<fs::SimpleFileSystem> root_file_system_;
+    std::optional<fs::Vfs> vfs_;
     std::deque<proc::Process> processes_;
     std::deque<SchedulerHandoff> scheduler_handoffs_;
     proc::ProcessId::value_type next_process_id_value_ = proc::PROCESS_ID_FIRST_USER_VALUE;

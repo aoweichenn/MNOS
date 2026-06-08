@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include <benchmark/benchmark.h>
@@ -12,6 +13,7 @@
 #include <mnos/os/block/block_device.hpp>
 #include <mnos/os/block/buffer_cache.hpp>
 #include <mnos/os/fs/simple_fs.hpp>
+#include <mnos/os/io/file_descriptor.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/mm/page.hpp>
@@ -27,6 +29,7 @@ namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
 namespace block = mnos::os::block;
 namespace fs = mnos::os::fs;
+namespace io = mnos::os::io;
 namespace kernel = mnos::os::kernel;
 namespace mm = mnos::os::mm;
 namespace platform = mnos::os::platform;
@@ -59,6 +62,7 @@ constexpr block::BlockAddress BENCHMARK_BLOCK_DEVICE_IO_ADDRESS{std::uint64_t{32
 constexpr block::BlockAddress BENCHMARK_BUFFER_CACHE_HIT_ADDRESS{std::uint64_t{64}};
 constexpr cpu::Byte BENCHMARK_BLOCK_DATA_SEED = cpu::Byte{0x5A};
 constexpr std::uint32_t BENCHMARK_SIMPLE_FS_INODE_COUNT = std::uint32_t{64};
+constexpr std::string_view BENCHMARK_KERNEL_VFS_FILE_PATH = "/bench";
 
 [[nodiscard]] std::vector<cpu::Byte> make_benchmark_block()
 {
@@ -356,6 +360,27 @@ static void BM_SimpleFsFileReadWrite(benchmark::State& state)
         static_cast<std::int64_t>(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES * std::size_t{2}));
 }
 
+static void BM_KernelVfsOpenClose(benchmark::State& state)
+{
+    platform::Machine machine(BENCHMARK_MACHINE_MEMORY_SIZE_BYTES, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT);
+    kernel::BootContext boot_context{machine, BENCHMARK_BOOTSTRAP_PROCESSOR_COUNT};
+    kernel::Kernel os_kernel{boot_context};
+    os_kernel.boot();
+    proc::Process& process = os_kernel.create_process();
+    static_cast<void>(os_kernel.vfs().create_file(BENCHMARK_KERNEL_VFS_FILE_PATH));
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        const io::FileDescriptor descriptor =
+            os_kernel.open_file(process, BENCHMARK_KERNEL_VFS_FILE_PATH, io::FileAccessMode::READ_ONLY, false);
+        benchmark::DoNotOptimize(descriptor.value());
+        benchmark::DoNotOptimize(os_kernel.close_fd(process, descriptor));
+    }
+
+    state.SetItemsProcessed(state.iterations());
+}
+
 BENCHMARK(BM_OSKernelBoot);
 BENCHMARK(BM_ThreadContextReset);
 BENCHMARK(BM_PhysicalPageAllocatorAllocateFree);
@@ -369,3 +394,4 @@ BENCHMARK(BM_TlbShootdownApply);
 BENCHMARK(BM_MemoryBlockDeviceReadWrite);
 BENCHMARK(BM_BufferCacheReadHit);
 BENCHMARK(BM_SimpleFsFileReadWrite);
+BENCHMARK(BM_KernelVfsOpenClose);

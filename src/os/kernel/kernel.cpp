@@ -1,6 +1,9 @@
-#include <new>
+#include <algorithm>
 #include <limits>
+#include <new>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include <mnos/os/kernel/kernel.hpp>
 
@@ -15,6 +18,7 @@ constexpr const char* KERNEL_STAGE9_NOT_READY_MESSAGE = "kernel stage9 services 
 constexpr const char* KERNEL_STAGE10_NOT_READY_MESSAGE = "kernel stage10 services are not initialized";
 constexpr const char* KERNEL_STAGE12_NOT_READY_MESSAGE = "kernel stage12 services are not initialized";
 constexpr const char* KERNEL_STAGE13_NOT_READY_MESSAGE = "kernel stage13 services are not initialized";
+constexpr const char* KERNEL_STAGE15_NOT_READY_MESSAGE = "kernel stage15 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
@@ -23,6 +27,24 @@ constexpr const char* KERNEL_SCHEDULER_HANDOFF_DEAD_THREAD_MESSAGE =
 constexpr const char* KERNEL_SMP_MIGRATION_SOURCE_MISMATCH_MESSAGE =
     "kernel smp migration source core does not own the ready thread";
 constexpr const char* KERNEL_SLEEP_TICK_OVERFLOW_MESSAGE = "kernel sleep duration overflows scheduler tick";
+constexpr const char* KERNEL_INVALID_FILE_OPEN_MODE_MESSAGE = "kernel file open mode is invalid";
+
+[[nodiscard]] mnos::os::fs::VfsOpenMode kernel_vfs_mode_from_access_mode(
+    const mnos::os::io::FileAccessMode access_mode) noexcept
+{
+    switch (access_mode)
+    {
+    case mnos::os::io::FileAccessMode::READ_ONLY:
+        return mnos::os::fs::VfsOpenMode::READ_ONLY;
+    case mnos::os::io::FileAccessMode::WRITE_ONLY:
+        return mnos::os::fs::VfsOpenMode::WRITE_ONLY;
+    case mnos::os::io::FileAccessMode::READ_WRITE:
+        return mnos::os::fs::VfsOpenMode::READ_WRITE;
+    case mnos::os::io::FileAccessMode::COUNT:
+        break;
+    }
+    return mnos::os::fs::VfsOpenMode::COUNT;
+}
 }
 
 namespace mnos::os::kernel
@@ -81,6 +103,7 @@ void Kernel::boot()
     this->kernel_address_space_.emplace(this->create_address_space(KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT));
     this->configure_stage7_services();
     this->configure_stage9_services();
+    this->configure_stage15_services();
     this->booted_ = true;
 }
 
@@ -147,6 +170,13 @@ bool Kernel::has_stage12_services() const noexcept
 bool Kernel::has_stage13_services() const noexcept
 {
     return this->has_stage12_services();
+}
+
+bool Kernel::has_stage15_services() const noexcept
+{
+    return this->has_stage13_services() && this->root_block_device_.has_value() &&
+           this->root_buffer_cache_.has_value() && this->root_file_system_.has_value() &&
+           this->vfs_.has_value();
 }
 
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
@@ -255,6 +285,18 @@ tty::Console& Kernel::console() noexcept
 const tty::Console& Kernel::console() const noexcept
 {
     return this->console_;
+}
+
+fs::Vfs& Kernel::vfs()
+{
+    this->require_stage15_services();
+    return this->vfs_.value();
+}
+
+const fs::Vfs& Kernel::vfs() const
+{
+    this->require_stage15_services();
+    return this->vfs_.value();
 }
 
 proc::Process& Kernel::create_process()
@@ -438,7 +480,7 @@ io::IoResult Kernel::read_fd(
     std::span<char> destination)
 {
     this->require_stage13_services();
-    const io::FileDescriptorEntry* const entry = process.file_descriptors().find(descriptor);
+    io::FileDescriptorEntry* const entry = process.file_descriptors().find_mutable(descriptor);
     if (entry == nullptr || !entry->readable())
     {
         return io::IoResult::bad_descriptor();
@@ -450,6 +492,31 @@ io::IoResult Kernel::read_fd(
     {
         const tty::ConsoleReadResult result = this->console_read(thread, destination);
         return result.is_blocked() ? io::IoResult::blocked() : io::IoResult::ready(result.byte_count());
+    }
+    case io::FileDeviceKind::VFS_FILE:
+    {
+        try
+        {
+            std::vector<cpu::Byte> bytes(destination.size());
+            const std::size_t byte_count = entry->description().vfs_file().read(bytes);
+            for (std::size_t byte_index = std::size_t{0}; byte_index < byte_count; ++byte_index)
+            {
+                destination[byte_index] = static_cast<char>(bytes[byte_index]);
+            }
+            return io::IoResult::ready(byte_count);
+        }
+        catch (const std::invalid_argument&)
+        {
+            return io::IoResult::invalid_argument();
+        }
+        catch (const std::out_of_range&)
+        {
+            return io::IoResult::bad_descriptor();
+        }
+        catch (const std::logic_error&)
+        {
+            return io::IoResult::bad_descriptor();
+        }
     }
     case io::FileDeviceKind::COUNT:
     default:
@@ -463,7 +530,7 @@ io::IoResult Kernel::write_fd(
     const std::string_view text)
 {
     this->require_stage13_services();
-    const io::FileDescriptorEntry* const entry = process.file_descriptors().find(descriptor);
+    io::FileDescriptorEntry* const entry = process.file_descriptors().find_mutable(descriptor);
     if (entry == nullptr || !entry->writable())
     {
         return io::IoResult::bad_descriptor();
@@ -474,10 +541,68 @@ io::IoResult Kernel::write_fd(
     case io::FileDeviceKind::TTY:
         this->console_write(text);
         return io::IoResult::ready(text.size());
+    case io::FileDeviceKind::VFS_FILE:
+    {
+        try
+        {
+            std::vector<cpu::Byte> bytes;
+            bytes.reserve(text.size());
+            for (const char character : text)
+            {
+                bytes.push_back(static_cast<cpu::Byte>(static_cast<unsigned char>(character)));
+            }
+            return io::IoResult::ready(entry->description().vfs_file().write(bytes));
+        }
+        catch (const std::length_error&)
+        {
+            return io::IoResult::no_space();
+        }
+        catch (const std::invalid_argument&)
+        {
+            return io::IoResult::invalid_argument();
+        }
+        catch (const std::out_of_range&)
+        {
+            return io::IoResult::bad_descriptor();
+        }
+        catch (const std::logic_error&)
+        {
+            return io::IoResult::bad_descriptor();
+        }
+    }
     case io::FileDeviceKind::COUNT:
     default:
         return io::IoResult::bad_descriptor();
     }
+}
+
+io::FileDescriptor Kernel::open_file(
+    proc::Process& process,
+    const std::string_view path,
+    const io::FileAccessMode access_mode,
+    const bool create_if_missing)
+{
+    this->require_stage15_services();
+    const fs::VfsOpenMode mode = kernel_vfs_mode_from_access_mode(access_mode);
+    if (mode == fs::VfsOpenMode::COUNT)
+    {
+        throw std::invalid_argument{KERNEL_INVALID_FILE_OPEN_MODE_MESSAGE};
+    }
+
+    const std::optional<fs::VfsNode> node = this->vfs_.value().lookup(path);
+    if (!node.has_value() && create_if_missing)
+    {
+        static_cast<void>(this->vfs_.value().create_file(path));
+    }
+
+    fs::VfsFile file = this->vfs_.value().open_file(path, mode);
+    return process.file_descriptors().open_vfs_file(std::move(file));
+}
+
+bool Kernel::close_fd(proc::Process& process, const io::FileDescriptor descriptor)
+{
+    this->require_stage13_services();
+    return process.file_descriptors().close(descriptor);
 }
 
 sched::SchedulerTick Kernel::scheduler_tick_count() const noexcept
@@ -840,6 +965,15 @@ void Kernel::require_stage13_services() const
     }
 }
 
+void Kernel::require_stage15_services() const
+{
+    this->require_booted();
+    if (!this->has_stage15_services())
+    {
+        throw std::logic_error{KERNEL_STAGE15_NOT_READY_MESSAGE};
+    }
+}
+
 void Kernel::configure_stage7_services()
 {
     this->apic_system_.emplace(this->boot_context_->machine().core_topology());
@@ -857,6 +991,22 @@ void Kernel::configure_stage7_services()
 void Kernel::configure_stage9_services()
 {
     this->smp_scheduler_.emplace(this->boot_context_->machine().core_topology());
+}
+
+void Kernel::configure_stage15_services()
+{
+    this->root_block_device_.emplace(
+        block::BlockDeviceGeometry{
+            block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES,
+            KERNEL_STAGE15_ROOT_BLOCK_COUNT});
+    this->root_buffer_cache_.emplace(
+        this->root_block_device_.value(),
+        KERNEL_STAGE15_BUFFER_CACHE_BLOCKS);
+    fs::SimpleFileSystem::format(
+        this->root_buffer_cache_.value(),
+        fs::SimpleFsFormatOptions{KERNEL_STAGE15_ROOT_INODE_COUNT});
+    this->root_file_system_.emplace(this->root_buffer_cache_.value());
+    this->vfs_.emplace(this->root_file_system_.value());
 }
 
 void Kernel::validate_ipi_route(

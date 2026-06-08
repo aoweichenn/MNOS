@@ -53,16 +53,23 @@ TEST(Stage13IoShellTest, FileDescriptorValueObjectAndStandardEntriesAreExplicit)
         io::FileAccessMode::READ_WRITE};
     EXPECT_TRUE(rw_entry.readable());
     EXPECT_TRUE(rw_entry.writable());
+    EXPECT_THROW(
+        static_cast<void>(io::FileDescriptorEntry{
+            io::FileDescriptor{4},
+            io::FileDeviceKind::VFS_FILE,
+            io::FileAccessMode::READ_WRITE}),
+        std::invalid_argument);
 }
 
 TEST(Stage13IoShellTest, FileDescriptorTableDefaultsToTtyStdio)
 {
-    const io::FileDescriptorTable table;
+    io::FileDescriptorTable table;
 
     EXPECT_THAT(table.size(), Eq(io::FILE_DESCRIPTOR_STANDARD_STREAM_COUNT));
     ASSERT_NE(table.find(io::FileDescriptor::stdin()), nullptr);
     ASSERT_NE(table.find(io::FileDescriptor::stdout()), nullptr);
     ASSERT_NE(table.find(io::FileDescriptor::stderr()), nullptr);
+    ASSERT_NE(table.find_mutable(io::FileDescriptor::stdin()), nullptr);
     EXPECT_TRUE(table.contains(io::FileDescriptor::stdin()));
     EXPECT_FALSE(table.contains(io::FileDescriptor{99}));
     EXPECT_TRUE(table.readable(io::FileDescriptor::stdin()));
@@ -72,6 +79,32 @@ TEST(Stage13IoShellTest, FileDescriptorTableDefaultsToTtyStdio)
     EXPECT_FALSE(table.readable(io::FileDescriptor::stderr()));
     EXPECT_TRUE(table.writable(io::FileDescriptor::stderr()));
     EXPECT_EQ(table.find(io::FileDescriptor::invalid()), nullptr);
+    EXPECT_EQ(table.find_mutable(io::FileDescriptor{99}), nullptr);
+    EXPECT_FALSE(table.close(io::FileDescriptor{99}));
+}
+
+TEST(Stage13IoShellTest, OpenFileDescriptionAndEmptyEntriesRejectMissingPayloads)
+{
+    io::OpenFileDescription tty = io::OpenFileDescription::tty(io::FileAccessMode::READ_WRITE);
+    EXPECT_THAT(tty.device_kind(), Eq(io::FileDeviceKind::TTY));
+    EXPECT_THAT(tty.access_mode(), Eq(io::FileAccessMode::READ_WRITE));
+    EXPECT_TRUE(tty.readable());
+    EXPECT_TRUE(tty.writable());
+    EXPECT_FALSE(tty.has_vfs_file());
+    EXPECT_THROW(static_cast<void>(tty.vfs_file()), std::logic_error);
+    const io::OpenFileDescription& const_tty = tty;
+    EXPECT_THROW(static_cast<void>(const_tty.vfs_file()), std::logic_error);
+
+    io::FileDescriptorEntry empty_entry;
+    EXPECT_THAT(empty_entry.descriptor(), Eq(io::FileDescriptor::invalid()));
+    EXPECT_THAT(empty_entry.device_kind(), Eq(io::FileDeviceKind::COUNT));
+    EXPECT_THAT(empty_entry.access_mode(), Eq(io::FileAccessMode::COUNT));
+    EXPECT_FALSE(empty_entry.readable());
+    EXPECT_FALSE(empty_entry.writable());
+    EXPECT_FALSE(empty_entry.has_description());
+    EXPECT_THROW(static_cast<void>(empty_entry.description()), std::logic_error);
+    const io::FileDescriptorEntry& const_entry = empty_entry;
+    EXPECT_THROW(static_cast<void>(const_entry.description()), std::logic_error);
 }
 
 TEST(Stage13IoShellTest, FileDescriptorRawConversionRejectsOverflow)
@@ -99,6 +132,7 @@ TEST(Stage13IoShellTest, IoResultCarriesStatusAndByteCount)
     EXPECT_THAT(io::IoResult::bad_descriptor().status(), Eq(io::IoStatus::BAD_DESCRIPTOR));
     EXPECT_THAT(io::IoResult::bad_address().status(), Eq(io::IoStatus::BAD_ADDRESS));
     EXPECT_THAT(io::IoResult::invalid_argument().status(), Eq(io::IoStatus::INVALID_ARGUMENT));
+    EXPECT_THAT(io::IoResult::no_space().status(), Eq(io::IoStatus::NO_SPACE));
 }
 
 TEST(Stage13IoShellTest, ShellParserHandlesWhitespaceQuotesAndEscapes)
@@ -163,7 +197,7 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
 {
     const shell::ShellBuiltinRegistry registry;
 
-    EXPECT_THAT(registry.size(), Eq(std::size_t{8}));
+    EXPECT_THAT(registry.size(), Eq(std::size_t{13}));
     EXPECT_TRUE(registry.contains("help"));
     EXPECT_TRUE(registry.contains("clear"));
     EXPECT_TRUE(registry.contains("echo"));
@@ -171,6 +205,11 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
     EXPECT_TRUE(registry.contains("mem"));
     EXPECT_TRUE(registry.contains("cpu"));
     EXPECT_TRUE(registry.contains("ticks"));
+    EXPECT_TRUE(registry.contains("ls"));
+    EXPECT_TRUE(registry.contains("cat"));
+    EXPECT_TRUE(registry.contains("touch"));
+    EXPECT_TRUE(registry.contains("write"));
+    EXPECT_TRUE(registry.contains("stat"));
     EXPECT_TRUE(registry.contains("exit"));
     EXPECT_FALSE(registry.contains("missing"));
     EXPECT_THAT(registry.name_at(std::size_t{0}), Eq(std::string_view{"help"}));

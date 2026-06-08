@@ -1,9 +1,13 @@
 #pragma once
 
-#include <array>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <optional>
+#include <vector>
+
+#include <mnos/os/fs/vfs.hpp>
 
 namespace mnos::os::io
 {
@@ -16,6 +20,7 @@ inline constexpr std::size_t FILE_DESCRIPTOR_STANDARD_STREAM_COUNT = std::size_t
 enum class FileDeviceKind : std::uint8_t
 {
     TTY,
+    VFS_FILE,
     COUNT
 };
 
@@ -34,8 +39,11 @@ enum class IoStatus : std::uint8_t
     BAD_DESCRIPTOR,
     BAD_ADDRESS,
     INVALID_ARGUMENT,
+    NO_SPACE,
     COUNT
 };
+
+class OpenFileDescription;
 
 class FileDescriptor final
 {
@@ -91,46 +99,25 @@ private:
 class FileDescriptorEntry final
 {
 public:
-    constexpr FileDescriptorEntry() noexcept = default;
-    constexpr FileDescriptorEntry(
+    FileDescriptorEntry() noexcept = default;
+    FileDescriptorEntry(
         FileDescriptor descriptor,
         FileDeviceKind device_kind,
-        FileAccessMode access_mode) noexcept :
-        descriptor_(descriptor),
-        device_kind_(device_kind),
-        access_mode_(access_mode)
-    {
-    }
+        FileAccessMode access_mode);
+    FileDescriptorEntry(FileDescriptor descriptor, std::shared_ptr<class OpenFileDescription> description);
 
-    [[nodiscard]] constexpr FileDescriptor descriptor() const noexcept
-    {
-        return this->descriptor_;
-    }
-
-    [[nodiscard]] constexpr FileDeviceKind device_kind() const noexcept
-    {
-        return this->device_kind_;
-    }
-
-    [[nodiscard]] constexpr FileAccessMode access_mode() const noexcept
-    {
-        return this->access_mode_;
-    }
-
-    [[nodiscard]] constexpr bool readable() const noexcept
-    {
-        return this->access_mode_ == FileAccessMode::READ_ONLY || this->access_mode_ == FileAccessMode::READ_WRITE;
-    }
-
-    [[nodiscard]] constexpr bool writable() const noexcept
-    {
-        return this->access_mode_ == FileAccessMode::WRITE_ONLY || this->access_mode_ == FileAccessMode::READ_WRITE;
-    }
+    [[nodiscard]] FileDescriptor descriptor() const noexcept;
+    [[nodiscard]] FileDeviceKind device_kind() const noexcept;
+    [[nodiscard]] FileAccessMode access_mode() const noexcept;
+    [[nodiscard]] bool readable() const noexcept;
+    [[nodiscard]] bool writable() const noexcept;
+    [[nodiscard]] bool has_description() const noexcept;
+    [[nodiscard]] OpenFileDescription& description();
+    [[nodiscard]] const OpenFileDescription& description() const;
 
 private:
     FileDescriptor descriptor_ = FileDescriptor::invalid();
-    FileDeviceKind device_kind_ = FileDeviceKind::COUNT;
-    FileAccessMode access_mode_ = FileAccessMode::COUNT;
+    std::shared_ptr<OpenFileDescription> description_;
 };
 
 class IoResult final
@@ -141,6 +128,7 @@ public:
     [[nodiscard]] static IoResult bad_descriptor() noexcept;
     [[nodiscard]] static IoResult bad_address() noexcept;
     [[nodiscard]] static IoResult invalid_argument() noexcept;
+    [[nodiscard]] static IoResult no_space() noexcept;
 
     [[nodiscard]] IoStatus status() const noexcept;
     [[nodiscard]] std::size_t byte_count() const noexcept;
@@ -157,16 +145,43 @@ private:
 class FileDescriptorTable final
 {
 public:
-    FileDescriptorTable() noexcept;
+    FileDescriptorTable();
 
     [[nodiscard]] const FileDescriptorEntry* find(FileDescriptor descriptor) const noexcept;
+    [[nodiscard]] FileDescriptorEntry* find_mutable(FileDescriptor descriptor) noexcept;
     [[nodiscard]] bool contains(FileDescriptor descriptor) const noexcept;
     [[nodiscard]] bool readable(FileDescriptor descriptor) const noexcept;
     [[nodiscard]] bool writable(FileDescriptor descriptor) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] FileDescriptor open_vfs_file(fs::VfsFile file);
+    [[nodiscard]] bool close(FileDescriptor descriptor) noexcept;
 
 private:
-    std::array<FileDescriptorEntry, FILE_DESCRIPTOR_STANDARD_STREAM_COUNT> entries_;
+    [[nodiscard]] FileDescriptor next_available_descriptor() const;
+
+    std::vector<FileDescriptorEntry> entries_;
+};
+
+class OpenFileDescription final
+{
+public:
+    [[nodiscard]] static OpenFileDescription tty(FileAccessMode access_mode) noexcept;
+    [[nodiscard]] static OpenFileDescription vfs_file(fs::VfsFile file);
+
+    [[nodiscard]] FileDeviceKind device_kind() const noexcept;
+    [[nodiscard]] FileAccessMode access_mode() const noexcept;
+    [[nodiscard]] bool readable() const noexcept;
+    [[nodiscard]] bool writable() const noexcept;
+    [[nodiscard]] bool has_vfs_file() const noexcept;
+    [[nodiscard]] fs::VfsFile& vfs_file();
+    [[nodiscard]] const fs::VfsFile& vfs_file() const;
+
+private:
+    OpenFileDescription(FileDeviceKind device_kind, FileAccessMode access_mode) noexcept;
+
+    FileDeviceKind device_kind_ = FileDeviceKind::COUNT;
+    FileAccessMode access_mode_ = FileAccessMode::COUNT;
+    std::optional<fs::VfsFile> vfs_file_;
 };
 
 [[nodiscard]] FileDescriptor file_descriptor_from_raw(std::uint64_t raw_value) noexcept;

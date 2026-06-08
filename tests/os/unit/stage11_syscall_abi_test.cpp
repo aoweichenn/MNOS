@@ -40,21 +40,33 @@ TEST(Stage11SyscallAbiTest, MapsExpandedSyscallCatalog)
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::FUTEX_WAKE_ALL));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READ));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::WRITE));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::OPEN));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::CLOSE));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::STAT));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READDIR));
     EXPECT_FALSE(kernel::is_syscall_number_valid(kernel::SyscallNumber::COUNT));
 
     EXPECT_THAT(kernel::syscall_number_to_index(kernel::SyscallNumber::MAP_ANON_PAGE), Eq(std::size_t{3}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::FUTEX_WAKE_ALL), Eq(std::string_view{"FUTEX_WAKE_ALL"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READ), Eq(std::string_view{"READ"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::WRITE), Eq(std::string_view{"WRITE"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::OPEN), Eq(std::string_view{"OPEN"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READDIR), Eq(std::string_view{"READDIR"}));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{7}), Eq(kernel::SyscallNumber::FUTEX_WAKE_ALL));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{8}), Eq(kernel::SyscallNumber::READ));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{9}), Eq(kernel::SyscallNumber::WRITE));
-    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::COUNT));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::OPEN));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{13}), Eq(kernel::SyscallNumber::READDIR));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{14}), Eq(kernel::SyscallNumber::COUNT));
     EXPECT_THAT(kernel::syscall_argument_to_index(kernel::SyscallArgument::ARG5), Eq(std::size_t{5}));
     EXPECT_THAT(kernel::SYSCALL_UNSUPPORTED_RESULT, Eq(kernel::syscall_error_result(kernel::SyscallError::NO_SYS)));
     EXPECT_THAT(
         kernel::syscall_error_result(kernel::SyscallError::BAD_FILE_DESCRIPTOR),
         Eq(static_cast<cpu::Qword>(-9)));
+    EXPECT_THAT(kernel::syscall_error_result(kernel::SyscallError::NO_ENTRY), Eq(static_cast<cpu::Qword>(-2)));
+    EXPECT_THAT(kernel::syscall_error_result(kernel::SyscallError::NO_SPACE), Eq(static_cast<cpu::Qword>(-28)));
+    EXPECT_THAT(kernel::SYSCALL_STAT_RECORD_SIZE_BYTES, Eq(std::size_t{24}));
+    EXPECT_THAT(kernel::SYSCALL_DIRENT_RECORD_SIZE_BYTES, Eq(std::size_t{80}));
 }
 
 TEST(Stage11SyscallAbiTest, ReadsX8664ArgumentRegistersAndWritesRaxResult)

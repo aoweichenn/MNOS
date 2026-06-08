@@ -69,15 +69,21 @@ TEST(SyscallTest, MapsNumbersAndNames)
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::EXIT));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READ));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::WRITE));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::OPEN));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READDIR));
     EXPECT_FALSE(kernel::is_syscall_number_valid(kernel::SyscallNumber::COUNT));
     EXPECT_THAT(kernel::syscall_number_to_index(kernel::SyscallNumber::EXIT), Eq(std::size_t{1}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::YIELD), Eq(std::string_view{"YIELD"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READ), Eq(std::string_view{"READ"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::WRITE), Eq(std::string_view{"WRITE"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::OPEN), Eq(std::string_view{"OPEN"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READDIR), Eq(std::string_view{"READDIR"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::COUNT), Eq(std::string_view{"<invalid>"}));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{0}), Eq(kernel::SyscallNumber::YIELD));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{9}), Eq(kernel::SyscallNumber::WRITE));
-    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::COUNT));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::OPEN));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{13}), Eq(kernel::SyscallNumber::READDIR));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{14}), Eq(kernel::SyscallNumber::COUNT));
 }
 
 TEST(RoundRobinSchedulerTest, SchedulesBlocksWakesAndExitsThreads)

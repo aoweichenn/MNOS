@@ -1,7 +1,11 @@
+#include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
+#include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -14,7 +18,20 @@
 
 namespace
 {
+static_assert(
+    mnos::os::kernel::SYSCALL_DIRENT_NAME_BYTES == mnos::os::fs::SIMPLE_FS_MAX_NAME_LENGTH,
+    "syscall dirent ABI must match the VFS name capacity");
+
 constexpr const char* KERNEL_STAGE11_NOT_READY_MESSAGE = "kernel stage11 services are not initialized";
+constexpr std::size_t SYSCALL_STAT_KIND_OFFSET = std::size_t{0};
+constexpr std::size_t SYSCALL_STAT_SIZE_OFFSET = std::size_t{8};
+constexpr std::size_t SYSCALL_STAT_INODE_OFFSET = std::size_t{16};
+constexpr std::size_t SYSCALL_DIRENT_KIND_OFFSET = std::size_t{0};
+constexpr std::size_t SYSCALL_DIRENT_INODE_OFFSET = std::size_t{8};
+constexpr std::size_t SYSCALL_DIRENT_NAME_LENGTH_OFFSET = std::size_t{16};
+constexpr std::size_t SYSCALL_DIRENT_NAME_OFFSET = std::size_t{24};
+constexpr std::size_t SYSCALL_BITS_PER_BYTE = std::size_t{8};
+constexpr char SYSCALL_PATH_NUL = '\0';
 
 [[nodiscard]] bool is_pending_user_syscall(const mnos::cpu::CpuState& cpu_state) noexcept
 {
@@ -77,9 +94,71 @@ constexpr const char* KERNEL_STAGE11_NOT_READY_MESSAGE = "kernel stage11 service
     return static_cast<std::size_t>(raw_byte_count);
 }
 
+[[nodiscard]] bool syscall_path_size_is_valid(const mnos::cpu::Qword raw_byte_count) noexcept
+{
+    return raw_byte_count > mnos::cpu::Qword{0} &&
+        raw_byte_count <= static_cast<mnos::cpu::Qword>(mnos::os::kernel::SYSCALL_PATH_MAX_BYTES) &&
+        raw_byte_count <= static_cast<mnos::cpu::Qword>(std::numeric_limits<std::size_t>::max());
+}
+
+[[nodiscard]] std::size_t syscall_path_size(const mnos::cpu::Qword raw_byte_count) noexcept
+{
+    return static_cast<std::size_t>(raw_byte_count);
+}
+
 [[nodiscard]] mnos::os::io::FileDescriptor syscall_file_descriptor(const mnos::cpu::Qword raw_descriptor) noexcept
 {
     return mnos::os::io::file_descriptor_from_raw(static_cast<std::uint64_t>(raw_descriptor));
+}
+
+[[nodiscard]] bool syscall_open_flags_are_valid(const mnos::cpu::Qword raw_flags) noexcept
+{
+    const std::uint64_t flags = static_cast<std::uint64_t>(raw_flags);
+    const bool has_unknown_flags = (flags & ~mnos::os::kernel::SYSCALL_OPEN_FLAG_VALID_MASK) != std::uint64_t{0};
+    const bool requests_read = (flags & mnos::os::kernel::SYSCALL_OPEN_FLAG_READ) != std::uint64_t{0};
+    const bool requests_write = (flags & mnos::os::kernel::SYSCALL_OPEN_FLAG_WRITE) != std::uint64_t{0};
+    return !has_unknown_flags && (requests_read || requests_write);
+}
+
+[[nodiscard]] mnos::os::io::FileAccessMode syscall_open_access_mode(
+    const mnos::cpu::Qword raw_flags) noexcept
+{
+    const std::uint64_t flags = static_cast<std::uint64_t>(raw_flags);
+    const bool requests_read = (flags & mnos::os::kernel::SYSCALL_OPEN_FLAG_READ) != std::uint64_t{0};
+    const bool requests_write = (flags & mnos::os::kernel::SYSCALL_OPEN_FLAG_WRITE) != std::uint64_t{0};
+    if (requests_read && requests_write)
+    {
+        return mnos::os::io::FileAccessMode::READ_WRITE;
+    }
+    if (requests_read)
+    {
+        return mnos::os::io::FileAccessMode::READ_ONLY;
+    }
+    if (requests_write)
+    {
+        return mnos::os::io::FileAccessMode::WRITE_ONLY;
+    }
+    return mnos::os::io::FileAccessMode::COUNT;
+}
+
+[[nodiscard]] bool syscall_open_create_requested(const mnos::cpu::Qword raw_flags) noexcept
+{
+    const std::uint64_t flags = static_cast<std::uint64_t>(raw_flags);
+    return (flags & mnos::os::kernel::SYSCALL_OPEN_FLAG_CREATE) != std::uint64_t{0};
+}
+
+[[nodiscard]] std::uint64_t syscall_file_kind_value(const mnos::os::fs::SimpleFsNodeKind kind) noexcept
+{
+    switch (kind)
+    {
+    case mnos::os::fs::SimpleFsNodeKind::FILE:
+        return mnos::os::kernel::SYSCALL_FILE_KIND_FILE;
+    case mnos::os::fs::SimpleFsNodeKind::DIRECTORY:
+        return mnos::os::kernel::SYSCALL_FILE_KIND_DIRECTORY;
+    case mnos::os::fs::SimpleFsNodeKind::COUNT:
+        break;
+    }
+    return std::uint64_t{0};
 }
 
 [[nodiscard]] bool is_valid_user_io_range(
@@ -148,6 +227,40 @@ void write_user_bytes(
     }
 }
 
+void write_u64_le(std::span<char> bytes, const std::size_t offset, const std::uint64_t value) noexcept
+{
+    for (std::size_t byte_index = std::size_t{0}; byte_index < sizeof(std::uint64_t); ++byte_index)
+    {
+        bytes[offset + byte_index] = static_cast<char>(
+            static_cast<unsigned char>(
+                value >> static_cast<unsigned>(byte_index * SYSCALL_BITS_PER_BYTE)));
+    }
+}
+
+[[nodiscard]] std::array<char, mnos::os::kernel::SYSCALL_STAT_RECORD_SIZE_BYTES> serialize_stat_record(
+    const mnos::os::fs::VfsNode& node) noexcept
+{
+    std::array<char, mnos::os::kernel::SYSCALL_STAT_RECORD_SIZE_BYTES> record{};
+    write_u64_le(record, SYSCALL_STAT_KIND_OFFSET, syscall_file_kind_value(node.kind()));
+    write_u64_le(record, SYSCALL_STAT_SIZE_OFFSET, node.size_bytes());
+    write_u64_le(record, SYSCALL_STAT_INODE_OFFSET, node.inode().value());
+    return record;
+}
+
+[[nodiscard]] std::array<char, mnos::os::kernel::SYSCALL_DIRENT_RECORD_SIZE_BYTES> serialize_dirent_record(
+    const mnos::os::fs::SimpleFsDirectoryEntry& entry) noexcept
+{
+    std::array<char, mnos::os::kernel::SYSCALL_DIRENT_RECORD_SIZE_BYTES> record{};
+    write_u64_le(record, SYSCALL_DIRENT_KIND_OFFSET, syscall_file_kind_value(entry.kind()));
+    write_u64_le(record, SYSCALL_DIRENT_INODE_OFFSET, entry.inode().value());
+    write_u64_le(record, SYSCALL_DIRENT_NAME_LENGTH_OFFSET, static_cast<std::uint64_t>(entry.name().size()));
+    for (std::size_t char_index = std::size_t{0}; char_index < entry.name().size(); ++char_index)
+    {
+        record[SYSCALL_DIRENT_NAME_OFFSET + char_index] = entry.name()[char_index];
+    }
+    return record;
+}
+
 void finish_syscall_success(mnos::os::kernel::SyscallFrame& frame, const mnos::cpu::Qword value) noexcept
 {
     frame.set_result(value);
@@ -160,6 +273,138 @@ void finish_syscall_success(mnos::os::kernel::SyscallFrame& frame, const mnos::c
 {
     frame.set_error(error);
     return result;
+}
+
+[[nodiscard]] mnos::os::kernel::SyscallResult read_syscall_path(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    mnos::os::kernel::SyscallFrame& frame,
+    const mnos::os::mm::VirtualAddress path_address,
+    const std::size_t path_byte_count,
+    std::string& path)
+{
+    if (!is_valid_user_io_range(path_address, path_byte_count))
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
+
+    try
+    {
+        check_user_io_access(
+            process,
+            thread,
+            path_address,
+            path_byte_count,
+            mnos::cpu::memory::MemoryAccessKind::READ);
+        std::vector<char> bytes = read_user_bytes(process, thread, path_address, path_byte_count);
+        if (!bytes.empty() && bytes.back() == SYSCALL_PATH_NUL)
+        {
+            bytes.pop_back();
+        }
+        if (bytes.empty() || std::find(bytes.begin(), bytes.end(), SYSCALL_PATH_NUL) != bytes.end())
+        {
+            return finish_syscall_error(
+                frame,
+                mnos::os::kernel::SyscallError::INVALID_ARGUMENT,
+                mnos::os::kernel::SyscallResult::INVALID_ARGUMENT);
+        }
+        path.assign(bytes.begin(), bytes.end());
+        return mnos::os::kernel::SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::NO_MEMORY,
+            mnos::os::kernel::SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const mnos::cpu::memory::PageFault&)
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
+}
+
+[[nodiscard]] mnos::os::kernel::SyscallResult read_syscall_path_argument(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    mnos::os::kernel::SyscallFrame& frame,
+    const mnos::os::kernel::SyscallArgument address_argument,
+    const mnos::os::kernel::SyscallArgument size_argument,
+    std::string& path)
+{
+    const mnos::cpu::Qword raw_path_size = frame.argument(size_argument);
+    if (!syscall_path_size_is_valid(raw_path_size))
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::INVALID_ARGUMENT,
+            mnos::os::kernel::SyscallResult::INVALID_ARGUMENT);
+    }
+
+    return read_syscall_path(
+        process,
+        thread,
+        frame,
+        syscall_virtual_address(frame.argument(address_argument)),
+        syscall_path_size(raw_path_size),
+        path);
+}
+
+[[nodiscard]] mnos::os::kernel::SyscallResult check_user_output_buffer(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    mnos::os::kernel::SyscallFrame& frame,
+    const mnos::os::mm::VirtualAddress buffer_address,
+    const std::size_t byte_count)
+{
+    if (byte_count == std::size_t{0})
+    {
+        return mnos::os::kernel::SyscallResult::HANDLED;
+    }
+    if (!is_valid_user_io_range(buffer_address, byte_count))
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
+    try
+    {
+        check_user_io_access(
+            process,
+            thread,
+            buffer_address,
+            byte_count,
+            mnos::cpu::memory::MemoryAccessKind::WRITE);
+        return mnos::os::kernel::SyscallResult::HANDLED;
+    }
+    catch (const mnos::cpu::memory::PageFault&)
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    }
 }
 
 [[nodiscard]] mnos::os::kernel::SyscallResult finish_io_status_error(
@@ -183,6 +428,11 @@ void finish_syscall_success(mnos::os::kernel::SyscallFrame& frame, const mnos::c
             frame,
             mnos::os::kernel::SyscallError::INVALID_ARGUMENT,
             mnos::os::kernel::SyscallResult::INVALID_ARGUMENT);
+    case mnos::os::io::IoStatus::NO_SPACE:
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::NO_SPACE,
+            mnos::os::kernel::SyscallResult::NO_SPACE);
     case mnos::os::io::IoStatus::READY:
     case mnos::os::io::IoStatus::BLOCKED:
     case mnos::os::io::IoStatus::COUNT:
@@ -375,6 +625,14 @@ SyscallResult Kernel::dispatch_syscall_for_process(proc::Process* process, sched
         return this->dispatch_read(process, thread, frame);
     case SyscallNumber::WRITE:
         return this->dispatch_write(process, thread, frame);
+    case SyscallNumber::OPEN:
+        return this->dispatch_open(process, thread, frame);
+    case SyscallNumber::CLOSE:
+        return this->dispatch_close(process, frame);
+    case SyscallNumber::STAT:
+        return this->dispatch_stat(process, thread, frame);
+    case SyscallNumber::READDIR:
+        return this->dispatch_readdir(process, thread, frame);
     case SyscallNumber::COUNT:
         return finish_syscall_error(frame, SyscallError::NO_SYS, SyscallResult::UNSUPPORTED);
     }
@@ -711,6 +969,220 @@ SyscallResult Kernel::dispatch_write(
     catch (const std::out_of_range&)
     {
         return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+}
+
+SyscallResult Kernel::dispatch_open(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const cpu::Qword raw_flags = frame.argument(SyscallArgument::ARG2);
+    if (!syscall_open_flags_are_valid(raw_flags))
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+
+    std::string path;
+    const SyscallResult path_result =
+        read_syscall_path_argument(*process, thread, frame, SyscallArgument::ARG0, SyscallArgument::ARG1, path);
+    if (path_result != SyscallResult::HANDLED)
+    {
+        return path_result;
+    }
+
+    try
+    {
+        const std::optional<fs::VfsNode> node = this->vfs().lookup(path);
+        if (node.has_value() && node->is_directory())
+        {
+            return finish_syscall_error(frame, SyscallError::IS_DIRECTORY, SyscallResult::INVALID_ARGUMENT);
+        }
+
+        const io::FileDescriptor descriptor = this->open_file(
+            *process,
+            path,
+            syscall_open_access_mode(raw_flags),
+            syscall_open_create_requested(raw_flags));
+        finish_syscall_success(frame, static_cast<cpu::Qword>(descriptor.value()));
+        return SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_MEMORY, SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const std::length_error&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_SPACE, SyscallResult::NO_SPACE);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_ENTRY, SyscallResult::NOT_FOUND);
+    }
+    catch (const std::invalid_argument&)
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+}
+
+SyscallResult Kernel::dispatch_close(proc::Process* process, SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const io::FileDescriptor descriptor = syscall_file_descriptor(frame.argument(SyscallArgument::ARG0));
+    if (!this->close_fd(*process, descriptor))
+    {
+        return finish_syscall_error(frame, SyscallError::BAD_FILE_DESCRIPTOR, SyscallResult::BAD_DESCRIPTOR);
+    }
+
+    finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+    return SyscallResult::HANDLED;
+}
+
+SyscallResult Kernel::dispatch_stat(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    std::string path;
+    const SyscallResult path_result =
+        read_syscall_path_argument(*process, thread, frame, SyscallArgument::ARG0, SyscallArgument::ARG1, path);
+    if (path_result != SyscallResult::HANDLED)
+    {
+        return path_result;
+    }
+
+    const mm::VirtualAddress out_address = syscall_virtual_address(frame.argument(SyscallArgument::ARG2));
+    const SyscallResult output_result =
+        check_user_output_buffer(*process, thread, frame, out_address, SYSCALL_STAT_RECORD_SIZE_BYTES);
+    if (output_result != SyscallResult::HANDLED)
+    {
+        return output_result;
+    }
+
+    try
+    {
+        const std::optional<fs::VfsNode> node = this->vfs().lookup(path);
+        if (!node.has_value())
+        {
+            return finish_syscall_error(frame, SyscallError::NO_ENTRY, SyscallResult::NOT_FOUND);
+        }
+
+        const std::array<char, SYSCALL_STAT_RECORD_SIZE_BYTES> record = serialize_stat_record(node.value());
+        write_user_bytes(*process, thread, out_address, record);
+        finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+        return SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_MEMORY, SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const cpu::memory::PageFault&)
+    {
+        return finish_syscall_error(frame, SyscallError::BAD_ADDRESS, SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_syscall_error(frame, SyscallError::BAD_ADDRESS, SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::invalid_argument&)
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+}
+
+SyscallResult Kernel::dispatch_readdir(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const cpu::Qword raw_output_size = frame.argument(SyscallArgument::ARG3);
+    if (!syscall_transfer_size_is_valid(raw_output_size))
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+
+    std::string path;
+    const SyscallResult path_result =
+        read_syscall_path_argument(*process, thread, frame, SyscallArgument::ARG0, SyscallArgument::ARG1, path);
+    if (path_result != SyscallResult::HANDLED)
+    {
+        return path_result;
+    }
+
+    const std::size_t output_size = syscall_transfer_size(raw_output_size);
+    const mm::VirtualAddress out_address = syscall_virtual_address(frame.argument(SyscallArgument::ARG2));
+
+    try
+    {
+        const std::optional<fs::VfsNode> node = this->vfs().lookup(path);
+        if (!node.has_value())
+        {
+            return finish_syscall_error(frame, SyscallError::NO_ENTRY, SyscallResult::NOT_FOUND);
+        }
+        if (!node->is_directory())
+        {
+            return finish_syscall_error(frame, SyscallError::NOT_DIRECTORY, SyscallResult::INVALID_ARGUMENT);
+        }
+
+        const std::vector<fs::SimpleFsDirectoryEntry> entries = this->vfs().read_directory(path);
+        const std::size_t capacity = output_size / SYSCALL_DIRENT_RECORD_SIZE_BYTES;
+        const std::size_t record_count = std::min(capacity, entries.size());
+        const std::size_t byte_count = record_count * SYSCALL_DIRENT_RECORD_SIZE_BYTES;
+        const SyscallResult output_result = check_user_output_buffer(*process, thread, frame, out_address, byte_count);
+        if (output_result != SyscallResult::HANDLED)
+        {
+            return output_result;
+        }
+
+        std::vector<char> output(byte_count);
+        for (std::size_t record_index = std::size_t{0}; record_index < record_count; ++record_index)
+        {
+            const std::array<char, SYSCALL_DIRENT_RECORD_SIZE_BYTES> record =
+                serialize_dirent_record(entries[record_index]);
+            std::copy(
+                record.begin(),
+                record.end(),
+                output.begin() +
+                    static_cast<std::ptrdiff_t>(record_index * SYSCALL_DIRENT_RECORD_SIZE_BYTES));
+        }
+        write_user_bytes(*process, thread, out_address, output);
+        finish_syscall_success(frame, static_cast<cpu::Qword>(byte_count));
+        return SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_MEMORY, SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const cpu::memory::PageFault&)
+    {
+        return finish_syscall_error(frame, SyscallError::BAD_ADDRESS, SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_syscall_error(frame, SyscallError::BAD_ADDRESS, SyscallResult::BAD_ADDRESS);
+    }
+    catch (const std::invalid_argument&)
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
     }
 }
 

@@ -1,5 +1,7 @@
 #include <cstddef>
 #include <iostream>
+#include <string>
+#include <string_view>
 
 #include <mnos/cpu/decode/executable_image.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
@@ -28,6 +30,7 @@ constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_BASE = cpu::SignedQword{64}
 constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT = cpu::SignedQword{8};
 constexpr cpu::Address64 EMULATOR_BOOTSTRAP_STORED_ADDRESS =
     static_cast<cpu::Address64>(EMULATOR_BOOTSTRAP_MEMORY_BASE + EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT);
+constexpr std::string_view EMULATOR_STAGE15_FILE_TEXT = "file ready";
 }
 
 int main()
@@ -45,10 +48,20 @@ int main()
     static_cast<void>(os_kernel.submit_terminal_input("echo shell ready\n"));
     static_cast<void>(os_kernel.scheduler().schedule_next());
     const shell::ShellSessionStepResult shell_command_step = os_shell.poll();
+    static_cast<void>(os_kernel.submit_terminal_input("touch /hello\nwrite /hello file ready\ncat /hello\n"));
+    const shell::ShellSessionStepResult shell_touch_step = os_shell.poll();
+    const shell::ShellSessionStepResult shell_write_step = os_shell.poll();
+    const shell::ShellSessionStepResult shell_cat_step = os_shell.poll();
     const bool shell_loop_ready =
         shell_initial_step.status() == shell::ShellSessionStepStatus::BLOCKED &&
         shell_command_step.status() == shell::ShellSessionStepStatus::COMMAND &&
         shell_command_step.command_status() == shell::ShellCommandStatus::HANDLED;
+    const bool shell_file_ready =
+        shell_touch_step.status() == shell::ShellSessionStepStatus::COMMAND &&
+        shell_write_step.status() == shell::ShellSessionStepStatus::COMMAND &&
+        shell_cat_step.status() == shell::ShellSessionStepStatus::COMMAND &&
+        shell_cat_step.command_status() == shell::ShellCommandStatus::HANDLED &&
+        machine.terminal_device().display().render_text().find(EMULATOR_STAGE15_FILE_TEXT) != std::string::npos;
 
     const cpu::ExecutableImage bootstrap_image{
         0x48, 0xBD, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 64
@@ -74,6 +87,7 @@ int main()
               << ", stage12=" << (os_kernel.has_stage12_services() ? "ready" : "not-ready")
               << ", stage13=" << (os_kernel.has_stage13_services() ? "ready" : "not-ready")
               << ", stage14=" << (shell_loop_ready ? "ready" : "not-ready")
+              << ", stage15=" << (os_kernel.has_stage15_services() && shell_file_ready ? "ready" : "not-ready")
               << ", shell_initial=" << shell::shell_session_step_status_to_name(shell_initial_step.status())
               << ", shell_step=" << shell::shell_session_step_status_to_name(shell_command_step.status())
               << ", shell_running=" << (os_shell.running() ? "true" : "false")
