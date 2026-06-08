@@ -260,9 +260,10 @@ Stage 15D 当前语义：
 ```text
 TerminalRunner            宿主机终端 adapter，读取 host stdin，提交到 Kernel::submit_terminal_input
 Shell drive loop          复用 ShellSession::poll，驱动 prompt、blocking read、命令执行和 exit
-Screen renderer           将 TextDisplayBuffer 作为 80x25 文本屏幕渲染到 host stdout
-mnos_console              可直接运行的交互入口，默认 ANSI screen，--plain 便于 pipe/测试输出
-Host tests                用 istringstream/ostringstream 覆盖 help、文件命令和 EOF without exit
+Stream renderer           消费 TerminalDevice 增量输出流，默认不重复重放历史屏幕
+Screen renderer           保留 TextDisplayBuffer 80x25 快照渲染，作为显式 screen 调试模式
+mnos_console              可直接运行的交互入口，默认 ANSI stream，--plain 便于 pipe/测试输出
+Host tests                用 istringstream/ostringstream 覆盖 help、文件命令、EOF 和 replay 回归
 ```
 
 Stage 3 当前语义：

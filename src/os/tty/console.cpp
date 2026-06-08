@@ -82,7 +82,7 @@ std::size_t Console::waiting_reader_count() const noexcept
 
 void Console::clear()
 {
-    this->terminal_->display().clear();
+    this->terminal_->clear_display();
     this->terminal_->keyboard().clear();
     this->current_line_.clear();
     this->ready_input_.clear();

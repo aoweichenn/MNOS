@@ -27,6 +27,7 @@ namespace
 {
 constexpr std::string_view HOST_TERMINAL_ANSI_CLEAR_SCREEN = "\x1B[2J";
 constexpr std::string_view HOST_TERMINAL_ANSI_CURSOR_HOME = "\x1B[H";
+constexpr std::string_view HOST_TERMINAL_BACKSPACE_ERASE = "\b \b";
 constexpr char HOST_TERMINAL_NEWLINE_CHARACTER = '\n';
 constexpr char HOST_TERMINAL_CARRIAGE_RETURN_CHARACTER = '\r';
 constexpr char HOST_TERMINAL_BLANK_CHARACTER = ' ';
@@ -47,6 +48,18 @@ struct ShellDriveResult final
     std::size_t poll_count;
     std::size_t render_count;
 };
+
+[[nodiscard]] bool terminal_render_mode_is_screen(const mnos::host::TerminalRenderMode mode) noexcept
+{
+    return mode == mnos::host::TerminalRenderMode::ANSI_SCREEN ||
+        mode == mnos::host::TerminalRenderMode::PLAIN_SCREEN;
+}
+
+[[nodiscard]] bool terminal_render_mode_uses_ansi(const mnos::host::TerminalRenderMode mode) noexcept
+{
+    return mode == mnos::host::TerminalRenderMode::ANSI_STREAM ||
+        mode == mnos::host::TerminalRenderMode::ANSI_SCREEN;
+}
 
 [[nodiscard]] std::size_t trimmed_line_size(
     const std::string_view line,
@@ -103,6 +116,73 @@ struct ShellDriveResult final
     return rendered;
 }
 
+[[nodiscard]] std::string render_output_stream_for_host(
+    const std::string_view output_stream,
+    const mnos::host::TerminalRenderMode mode)
+{
+    std::string rendered;
+    rendered.reserve(output_stream.size());
+    for (const char character : output_stream)
+    {
+        if (character == dev::TERMINAL_CLEAR_SCREEN_CHARACTER)
+        {
+            if (terminal_render_mode_uses_ansi(mode))
+            {
+                rendered.append(HOST_TERMINAL_ANSI_CLEAR_SCREEN);
+                rendered.append(HOST_TERMINAL_ANSI_CURSOR_HOME);
+            }
+            continue;
+        }
+        if (character == dev::TERMINAL_BACKSPACE_CHARACTER || character == dev::TERMINAL_DELETE_CHARACTER)
+        {
+            rendered.append(HOST_TERMINAL_BACKSPACE_ERASE);
+            continue;
+        }
+        rendered.push_back(character);
+    }
+    return rendered;
+}
+
+class TerminalStreamRenderer final
+{
+public:
+    explicit TerminalStreamRenderer(const mnos::host::TerminalRenderMode mode) noexcept : mode_(mode)
+    {
+    }
+
+    [[nodiscard]] bool render_if_changed(dev::TerminalDevice& terminal, std::ostream& output)
+    {
+        const std::string_view pending_output = terminal.output_stream_since(std::size_t{0});
+        if (pending_output.empty())
+        {
+            return true;
+        }
+
+        const std::string rendered = render_output_stream_for_host(pending_output, this->mode_);
+        if (!rendered.empty())
+        {
+            output << rendered;
+            output.flush();
+            if (!output.good())
+            {
+                return false;
+            }
+            ++this->render_count_;
+        }
+        terminal.discard_output_stream_before(pending_output.size());
+        return true;
+    }
+
+    [[nodiscard]] std::size_t render_count() const noexcept
+    {
+        return this->render_count_;
+    }
+
+private:
+    mnos::host::TerminalRenderMode mode_;
+    std::size_t render_count_ = std::size_t{0};
+};
+
 class TerminalScreenRenderer final
 {
 public:
@@ -119,7 +199,7 @@ public:
         }
 
         this->last_frame_ = rendered;
-        if (this->mode_ == mnos::host::TerminalRenderMode::ANSI_SCREEN)
+        if (terminal_render_mode_uses_ansi(this->mode_))
         {
             output << HOST_TERMINAL_ANSI_CLEAR_SCREEN << HOST_TERMINAL_ANSI_CURSOR_HOME << rendered;
             output.flush();
@@ -149,6 +229,40 @@ private:
     std::size_t render_count_ = std::size_t{0};
 };
 
+class TerminalHostRenderer final
+{
+public:
+    explicit TerminalHostRenderer(const mnos::host::TerminalRenderMode mode) noexcept :
+        mode_(mode),
+        stream_renderer_(mode),
+        screen_renderer_(mode)
+    {
+    }
+
+    [[nodiscard]] bool render_if_changed(dev::TerminalDevice& terminal, std::ostream& output)
+    {
+        if (terminal_render_mode_is_screen(this->mode_))
+        {
+            return this->screen_renderer_.render_if_changed(terminal.display(), output);
+        }
+        return this->stream_renderer_.render_if_changed(terminal, output);
+    }
+
+    [[nodiscard]] std::size_t render_count() const noexcept
+    {
+        if (terminal_render_mode_is_screen(this->mode_))
+        {
+            return this->screen_renderer_.render_count();
+        }
+        return this->stream_renderer_.render_count();
+    }
+
+private:
+    mnos::host::TerminalRenderMode mode_;
+    TerminalStreamRenderer stream_renderer_;
+    TerminalScreenRenderer screen_renderer_;
+};
+
 [[nodiscard]] bool shell_step_executed_command(const shell::ShellSessionStepResult& step) noexcept
 {
     return step.status() == shell::ShellSessionStepStatus::COMMAND ||
@@ -160,7 +274,7 @@ private:
     const mnos::os::io::IoStatus shell_io_status,
     const std::size_t command_count,
     const std::size_t poll_count,
-    const TerminalScreenRenderer& renderer) noexcept
+    const TerminalHostRenderer& renderer) noexcept
 {
     return ShellDriveResult{
         status,
@@ -172,8 +286,8 @@ private:
 
 [[nodiscard]] ShellDriveResult drive_shell_until_waiting(
     shell::ShellSession& session,
-    const platform::Machine& machine,
-    TerminalScreenRenderer& renderer,
+    platform::Machine& machine,
+    TerminalHostRenderer& renderer,
     std::ostream& output)
 {
     std::size_t command_count = std::size_t{0};
@@ -188,7 +302,7 @@ private:
             ++command_count;
         }
 
-        if (!renderer.render_if_changed(machine.terminal_device().display(), output))
+        if (!renderer.render_if_changed(machine.terminal_device(), output))
         {
             return make_shell_drive_result(
                 ShellDriveStatus::HOST_IO_ERROR,
@@ -418,7 +532,7 @@ TerminalRunResult TerminalRunner::run(std::istream& input, std::ostream& output)
     shell::ShellSession session{os_kernel, shell_process, shell_thread};
     schedule_shell_thread(os_kernel, shell_thread);
 
-    TerminalScreenRenderer renderer{this->config_.render_mode};
+    TerminalHostRenderer renderer{this->config_.render_mode};
     std::size_t total_command_count = std::size_t{0};
     std::size_t total_poll_count = std::size_t{0};
 

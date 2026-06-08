@@ -9,6 +9,8 @@ namespace
 constexpr const char* TEXT_DISPLAY_INVALID_GEOMETRY_MESSAGE = "text display requires non-zero geometry";
 constexpr const char* TEXT_DISPLAY_GEOMETRY_OVERFLOW_MESSAGE = "text display geometry overflows cell count";
 constexpr const char* TEXT_DISPLAY_CELL_OUT_OF_RANGE_MESSAGE = "text display cell is out of range";
+constexpr const char* TERMINAL_OUTPUT_STREAM_OFFSET_OUT_OF_RANGE_MESSAGE =
+    "terminal output stream offset is out of range";
 constexpr std::size_t TERMINAL_UNBOUNDED_KEYBOARD_CAPACITY = std::size_t{0};
 constexpr unsigned char TERMINAL_PRINTABLE_ASCII_FIRST = static_cast<unsigned char>(' ');
 constexpr unsigned char TERMINAL_PRINTABLE_ASCII_LAST = static_cast<unsigned char>('~');
@@ -410,9 +412,39 @@ const KeyboardInputQueue& TerminalDevice::keyboard() const noexcept
     return this->keyboard_;
 }
 
+std::size_t TerminalDevice::output_stream_size() const noexcept
+{
+    return this->output_stream_.size();
+}
+
+std::string_view TerminalDevice::output_stream_since(const std::size_t offset) const
+{
+    if (offset > this->output_stream_.size())
+    {
+        throw std::out_of_range{TERMINAL_OUTPUT_STREAM_OFFSET_OUT_OF_RANGE_MESSAGE};
+    }
+    return std::string_view{this->output_stream_}.substr(offset);
+}
+
 void TerminalDevice::write_output(const std::string_view text)
 {
     this->display_.write_string(text);
+    this->output_stream_.append(text);
+}
+
+void TerminalDevice::clear_display()
+{
+    this->display_.clear();
+    this->output_stream_.push_back(TERMINAL_CLEAR_SCREEN_CHARACTER);
+}
+
+void TerminalDevice::discard_output_stream_before(const std::size_t offset)
+{
+    if (offset > this->output_stream_.size())
+    {
+        throw std::out_of_range{TERMINAL_OUTPUT_STREAM_OFFSET_OUT_OF_RANGE_MESSAGE};
+    }
+    this->output_stream_.erase(std::size_t{0}, offset);
 }
 
 std::size_t TerminalDevice::submit_input(const std::string_view text)

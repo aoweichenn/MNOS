@@ -21,6 +21,8 @@ inline constexpr std::uint32_t HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT = std::uint
 
 enum class TerminalRenderMode : std::uint8_t
 {
+    ANSI_STREAM,
+    PLAIN_STREAM,
     ANSI_SCREEN,
     PLAIN_SCREEN,
     COUNT
@@ -39,7 +41,7 @@ struct TerminalRunnerConfig final
 {
     std::size_t physical_memory_size_bytes = HOST_TERMINAL_DEFAULT_MEMORY_SIZE_BYTES;
     std::uint32_t processor_count = HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT;
-    TerminalRenderMode render_mode = TerminalRenderMode::ANSI_SCREEN;
+    TerminalRenderMode render_mode = TerminalRenderMode::ANSI_STREAM;
 };
 
 class TerminalRunResult final

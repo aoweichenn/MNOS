@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -17,18 +18,41 @@ using ::testing::Eq;
 using ::testing::HasSubstr;
 
 constexpr char TEST_ANSI_ESCAPE_CHARACTER = '\x1B';
+constexpr std::string_view TEST_TERMINAL_PROMPT_LS = "mnos> ls";
+constexpr std::string_view TEST_TERMINAL_MEMORY_REPORT_PREFIX = "memory_pages total=";
+constexpr std::string_view TEST_TERMINAL_PROCESS_HEADER = "pid threads states";
+constexpr std::string_view TEST_TERMINAL_PROCESS_ROW = "1 1 RUNNING";
+constexpr std::size_t TEST_EXPECTED_TWO_LS_COMMANDS = std::size_t{2};
+constexpr std::size_t TEST_EXPECTED_SINGLE_COMMAND_OUTPUT = std::size_t{1};
 
-[[nodiscard]] host::TerminalRunner make_plain_runner()
+[[nodiscard]] std::size_t count_substring(const std::string_view text, const std::string_view needle) noexcept
+{
+    std::size_t count = std::size_t{0};
+    std::size_t offset = std::size_t{0};
+    while (offset < text.size())
+    {
+        const std::size_t match_offset = text.find(needle, offset);
+        if (match_offset == std::string_view::npos)
+        {
+            break;
+        }
+        ++count;
+        offset = match_offset + needle.size();
+    }
+    return count;
+}
+
+[[nodiscard]] host::TerminalRunner make_plain_stream_runner()
 {
     host::TerminalRunnerConfig config;
-    config.render_mode = host::TerminalRenderMode::PLAIN_SCREEN;
+    config.render_mode = host::TerminalRenderMode::PLAIN_STREAM;
     return host::TerminalRunner{config};
 }
 }
 
 TEST(HostTerminalRunnerTest, ExecutesHelpAndExitThroughSimulatedTerminal)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{"help\nexit\n"};
     std::ostringstream output;
 
@@ -48,7 +72,7 @@ TEST(HostTerminalRunnerTest, ExecutesHelpAndExitThroughSimulatedTerminal)
 
 TEST(HostTerminalRunnerTest, FileCommandsPersistThroughShellSession)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{
         "touch /note\n"
         "write /note hello terminal\n"
@@ -67,9 +91,34 @@ TEST(HostTerminalRunnerTest, FileCommandsPersistThroughShellSession)
     EXPECT_THAT(output.str(), HasSubstr("path=/note kind=file"));
 }
 
+TEST(HostTerminalRunnerTest, DefaultStreamDoesNotReplayScreenSnapshots)
+{
+    const host::TerminalRunner runner;
+    std::istringstream input{
+        "ls\n"
+        "ls\n"
+        "mem\n"
+        "ps\n"
+        "exit\n"};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+    const std::string rendered_output = output.str();
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{5}));
+    EXPECT_THAT(count_substring(rendered_output, TEST_TERMINAL_PROMPT_LS), Eq(TEST_EXPECTED_TWO_LS_COMMANDS));
+    EXPECT_THAT(
+        count_substring(rendered_output, TEST_TERMINAL_MEMORY_REPORT_PREFIX),
+        Eq(TEST_EXPECTED_SINGLE_COMMAND_OUTPUT));
+    EXPECT_THAT(count_substring(rendered_output, TEST_TERMINAL_PROCESS_HEADER), Eq(TEST_EXPECTED_SINGLE_COMMAND_OUTPUT));
+    EXPECT_THAT(count_substring(rendered_output, TEST_TERMINAL_PROCESS_ROW), Eq(TEST_EXPECTED_SINGLE_COMMAND_OUTPUT));
+    EXPECT_THAT(rendered_output.find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
+}
+
 TEST(HostTerminalRunnerTest, ReportsInputClosedWhenHostEndsWithoutExitCommand)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{"echo before eof\n"};
     std::ostringstream output;
 
@@ -82,7 +131,37 @@ TEST(HostTerminalRunnerTest, ReportsInputClosedWhenHostEndsWithoutExitCommand)
     EXPECT_THAT(output.str(), HasSubstr("mnos> "));
 }
 
-TEST(HostTerminalRunnerTest, AnsiModeEmitsScreenControlSequences)
+TEST(HostTerminalRunnerTest, AnsiStreamModeEmitsClearControlForClearCommand)
+{
+    host::TerminalRunnerConfig config;
+    config.render_mode = host::TerminalRenderMode::ANSI_STREAM;
+    const host::TerminalRunner runner{config};
+    std::istringstream input{"clear\nexit\n"};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> clear\n\x1B[2J\x1B[Hmnos> exit"));
+}
+
+TEST(HostTerminalRunnerTest, StreamModeTranslatesBackspaceEchoForHostTerminal)
+{
+    const host::TerminalRunner runner = make_plain_stream_runner();
+    const std::string input_text = std::string{"echo ax"} + '\b' + "z\nexit\n";
+    std::istringstream input{input_text};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
+    EXPECT_THAT(output.str(), HasSubstr("x\b \bz"));
+    EXPECT_THAT(output.str(), HasSubstr("az\n"));
+}
+
+TEST(HostTerminalRunnerTest, AnsiScreenModeEmitsFullScreenControlSequences)
 {
     host::TerminalRunnerConfig config;
     config.render_mode = host::TerminalRenderMode::ANSI_SCREEN;
@@ -97,9 +176,26 @@ TEST(HostTerminalRunnerTest, AnsiModeEmitsScreenControlSequences)
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
 }
 
-TEST(HostTerminalRunnerTest, ClearCommandRendersEmptyScreenBeforeNextPrompt)
+TEST(HostTerminalRunnerTest, PlainScreenModeKeepsSnapshotRenderingExplicit)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    host::TerminalRunnerConfig config;
+    config.render_mode = host::TerminalRenderMode::PLAIN_SCREEN;
+    const host::TerminalRunner runner{config};
+    std::istringstream input{"help\nclear\nexit\n"};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{3}));
+    EXPECT_THAT(output.str().find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
+    EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
+}
+
+TEST(HostTerminalRunnerTest, PlainStreamKeepsClearCommandInTextLogWithoutScreenReplay)
+{
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{"clear\nexit\n"};
     std::ostringstream output;
 
@@ -107,13 +203,14 @@ TEST(HostTerminalRunnerTest, ClearCommandRendersEmptyScreenBeforeNextPrompt)
 
     EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
     EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
-    EXPECT_THAT(output.str(), HasSubstr("mnos> \n\nmnos> "));
+    EXPECT_THAT(output.str().find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
+    EXPECT_THAT(count_substring(output.str(), "mnos> clear"), Eq(TEST_EXPECTED_SINGLE_COMMAND_OUTPUT));
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
 }
 
 TEST(HostTerminalRunnerTest, CarriageReturnLineEndingsAreNormalized)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{"echo carriage\r\nexit\r\n"};
     std::ostringstream output;
 
@@ -127,7 +224,7 @@ TEST(HostTerminalRunnerTest, CarriageReturnLineEndingsAreNormalized)
 
 TEST(HostTerminalRunnerTest, ReportsHostIoErrorWhenOutputStreamFails)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input{"exit\n"};
     std::ostringstream output;
     output.setstate(std::ios::badbit);
@@ -141,7 +238,7 @@ TEST(HostTerminalRunnerTest, ReportsHostIoErrorWhenOutputStreamFails)
 
 TEST(HostTerminalRunnerTest, ReportsHostIoErrorWhenInputStreamFails)
 {
-    const host::TerminalRunner runner = make_plain_runner();
+    const host::TerminalRunner runner = make_plain_stream_runner();
     std::istringstream input;
     input.setstate(std::ios::badbit);
     std::ostringstream output;
@@ -159,11 +256,11 @@ TEST(HostTerminalRunnerTest, ResultFactoriesExposeErrorMetadataAndRunnerConfig)
     host::TerminalRunnerConfig config;
     config.physical_memory_size_bytes = host::HOST_TERMINAL_DEFAULT_MEMORY_SIZE_BYTES;
     config.processor_count = host::HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT;
-    config.render_mode = host::TerminalRenderMode::PLAIN_SCREEN;
+    config.render_mode = host::TerminalRenderMode::PLAIN_STREAM;
     const host::TerminalRunner runner{config};
 
     EXPECT_THAT(runner.config().processor_count, Eq(host::HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT));
-    EXPECT_THAT(runner.config().render_mode, Eq(host::TerminalRenderMode::PLAIN_SCREEN));
+    EXPECT_THAT(runner.config().render_mode, Eq(host::TerminalRenderMode::PLAIN_STREAM));
 
     const host::TerminalRunResult shell_error = host::TerminalRunResult::shell_io_error(
         io::IoStatus::BAD_DESCRIPTOR,

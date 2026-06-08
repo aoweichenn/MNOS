@@ -18,6 +18,7 @@ inline constexpr char TERMINAL_BACKSPACE_CHARACTER = '\b';
 inline constexpr char TERMINAL_DELETE_CHARACTER = '\x7F';
 inline constexpr char TERMINAL_NEWLINE_CHARACTER = '\n';
 inline constexpr char TERMINAL_CARRIAGE_RETURN_CHARACTER = '\r';
+inline constexpr char TERMINAL_CLEAR_SCREEN_CHARACTER = '\f';
 
 class TextCell final
 {
@@ -117,13 +118,18 @@ public:
     [[nodiscard]] const TextDisplayBuffer& display() const noexcept;
     [[nodiscard]] KeyboardInputQueue& keyboard() noexcept;
     [[nodiscard]] const KeyboardInputQueue& keyboard() const noexcept;
+    [[nodiscard]] std::size_t output_stream_size() const noexcept;
+    [[nodiscard]] std::string_view output_stream_since(std::size_t offset) const;
 
     void write_output(std::string_view text);
+    void clear_display();
+    void discard_output_stream_before(std::size_t offset);
     [[nodiscard]] std::size_t submit_input(std::string_view text);
     [[nodiscard]] std::vector<KeyEvent> drain_input();
 
 private:
     TextDisplayBuffer display_;
     KeyboardInputQueue keyboard_;
+    std::string output_stream_;
 };
 }

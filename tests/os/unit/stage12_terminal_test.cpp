@@ -36,6 +36,7 @@ constexpr std::string_view TEST_CONSOLE_INPUT = "he\bllo\n";
 constexpr std::string_view TEST_PARTIAL_INPUT = "abcdef\n";
 constexpr std::string_view TEST_CLEARED_DRAFT_INPUT = "draft";
 constexpr std::string_view TEST_WAKE_INPUT = "ok\n";
+constexpr std::string_view TEST_TERMINAL_OUTPUT_TEXT = "xy";
 constexpr std::size_t TEST_SMALL_READ_SIZE = std::size_t{3};
 
 [[nodiscard]] std::string_view read_prefix(const std::array<char, 16>& buffer, const std::size_t size) noexcept
@@ -144,8 +145,28 @@ TEST(Stage12TerminalDeviceTest, KeyboardQueueAndTerminalDevicePreserveInputOrder
     EXPECT_THAT(events.at(std::size_t{1}).character(), Eq('b'));
     EXPECT_TRUE(terminal.keyboard().empty());
 
-    terminal.write_output("xy");
+    terminal.write_output(TEST_TERMINAL_OUTPUT_TEXT);
     EXPECT_THAT(terminal.display().line(std::size_t{0}), Eq("xy  "));
+    EXPECT_THAT(terminal.output_stream_size(), Eq(TEST_TERMINAL_OUTPUT_TEXT.size()));
+    EXPECT_THAT(terminal.output_stream_since(std::size_t{0}), Eq(TEST_TERMINAL_OUTPUT_TEXT));
+    EXPECT_THAT(
+        terminal.output_stream_since(TEST_TERMINAL_OUTPUT_TEXT.size() - std::size_t{1}),
+        Eq(TEST_TERMINAL_OUTPUT_TEXT.substr(std::size_t{1})));
+
+    terminal.clear_display();
+    EXPECT_TRUE(terminal.display().empty());
+    const std::string clear_output{dev::TERMINAL_CLEAR_SCREEN_CHARACTER};
+    EXPECT_THAT(terminal.output_stream_since(TEST_TERMINAL_OUTPUT_TEXT.size()), Eq(clear_output));
+    EXPECT_THROW(
+        static_cast<void>(terminal.output_stream_since(terminal.output_stream_size() + std::size_t{1})),
+        std::out_of_range);
+    EXPECT_THROW(
+        terminal.discard_output_stream_before(terminal.output_stream_size() + std::size_t{1}),
+        std::out_of_range);
+    terminal.discard_output_stream_before(TEST_TERMINAL_OUTPUT_TEXT.size());
+    EXPECT_THAT(terminal.output_stream_since(std::size_t{0}), Eq(clear_output));
+    terminal.discard_output_stream_before(terminal.output_stream_size());
+    EXPECT_THAT(terminal.output_stream_since(std::size_t{0}), IsEmpty());
 
     dev::KeyboardInputQueue queue;
     EXPECT_TRUE(queue.push(dev::KeyEvent{'a'}));

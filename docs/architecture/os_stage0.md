@@ -256,9 +256,10 @@ Stage 15D 已经完成第一版宿主机交互终端：
 ```text
 TerminalRunner        host adapter，读取宿主机 stdin，把每行提交到 Kernel::submit_terminal_input
 Shell drive           复用 ShellSession::poll 驱动 prompt、blocking read、命令执行和 exit
-Screen renderer       从 TextDisplayBuffer 生成 host 屏幕输出，支持 ANSI screen 与 plain screen
+Stream renderer       消费 TerminalDevice 增量输出流，默认避免历史屏幕重放
+Screen renderer       保留 TextDisplayBuffer 快照输出，支持显式 ANSI screen 与 plain screen 调试模式
 mnos_console          真实可运行入口：builds/debug/mnos_console
-Test harness          用内存输入/输出覆盖 help、文件命令和 EOF without exit
+Test harness          用内存输入/输出覆盖 help、文件命令、EOF 和 replay 回归
 ```
 
 ## 下一步

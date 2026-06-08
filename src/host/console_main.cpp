@@ -9,13 +9,15 @@ constexpr std::string_view HOST_CONSOLE_HELP_FLAG = "--help";
 constexpr std::string_view HOST_CONSOLE_SHORT_HELP_FLAG = "-h";
 constexpr std::string_view HOST_CONSOLE_PLAIN_FLAG = "--plain";
 constexpr std::string_view HOST_CONSOLE_ANSI_FLAG = "--ansi";
+constexpr std::string_view HOST_CONSOLE_ANSI_SCREEN_FLAG = "--ansi-screen";
+constexpr std::string_view HOST_CONSOLE_PLAIN_SCREEN_FLAG = "--plain-screen";
 constexpr int HOST_CONSOLE_SUCCESS_EXIT_CODE = 0;
 constexpr int HOST_CONSOLE_USAGE_ERROR_EXIT_CODE = 2;
 constexpr int HOST_CONSOLE_RUNTIME_ERROR_EXIT_CODE = 1;
 
 void print_usage(std::ostream& output)
 {
-    output << "usage: mnos_console [--ansi|--plain]\n";
+    output << "usage: mnos_console [--ansi|--plain|--ansi-screen|--plain-screen]\n";
 }
 }
 
@@ -32,12 +34,22 @@ int main(const int argc, char** argv)
         }
         if (argument == HOST_CONSOLE_PLAIN_FLAG)
         {
-            config.render_mode = mnos::host::TerminalRenderMode::PLAIN_SCREEN;
+            config.render_mode = mnos::host::TerminalRenderMode::PLAIN_STREAM;
             continue;
         }
         if (argument == HOST_CONSOLE_ANSI_FLAG)
         {
+            config.render_mode = mnos::host::TerminalRenderMode::ANSI_STREAM;
+            continue;
+        }
+        if (argument == HOST_CONSOLE_ANSI_SCREEN_FLAG)
+        {
             config.render_mode = mnos::host::TerminalRenderMode::ANSI_SCREEN;
+            continue;
+        }
+        if (argument == HOST_CONSOLE_PLAIN_SCREEN_FLAG)
+        {
+            config.render_mode = mnos::host::TerminalRenderMode::PLAIN_SCREEN;
             continue;
         }
 
