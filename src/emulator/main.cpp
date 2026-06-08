@@ -9,17 +9,21 @@
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
+#include <mnos/os/mm/page.hpp>
 #include <mnos/os/platform/machine.hpp>
-#include <mnos/os/shell/shell.hpp>
+#include <mnos/os/shell/session.hpp>
 
 namespace cpu = mnos::cpu;
 namespace kernel = mnos::os::kernel;
+namespace mm = mnos::os::mm;
 namespace platform = mnos::os::platform;
 namespace shell = mnos::os::shell;
 
 namespace
 {
-constexpr std::size_t EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES = 16384;
+constexpr mm::AddressValue EMULATOR_BOOTSTRAP_MEMORY_PAGE_COUNT = mm::AddressValue{256};
+constexpr std::size_t EMULATOR_BOOTSTRAP_MEMORY_SIZE_BYTES =
+    static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES * EMULATOR_BOOTSTRAP_MEMORY_PAGE_COUNT);
 constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_BASE = cpu::SignedQword{64};
 constexpr cpu::SignedQword EMULATOR_BOOTSTRAP_MEMORY_DISPLACEMENT = cpu::SignedQword{8};
 constexpr cpu::Address64 EMULATOR_BOOTSTRAP_STORED_ADDRESS =
@@ -33,8 +37,18 @@ int main()
     kernel::Kernel os_kernel{boot_context};
     os_kernel.boot();
     os_kernel.console_write("MNOS terminal ready\n");
-    shell::Shell os_shell{os_kernel};
-    static_cast<void>(os_shell.execute_line("echo shell ready"));
+    auto& shell_process = os_kernel.create_process();
+    auto& shell_thread = os_kernel.create_thread(shell_process);
+    shell::ShellSession os_shell{os_kernel, shell_process, shell_thread};
+    static_cast<void>(os_kernel.scheduler().schedule_next());
+    const shell::ShellSessionStepResult shell_initial_step = os_shell.poll();
+    static_cast<void>(os_kernel.submit_terminal_input("echo shell ready\n"));
+    static_cast<void>(os_kernel.scheduler().schedule_next());
+    const shell::ShellSessionStepResult shell_command_step = os_shell.poll();
+    const bool shell_loop_ready =
+        shell_initial_step.status() == shell::ShellSessionStepStatus::BLOCKED &&
+        shell_command_step.status() == shell::ShellSessionStepStatus::COMMAND &&
+        shell_command_step.command_status() == shell::ShellCommandStatus::HANDLED;
 
     const cpu::ExecutableImage bootstrap_image{
         0x48, 0xBD, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 64
@@ -59,6 +73,9 @@ int main()
               << ", stage11=" << (os_kernel.has_stage11_services() ? "ready" : "not-ready")
               << ", stage12=" << (os_kernel.has_stage12_services() ? "ready" : "not-ready")
               << ", stage13=" << (os_kernel.has_stage13_services() ? "ready" : "not-ready")
+              << ", stage14=" << (shell_loop_ready ? "ready" : "not-ready")
+              << ", shell_initial=" << shell::shell_session_step_status_to_name(shell_initial_step.status())
+              << ", shell_step=" << shell::shell_session_step_status_to_name(shell_command_step.status())
               << ", shell_running=" << (os_shell.running() ? "true" : "false")
               << ", cores=" << os_kernel.bootstrap_processor_count()
               << ", terminal_scrolls=" << machine.terminal_device().display().scroll_count()
