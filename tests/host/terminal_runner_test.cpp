@@ -2,6 +2,8 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -24,6 +26,48 @@ constexpr std::string_view TEST_TERMINAL_PROCESS_HEADER = "pid threads states";
 constexpr std::string_view TEST_TERMINAL_PROCESS_ROW = "1 1 RUNNING";
 constexpr std::size_t TEST_EXPECTED_TWO_LS_COMMANDS = std::size_t{2};
 constexpr std::size_t TEST_EXPECTED_SINGLE_COMMAND_OUTPUT = std::size_t{1};
+
+class ScriptedTerminalBackend final : public host::HostTerminalBackend
+{
+public:
+    explicit ScriptedTerminalBackend(std::vector<host::HostInputEvent> events) :
+        events_(std::move(events)),
+        renderer_(host::TerminalRenderMode::PLAIN_STREAM)
+    {
+    }
+
+    [[nodiscard]] host::HostInputEvent read_input_event() override
+    {
+        if (this->next_event_index_ >= this->events_.size())
+        {
+            return host::HostInputEvent::input_closed();
+        }
+        host::HostInputEvent event = std::move(this->events_[this->next_event_index_]);
+        ++this->next_event_index_;
+        return event;
+    }
+
+    [[nodiscard]] bool render_terminal(mnos::os::dev::TerminalDevice& terminal) override
+    {
+        return this->renderer_.render_if_changed(terminal, this->output_);
+    }
+
+    [[nodiscard]] std::size_t render_count() const noexcept override
+    {
+        return this->renderer_.render_count();
+    }
+
+    [[nodiscard]] std::string output() const
+    {
+        return this->output_.str();
+    }
+
+private:
+    std::vector<host::HostInputEvent> events_;
+    std::size_t next_event_index_ = std::size_t{0};
+    std::ostringstream output_;
+    host::HostTerminalRenderer renderer_;
+};
 
 [[nodiscard]] std::size_t count_substring(const std::string_view text, const std::string_view needle) noexcept
 {
@@ -68,6 +112,28 @@ TEST(HostTerminalRunnerTest, ExecutesHelpAndExitThroughSimulatedTerminal)
     EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
     EXPECT_THAT(output.str().find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
+}
+
+TEST(HostTerminalRunnerTest, BackendOverloadAcceptsTextAndSpecialKeyEvents)
+{
+    const host::TerminalRunner runner = make_plain_stream_runner();
+    ScriptedTerminalBackend backend{
+        std::vector<host::HostInputEvent>{
+            host::HostInputEvent::special_key(host::HostSpecialKey::ARROW_UP),
+            host::HostInputEvent::text("echo event model"),
+            host::HostInputEvent::special_key(host::HostSpecialKey::ENTER),
+            host::HostInputEvent::text("exit"),
+            host::HostInputEvent::special_key(host::HostSpecialKey::ENTER)}};
+
+    const host::TerminalRunResult result = runner.run(backend);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
+    EXPECT_GT(result.poll_count(), std::size_t{0});
+    EXPECT_GT(result.render_count(), std::size_t{0});
+    EXPECT_THAT(backend.output(), HasSubstr("mnos> echo event model"));
+    EXPECT_THAT(backend.output(), HasSubstr("event model\n"));
+    EXPECT_THAT(backend.output(), HasSubstr("mnos> exit"));
 }
 
 TEST(HostTerminalRunnerTest, FileCommandsPersistThroughShellSession)

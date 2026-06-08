@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iosfwd>
 
+#include <mnos/host/terminal_backend.hpp>
 #include <mnos/os/mm/page.hpp>
 
 namespace mnos::os::io
@@ -18,15 +19,6 @@ inline constexpr mnos::os::mm::AddressValue HOST_TERMINAL_DEFAULT_MEMORY_PAGE_CO
 inline constexpr std::size_t HOST_TERMINAL_DEFAULT_MEMORY_SIZE_BYTES =
     static_cast<std::size_t>(mnos::os::mm::MM_PAGE_SIZE_BYTES * HOST_TERMINAL_DEFAULT_MEMORY_PAGE_COUNT);
 inline constexpr std::uint32_t HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT = std::uint32_t{2};
-
-enum class TerminalRenderMode : std::uint8_t
-{
-    ANSI_STREAM,
-    PLAIN_STREAM,
-    ANSI_SCREEN,
-    PLAIN_SCREEN,
-    COUNT
-};
 
 enum class TerminalRunStatus : std::uint8_t
 {
@@ -97,6 +89,7 @@ public:
 
     [[nodiscard]] const TerminalRunnerConfig& config() const noexcept;
     [[nodiscard]] TerminalRunResult run(std::istream& input, std::ostream& output) const;
+    [[nodiscard]] TerminalRunResult run(HostTerminalBackend& backend) const;
 
 private:
     TerminalRunnerConfig config_;

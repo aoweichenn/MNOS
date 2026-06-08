@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -251,15 +251,18 @@ Shell file commands    ls/cat/touch/write/stat 通过 Kernel::vfs() 访问 root 
 Benchmark              Kernel VFS open/close fd 已进入 benchmark smoke
 ```
 
-Stage 15D 已经完成第一版宿主机交互终端：
+Stage 15D / 15E-A 已经完成第一版宿主机交互终端和后端边界：
 
 ```text
-TerminalRunner        host adapter，读取宿主机 stdin，把每行提交到 Kernel::submit_terminal_input
+TerminalRunner        shell drive facade，负责 boot、ShellSession::poll 和 run result 汇总
+HostTerminalBackend   stdio/window/raw terminal 的 host adapter 接口，不让 GUI 依赖进入 kernel
+HostInputEvent        host 输入事件模型，区分 text、special key、input closed、host I/O error
+StreamTerminalBackend 当前 stdio backend，读取宿主机 stdin，规范化 CRLF，提交到 Kernel::submit_terminal_input
 Shell drive           复用 ShellSession::poll 驱动 prompt、blocking read、命令执行和 exit
 Stream renderer       消费 TerminalDevice 增量输出流，默认避免历史屏幕重放
 Screen renderer       保留 TextDisplayBuffer 快照输出，支持显式 ANSI screen 与 plain screen 调试模式
 mnos_console          真实可运行入口：builds/debug/mnos_console
-Test harness          用内存输入/输出覆盖 help、文件命令、EOF 和 replay 回归
+Test harness          覆盖输入事件、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
 ```
 
 ## 下一步

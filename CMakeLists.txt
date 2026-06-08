@@ -193,6 +193,7 @@ mnos_apply_project_options(mnos_emulator)
 
 set(
     MNOS_HOST_SOURCES
+        src/host/terminal_backend.cpp
         src/host/terminal_runner.cpp
 )
 
@@ -353,6 +354,7 @@ mnos_add_os_test(mnos_os_stage10_chaos_tests tests/os/chaos/stage10_sync_chaos_t
 mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz_test.cpp)
 mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
 
+mnos_add_host_test(mnos_host_terminal_backend_tests tests/host/terminal_backend_test.cpp)
 mnos_add_host_test(mnos_host_terminal_runner_tests tests/host/terminal_runner_test.cpp)
 
 if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
