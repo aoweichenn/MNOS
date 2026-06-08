@@ -9,6 +9,8 @@
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/apic.hpp>
 #include <mnos/cpu/system/interrupt_vector.hpp>
+#include <mnos/os/block/block_device.hpp>
+#include <mnos/os/block/buffer_cache.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/mm/page.hpp>
@@ -22,6 +24,7 @@
 namespace cpu = mnos::cpu;
 namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
+namespace block = mnos::os::block;
 namespace kernel = mnos::os::kernel;
 namespace mm = mnos::os::mm;
 namespace platform = mnos::os::platform;
@@ -48,6 +51,21 @@ constexpr cpu::Address64 BENCHMARK_TLB_PHYSICAL_FRAME = cpu::Address64{0x14000};
 constexpr cpu::Address64 BENCHMARK_TLB_LEAF_ENTRY = cpu::Address64{0x24000};
 constexpr cpu::Qword BENCHMARK_TLB_GENERATION = cpu::Qword{3};
 constexpr cpu_memory::ProcessContextId BENCHMARK_TLB_PCID{5};
+constexpr std::uint64_t BENCHMARK_BLOCK_DEVICE_BLOCK_COUNT = std::uint64_t{4096};
+constexpr std::size_t BENCHMARK_BUFFER_CACHE_CAPACITY_BLOCKS = 64;
+constexpr block::BlockAddress BENCHMARK_BLOCK_DEVICE_IO_ADDRESS{std::uint64_t{32}};
+constexpr block::BlockAddress BENCHMARK_BUFFER_CACHE_HIT_ADDRESS{std::uint64_t{64}};
+constexpr cpu::Byte BENCHMARK_BLOCK_DATA_SEED = cpu::Byte{0x5A};
+
+[[nodiscard]] std::vector<cpu::Byte> make_benchmark_block()
+{
+    std::vector<cpu::Byte> bytes(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES);
+    for (std::size_t byte_index = std::size_t{0}; byte_index < bytes.size(); ++byte_index)
+    {
+        bytes[byte_index] = static_cast<cpu::Byte>(BENCHMARK_BLOCK_DATA_SEED + static_cast<cpu::Byte>(byte_index));
+    }
+    return bytes;
+}
 
 [[nodiscard]] cpu_memory::PageTranslation make_benchmark_translation()
 {
@@ -266,6 +284,50 @@ static void BM_TlbShootdownApply(benchmark::State& state)
     state.SetItemsProcessed(state.iterations());
 }
 
+static void BM_MemoryBlockDeviceReadWrite(benchmark::State& state)
+{
+    block::MemoryBlockDevice device{
+        block::BlockDeviceGeometry{block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES, BENCHMARK_BLOCK_DEVICE_BLOCK_COUNT}};
+    const std::vector<cpu::Byte> source = make_benchmark_block();
+    std::vector<cpu::Byte> destination(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES);
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        device.write_block(BENCHMARK_BLOCK_DEVICE_IO_ADDRESS, source);
+        device.read_block(BENCHMARK_BLOCK_DEVICE_IO_ADDRESS, destination);
+        benchmark::DoNotOptimize(destination.data());
+    }
+
+    state.SetItemsProcessed(state.iterations());
+    state.SetBytesProcessed(
+        static_cast<std::int64_t>(state.iterations()) *
+        static_cast<std::int64_t>(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES * std::size_t{2}));
+}
+
+static void BM_BufferCacheReadHit(benchmark::State& state)
+{
+    block::MemoryBlockDevice device{
+        block::BlockDeviceGeometry{block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES, BENCHMARK_BLOCK_DEVICE_BLOCK_COUNT}};
+    const std::vector<cpu::Byte> source = make_benchmark_block();
+    std::vector<cpu::Byte> destination(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES);
+    device.write_block(BENCHMARK_BUFFER_CACHE_HIT_ADDRESS, source);
+    block::BufferCache cache{device, BENCHMARK_BUFFER_CACHE_CAPACITY_BLOCKS};
+    cache.read_block(BENCHMARK_BUFFER_CACHE_HIT_ADDRESS, destination);
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        cache.read_block(BENCHMARK_BUFFER_CACHE_HIT_ADDRESS, destination);
+        benchmark::DoNotOptimize(destination.data());
+    }
+
+    state.SetItemsProcessed(state.iterations());
+    state.SetBytesProcessed(
+        static_cast<std::int64_t>(state.iterations()) *
+        static_cast<std::int64_t>(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES));
+}
+
 BENCHMARK(BM_OSKernelBoot);
 BENCHMARK(BM_ThreadContextReset);
 BENCHMARK(BM_PhysicalPageAllocatorAllocateFree);
@@ -276,3 +338,5 @@ BENCHMARK(BM_KernelSmpTimerPreempt);
 BENCHMARK(BM_ApicTimerTick);
 BENCHMARK(BM_KernelTimerPreempt);
 BENCHMARK(BM_TlbShootdownApply);
+BENCHMARK(BM_MemoryBlockDeviceReadWrite);
+BENCHMARK(BM_BufferCacheReadHit);

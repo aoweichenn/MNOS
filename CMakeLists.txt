@@ -141,6 +141,8 @@ mnos_apply_project_options(mnos_cpu)
 
 set(
     MNOS_OS_SOURCES
+        src/os/block/block_device.cpp
+        src/os/block/buffer_cache.cpp
         src/os/kernel/boot_context.cpp
         src/os/kernel/kernel.cpp
         src/os/kernel/syscall.cpp
@@ -292,6 +294,7 @@ mnos_add_os_test(mnos_os_stage11_syscall_abi_unit_tests tests/os/unit/stage11_sy
 mnos_add_os_test(mnos_os_stage12_terminal_unit_tests tests/os/unit/stage12_terminal_test.cpp)
 mnos_add_os_test(mnos_os_stage13_io_shell_unit_tests tests/os/unit/stage13_io_shell_test.cpp)
 mnos_add_os_test(mnos_os_stage14_shell_session_unit_tests tests/os/unit/stage14_shell_session_test.cpp)
+mnos_add_os_test(mnos_os_stage15_block_cache_unit_tests tests/os/unit/stage15_block_cache_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage7_integration_tests tests/os/integration/stage7_integration_test.cpp)
@@ -301,6 +304,7 @@ mnos_add_os_test(mnos_os_stage11_integration_tests tests/os/integration/stage11_
 mnos_add_os_test(mnos_os_stage12_integration_tests tests/os/integration/stage12_terminal_console_test.cpp)
 mnos_add_os_test(mnos_os_stage13_integration_tests tests/os/integration/stage13_shell_io_test.cpp)
 mnos_add_os_test(mnos_os_stage14_integration_tests tests/os/integration/stage14_shell_session_test.cpp)
+mnos_add_os_test(mnos_os_stage15_integration_tests tests/os/integration/stage15_block_cache_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
 mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_stage7_chaos_tests tests/os/chaos/stage7_scheduler_chaos_test.cpp)

@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 14 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop。
+当前已经完成 x86-64 Stage 15A CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -32,6 +32,7 @@ include/mnos/
     execution/          CpuState、Program、ExecutionTrace、InOrderPipeline、Executor
     perf/               Stage8PerformanceModel、PerformanceCounters
   os/
+    block/              BlockAddress、MemoryBlockDevice、BufferCache，后续 SimpleFS/VFS 的块存储地基
     dev/                TextDisplayBuffer、KeyboardInputQueue、TerminalDevice
     io/                 FileDescriptor、FileDescriptorTable、IoResult
     platform/           Machine facade，持有内存、core topology 和 terminal device
@@ -212,6 +213,18 @@ Stdin path            通过 Kernel::read_fd 读取 stdin；无完整 TTY 行时
 Pending line buffer   处理一次 read 返回半行、多行和 CRLF，保证命令不会因为固定读缓冲被截断
 Step result           BLOCKED/PENDING_INPUT/COMMAND/EXITED/IO_ERROR 显式建模，便于 emulator、测试和未来 event loop 调度
 Emulator smoke        先 poll 到 BLOCKED，再提交终端输入唤醒 shell 线程，最后执行 echo 并打印 stage14=ready
+```
+
+Stage 15A 当前语义：
+
+```text
+BlockAddress            块号值对象，避免和 byte offset/page number 混用
+BlockDeviceGeometry     block size/block count/capacity 校验，拒绝零大小和 uint64 overflow
+MemoryBlockDevice       内存后端块设备，支持整块和连续多块读写、clear、contains
+BufferCache             固定容量 write-back 缓存，哈希索引命中路径 + LRU victim 选择
+Dirty writeback         write miss 不额外读设备，flush/flush_all/dirty eviction 统一写回脏块
+Cache stats             hit/miss、device read、write call、device writeback、dirty eviction
+Benchmark smoke         MemoryBlockDevice read/write 与 BufferCache read-hit
 ```
 
 Stage 3 当前语义：
@@ -517,11 +530,11 @@ emulator stage14 smoke
 ### Stage 15: 文件系统、块设备、进程 API
 
 ```text
-block device + DMA
-buffer cache
-VFS + 简化文件系统
+Stage 15A 已完成: block device + buffer cache
+Stage 15B: SimpleFS + VFS inode/file object
+Stage 15C: open/read/write/close/stat/readdir syscall + shell file commands
+后续扩展: block DMA / async I/O / page cache bridge
 fd table
-open/read/write/close
 exec/wait/process lifecycle
 ```
 

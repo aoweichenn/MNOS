@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache，为后续 SimpleFS/VFS/open/read/write/close 提供真实块存储地基。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -215,12 +215,24 @@ Step result           BLOCKED/PENDING_INPUT/COMMAND/EXITED/IO_ERROR 显式建模
 Emulator smoke        先 poll 到 BLOCKED，再输入 echo shell ready，最终打印 stage14=ready
 ```
 
+Stage 15A 已经完成第一版块设备和 buffer cache 地基：
+
+```text
+BlockAddress          显式块号值对象，避免和 byte offset/page number 混用
+BlockDeviceGeometry   block size/block count/capacity 校验，拒绝零大小和 uint64 overflow
+MemoryBlockDevice     vector-backed 教学块设备，支持整块和连续多块读写、clear、contains
+BufferCache           固定容量缓存，哈希命中索引 + LRU victim，内部连续 byte storage
+Write-back path       write 命中/缺失只更新缓存并标脏，flush/dirty eviction 才写回设备
+Stats                 hit/miss、device read、write call、device writeback、dirty eviction 计数
+Benchmark             MemoryBlockDevice read/write 与 BufferCache read-hit 已进入 benchmark smoke
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. block device + buffer cache + VFS inode/file object，把 fd 从固定 stdio 扩展到真实文件
+1. SimpleFS + VFS inode/file object，把 fd 从固定 stdio 扩展到真实文件
 2. open/read/write/close/stat/readdir syscall，让 shell 能访问文件系统
 3. exec/wait/process lifecycle，把 user loader、syscall 和 fd 语义连成可运行用户程序闭环
 4. pipe/dup/redirect，把 shell 变成可组合的交互环境
