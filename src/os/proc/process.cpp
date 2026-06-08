@@ -2,16 +2,27 @@
 #include <utility>
 
 #include <mnos/os/proc/process.hpp>
+#include <mnos/os/proc/process_context.hpp>
 
 namespace
 {
 constexpr const char* PROCESS_INVALID_ID_MESSAGE = "process requires a valid process id";
 constexpr const char* PROCESS_THREAD_INDEX_OUT_OF_RANGE_MESSAGE = "process thread index is out of range";
 constexpr const char* PROCESS_DUPLICATE_THREAD_ID_MESSAGE = "process cannot create duplicate thread ids";
+constexpr const char* PROCESS_CONTEXT_PCID_MESSAGE = "process id cannot be represented as an x86-64 pcid";
 }
 
 namespace mnos::os::proc
 {
+cpu::memory::ProcessContextId process_context_id_for(const ProcessId process_id)
+{
+    if (process_id.value() > cpu::memory::PROCESS_CONTEXT_ID_MAX_VALUE)
+    {
+        throw std::out_of_range{PROCESS_CONTEXT_PCID_MESSAGE};
+    }
+    return cpu::memory::ProcessContextId{static_cast<cpu::memory::ProcessContextId::value_type>(process_id.value())};
+}
+
 Process::Process(const ProcessId id, mm::AddressSpace address_space) :
     id_(id),
     address_space_(std::move(address_space))

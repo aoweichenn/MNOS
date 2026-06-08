@@ -2,7 +2,6 @@
 #include <limits>
 #include <stdexcept>
 
-#include <mnos/cpu/register/id.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 
 namespace
@@ -129,6 +128,11 @@ bool Kernel::has_stage9_services() const noexcept
 bool Kernel::has_stage10_services() const noexcept
 {
     return this->has_stage9_services();
+}
+
+bool Kernel::has_stage11_services() const noexcept
+{
+    return this->has_stage10_services();
 }
 
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
@@ -370,45 +374,6 @@ mm::PageFaultResult Kernel::handle_page_fault(proc::Process& process, sched::Thr
         process.address_space(),
         this->boot_context_->memory_bus()};
     return handler.handle(thread.cpu_state().pending_trap(), thread.cpu_state());
-}
-
-SyscallResult Kernel::dispatch_syscall(sched::ThreadContext& thread)
-{
-    this->require_booted();
-    const SyscallNumber syscall_number =
-        syscall_number_from_raw(thread.cpu_state().registers().read(cpu::RegisterId::RAX));
-    if (!is_syscall_number_valid(syscall_number))
-    {
-        thread.cpu_state().registers().write(cpu::RegisterId::RAX, SYSCALL_UNSUPPORTED_RESULT);
-        return SyscallResult::UNSUPPORTED;
-    }
-
-    switch (syscall_number)
-    {
-    case SyscallNumber::YIELD:
-        if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
-        {
-            static_cast<void>(this->scheduler_.yield_current());
-        }
-        thread.cpu_state().registers().write(cpu::RegisterId::RAX, SYSCALL_SUCCESS_RESULT);
-        return SyscallResult::HANDLED;
-    case SyscallNumber::EXIT:
-        if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
-        {
-            static_cast<void>(this->scheduler_.exit_current());
-        }
-        else
-        {
-            thread.set_state(sched::ThreadState::DEAD);
-        }
-        thread.cpu_state().registers().write(cpu::RegisterId::RAX, SYSCALL_SUCCESS_RESULT);
-        return SyscallResult::HANDLED;
-    case SyscallNumber::COUNT:
-        break;
-    }
-
-    thread.cpu_state().registers().write(cpu::RegisterId::RAX, SYSCALL_UNSUPPORTED_RESULT);
-    return SyscallResult::UNSUPPORTED;
 }
 
 sched::SchedulerTick Kernel::scheduler_tick_count() const noexcept

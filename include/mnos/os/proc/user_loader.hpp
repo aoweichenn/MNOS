@@ -102,7 +102,6 @@ public:
         sched::ThreadContext& thread) const;
 
 private:
-    [[nodiscard]] static cpu::memory::ProcessContextId process_context_id_for(ProcessId process_id);
     void zero_physical_page(mm::PhysicalAddress physical_address);
     void copy_segment_page(
         const UserSegment& segment,

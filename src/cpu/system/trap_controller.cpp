@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <mnos/cpu/memory/paging.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 
@@ -11,6 +12,20 @@ constexpr const char* TRAP_CONTROLLER_PENDING_TRAP_REQUIRED_MESSAGE = "trap retu
 constexpr const char* TRAP_CONTROLLER_SYSCALL_TRAP_REQUIRED_MESSAGE = "syscall return requires a pending syscall trap";
 constexpr const char* TRAP_CONTROLLER_PRIVILEGE_STACK_REQUIRED_MESSAGE =
     "trap privilege switch requires a configured tss privilege stack";
+constexpr const char* TRAP_CONTROLLER_NON_CANONICAL_SYSCALL_RIP_MESSAGE =
+    "syscall return rip must be a canonical x86-64 address";
+constexpr const char* TRAP_CONTROLLER_NON_CANONICAL_SYSCALL_RSP_MESSAGE =
+    "syscall return rsp must be a canonical x86-64 address";
+
+void require_canonical_syscall_return_address(
+    const mnos::cpu::Address64 address,
+    const char* const message)
+{
+    if (!mnos::cpu::memory::is_canonical_linear_address(address))
+    {
+        throw std::out_of_range{message};
+    }
+}
 }
 
 namespace mnos::cpu::system
@@ -159,6 +174,12 @@ TrapFrame TrapController::enter_syscall(CpuState& state, const InstructionPointe
     return frame;
 }
 
+void TrapController::restore_trap_frame(CpuState& state, const TrapFrame& frame) const
+{
+    this->restore_from_frame(state, frame);
+    state.clear_pending_trap();
+}
+
 void TrapController::return_from_trap(CpuState& state) const
 {
     if (!state.has_pending_trap())
@@ -167,8 +188,7 @@ void TrapController::return_from_trap(CpuState& state) const
     }
 
     const TrapFrame frame = state.pending_trap();
-    this->restore_from_frame(state, frame);
-    state.clear_pending_trap();
+    this->restore_trap_frame(state, frame);
 }
 
 void TrapController::return_from_syscall(CpuState& state) const
@@ -179,6 +199,12 @@ void TrapController::return_from_syscall(CpuState& state) const
     }
 
     const TrapFrame frame = state.pending_trap();
+    require_canonical_syscall_return_address(
+        state.registers().read(RegisterId::RCX),
+        TRAP_CONTROLLER_NON_CANONICAL_SYSCALL_RIP_MESSAGE);
+    require_canonical_syscall_return_address(
+        frame.stack_pointer(),
+        TRAP_CONTROLLER_NON_CANONICAL_SYSCALL_RSP_MESSAGE);
     state.set_rip(state.registers().read(RegisterId::RCX));
     state.flags().set_raw_bits(state.registers().read(RegisterId::R11));
     state.registers().write(RegisterId::RSP, frame.stack_pointer());

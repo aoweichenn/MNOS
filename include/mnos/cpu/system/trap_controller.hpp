@@ -61,6 +61,7 @@ public:
         InterruptVector vector,
         InstructionPointer return_rip) const;
     [[nodiscard]] TrapFrame enter_syscall(CpuState& state, InstructionPointer return_rip) const;
+    void restore_trap_frame(CpuState& state, const TrapFrame& frame) const;
     void return_from_trap(CpuState& state) const;
     void return_from_syscall(CpuState& state) const;
 

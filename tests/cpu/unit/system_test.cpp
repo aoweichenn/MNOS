@@ -30,6 +30,7 @@ constexpr auto TEST_INVALID_TRAP_KIND = static_cast<cpu_system::TrapKind>(cpu_sy
 
 constexpr cpu::Address64 TEST_HANDLER_RIP = cpu::Address64{0x1000};
 constexpr cpu::Address64 TEST_SYSCALL_RIP = cpu::Address64{0x2000};
+constexpr cpu::Address64 TEST_NON_CANONICAL_RIP = cpu::Address64{0x00008000'00000000ULL};
 constexpr cpu::Address64 TEST_TSS_BASE = cpu::Address64{0x3000};
 constexpr cpu::Dword TEST_TSS_LIMIT = cpu::Dword{0x68};
 constexpr cpu::Qword TEST_USER_STACK = cpu::Qword{0x8000};
@@ -305,6 +306,23 @@ TEST(SystemTrapControllerTest, EntersAndReturnsFromSyscall)
     EXPECT_THAT(state.privilege_level(), Eq(cpu_system::PrivilegeLevel::RING3));
     EXPECT_TRUE(state.flags().read(cpu::FlagId::IF));
     EXPECT_FALSE(state.has_pending_trap());
+}
+
+TEST(SystemTrapControllerTest, RejectsNonCanonicalSyscallReturnRip)
+{
+    cpu_system::TrapController controller;
+    controller.configure_syscall(cpu_system::SyscallDescriptor::enabled(TEST_SYSCALL_RIP));
+    controller.tss().set_privilege_stack(cpu_system::PrivilegeLevel::RING0, TEST_KERNEL_STACK);
+
+    cpu::CpuState state;
+    state.set_rip(cpu::InstructionPointer{10});
+    state.set_privilege_level(cpu_system::PrivilegeLevel::RING3);
+    state.registers().write(cpu::RegisterId::RSP, TEST_USER_STACK);
+    static_cast<void>(controller.enter_syscall(state, cpu::InstructionPointer{12}));
+    state.registers().write(cpu::RegisterId::RCX, TEST_NON_CANONICAL_RIP);
+
+    EXPECT_THROW(controller.return_from_syscall(state), std::out_of_range);
+    EXPECT_TRUE(state.has_pending_trap());
 }
 
 TEST(SystemTrapControllerTest, LoadsTablesAndRejectsInvalidTrapTransitions)

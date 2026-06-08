@@ -6,6 +6,7 @@
 #include <mnos/cpu/common/data_size.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
+#include <mnos/os/proc/process_context.hpp>
 #include <mnos/os/proc/user_loader.hpp>
 
 namespace
@@ -21,8 +22,6 @@ constexpr const char* USER_PROGRAM_STACK_MESSAGE = "user program stack size must
 constexpr const char* USER_PROGRAM_OVERLAP_MESSAGE = "user program segments must not overlap";
 constexpr const char* USER_PROGRAM_ENTRY_EXECUTABLE_MESSAGE =
     "user program entry point must be inside an executable segment";
-constexpr const char* USER_LOADER_PCID_MESSAGE = "user process id cannot be represented as an x86-64 pcid";
-
 [[nodiscard]] mnos::os::mm::AddressValue rounded_segment_size_for_bytes(const std::size_t byte_count)
 {
     if (byte_count == std::size_t{0})
@@ -290,18 +289,8 @@ void UserLoader::initialize_user_thread(
         static_cast<cpu::Qword>(image.initial_stack_pointer().value()));
     process.address_space().activate(
         thread.cpu_state(),
-        UserLoader::process_context_id_for(process.id()),
+        process_context_id_for(process.id()),
         cpu::memory::Cr3TlbFlushMode::FLUSH_CURRENT_CONTEXT);
-}
-
-cpu::memory::ProcessContextId UserLoader::process_context_id_for(const ProcessId process_id)
-{
-    if (process_id.value() > cpu::memory::PROCESS_CONTEXT_ID_MAX_VALUE)
-    {
-        throw std::out_of_range{USER_LOADER_PCID_MESSAGE};
-    }
-    return cpu::memory::ProcessContextId{
-        static_cast<cpu::memory::ProcessContextId::value_type>(process_id.value())};
 }
 
 void UserLoader::zero_physical_page(const mm::PhysicalAddress physical_address)

@@ -23,6 +23,11 @@
 #include <mnos/os/sched/sleep_queue.hpp>
 #include <mnos/os/sched/smp_scheduler.hpp>
 
+namespace mnos::cpu::system
+{
+class TrapController;
+}
+
 namespace mnos::os::kernel
 {
 inline constexpr std::uint64_t KERNEL_RESERVED_LOW_PAGE_COUNT = std::uint64_t{1};
@@ -32,6 +37,24 @@ inline constexpr mm::AddressValue KERNEL_DEFAULT_THREAD_STACK_BASE = mm::Address
 inline constexpr mm::AddressValue KERNEL_THREAD_STACK_STRIDE = mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{16};
 inline constexpr sched::SchedulerTick KERNEL_STAGE7_DEFAULT_TIMER_INTERVAL_TICKS = sched::SchedulerTick{1};
 inline constexpr std::uint64_t KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE = std::uint64_t{1};
+
+enum class UserTrapResult : std::uint8_t
+{
+    HANDLED,
+    NOT_USER_TRAP,
+    KILLED,
+    OUT_OF_MEMORY,
+    COUNT
+};
+
+enum class UserMapResult : std::uint8_t
+{
+    MAPPED,
+    INVALID_ADDRESS,
+    ALREADY_MAPPED,
+    OUT_OF_MEMORY,
+    COUNT
+};
 
 class SchedulerHandoff final
 {
@@ -71,6 +94,7 @@ public:
     [[nodiscard]] bool has_stage7_services() const noexcept;
     [[nodiscard]] bool has_stage9_services() const noexcept;
     [[nodiscard]] bool has_stage10_services() const noexcept;
+    [[nodiscard]] bool has_stage11_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -120,6 +144,19 @@ public:
     [[nodiscard]] mm::PageFaultResult handle_page_fault(sched::ThreadContext& thread);
     [[nodiscard]] mm::PageFaultResult handle_page_fault(proc::Process& process, sched::ThreadContext& thread);
     [[nodiscard]] SyscallResult dispatch_syscall(sched::ThreadContext& thread);
+    [[nodiscard]] SyscallResult dispatch_syscall(proc::Process& process, sched::ThreadContext& thread);
+    [[nodiscard]] SyscallResult handle_user_syscall(
+        proc::Process& process,
+        sched::ThreadContext& thread,
+        cpu::system::TrapController& trap_controller);
+    [[nodiscard]] UserTrapResult handle_user_page_fault(
+        proc::Process& process,
+        sched::ThreadContext& thread,
+        cpu::system::TrapController& trap_controller);
+    [[nodiscard]] UserMapResult map_user_zero_page(
+        proc::Process& process,
+        sched::ThreadContext& thread,
+        mm::VirtualAddress virtual_page);
     [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
     [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
@@ -174,8 +211,26 @@ private:
     void require_stage7_services() const;
     void require_stage9_services() const;
     void require_stage10_services() const;
+    void require_stage11_services() const;
     void configure_stage7_services();
     void configure_stage9_services();
+    [[nodiscard]] SyscallResult dispatch_syscall_for_process(
+        proc::Process* process,
+        sched::ThreadContext& thread);
+    [[nodiscard]] SyscallResult dispatch_getpid(proc::Process* process, SyscallFrame& frame) noexcept;
+    [[nodiscard]] SyscallResult dispatch_map_anon_page(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_fork_cow(proc::Process* process, SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_futex_wait(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_futex_wake_one(proc::Process* process, SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_futex_wake_all(proc::Process* process, SyscallFrame& frame);
+    [[nodiscard]] UserTrapResult kill_user_trap_thread(sched::ThreadContext& thread);
+    void zero_physical_page(mm::PhysicalAddress physical_address);
     void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;
     [[nodiscard]] const SchedulerHandoff& record_scheduler_handoff(
         cpu::system::CoreId source_core,
