@@ -13,6 +13,7 @@
 #include <mnos/cpu/system/apic.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/syscall.hpp>
+#include <mnos/os/io/file_descriptor.hpp>
 #include <mnos/os/mm/address_space.hpp>
 #include <mnos/os/mm/page_fault_handler.hpp>
 #include <mnos/os/mm/physical_page_allocator.hpp>
@@ -98,6 +99,7 @@ public:
     [[nodiscard]] bool has_stage10_services() const noexcept;
     [[nodiscard]] bool has_stage11_services() const noexcept;
     [[nodiscard]] bool has_stage12_services() const noexcept;
+    [[nodiscard]] bool has_stage13_services() const noexcept;
 
     [[nodiscard]] mm::PhysicalPageAllocator& physical_page_allocator();
     [[nodiscard]] const mm::PhysicalPageAllocator& physical_page_allocator() const;
@@ -167,6 +169,15 @@ public:
         sched::ThreadContext& thread,
         std::span<char> destination);
     [[nodiscard]] std::vector<sched::ThreadContext*> submit_terminal_input(std::string_view text);
+    [[nodiscard]] io::IoResult read_fd(
+        proc::Process& process,
+        sched::ThreadContext& thread,
+        io::FileDescriptor descriptor,
+        std::span<char> destination);
+    [[nodiscard]] io::IoResult write_fd(
+        proc::Process& process,
+        io::FileDescriptor descriptor,
+        std::string_view text);
     [[nodiscard]] sched::SchedulerTick scheduler_tick_count() const noexcept;
     [[nodiscard]] std::optional<cpu::system::ApicInterrupt> tick_core_timer(cpu::system::CoreId core_id);
     [[nodiscard]] sched::ThreadContext* handle_timer_interrupt(cpu::system::CoreId core_id);
@@ -223,6 +234,7 @@ private:
     void require_stage10_services() const;
     void require_stage11_services() const;
     void require_stage12_services() const;
+    void require_stage13_services() const;
     void configure_stage7_services();
     void configure_stage9_services();
     [[nodiscard]] SyscallResult dispatch_syscall_for_process(
@@ -240,6 +252,14 @@ private:
         SyscallFrame& frame);
     [[nodiscard]] SyscallResult dispatch_futex_wake_one(proc::Process* process, SyscallFrame& frame);
     [[nodiscard]] SyscallResult dispatch_futex_wake_all(proc::Process* process, SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_read(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] SyscallResult dispatch_write(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
     [[nodiscard]] UserTrapResult kill_user_trap_thread(sched::ThreadContext& thread);
     void zero_physical_page(mm::PhysicalAddress physical_address);
     void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;

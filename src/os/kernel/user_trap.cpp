@@ -1,6 +1,8 @@
 #include <limits>
 #include <new>
+#include <span>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include <mnos/cpu/common/data_size.hpp>
@@ -64,6 +66,88 @@ constexpr const char* KERNEL_STAGE11_NOT_READY_MESSAGE = "kernel stage11 service
     return mnos::os::mm::VirtualAddress{static_cast<mnos::os::mm::AddressValue>(raw_address)};
 }
 
+[[nodiscard]] bool syscall_transfer_size_is_valid(const mnos::cpu::Qword raw_byte_count) noexcept
+{
+    return raw_byte_count <= static_cast<mnos::cpu::Qword>(mnos::os::kernel::SYSCALL_IO_MAX_TRANSFER_BYTES) &&
+        raw_byte_count <= static_cast<mnos::cpu::Qword>(std::numeric_limits<std::size_t>::max());
+}
+
+[[nodiscard]] std::size_t syscall_transfer_size(const mnos::cpu::Qword raw_byte_count) noexcept
+{
+    return static_cast<std::size_t>(raw_byte_count);
+}
+
+[[nodiscard]] mnos::os::io::FileDescriptor syscall_file_descriptor(const mnos::cpu::Qword raw_descriptor) noexcept
+{
+    return mnos::os::io::file_descriptor_from_raw(static_cast<std::uint64_t>(raw_descriptor));
+}
+
+[[nodiscard]] bool is_valid_user_io_range(
+    const mnos::os::mm::VirtualAddress address,
+    const std::size_t byte_count) noexcept
+{
+    return byte_count == std::size_t{0} ||
+        mnos::os::mm::is_user_range(address, static_cast<mnos::os::mm::AddressValue>(byte_count));
+}
+
+void check_user_io_access(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    const mnos::os::mm::VirtualAddress address,
+    const std::size_t byte_count,
+    const mnos::cpu::memory::MemoryAccessKind access_kind)
+{
+    mnos::cpu::memory::MemoryManagementUnit mmu;
+    mmu.check_access_range(
+        process.address_space().memory_bus(),
+        thread.cpu_state().paging(),
+        mnos::cpu::system::PrivilegeLevel::RING3,
+        mnos::os::mm::to_cpu_address(address),
+        byte_count,
+        access_kind);
+}
+
+[[nodiscard]] std::vector<char> read_user_bytes(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    const mnos::os::mm::VirtualAddress address,
+    const std::size_t byte_count)
+{
+    std::vector<char> bytes(byte_count);
+    mnos::cpu::memory::MemoryManagementUnit mmu;
+    for (std::size_t byte_index = std::size_t{0}; byte_index < byte_count; ++byte_index)
+    {
+        const mnos::cpu::Qword byte_value = mmu.read(
+            process.address_space().memory_bus(),
+            thread.cpu_state().paging(),
+            mnos::cpu::system::PrivilegeLevel::RING3,
+            mnos::os::mm::to_cpu_address(address) + static_cast<mnos::cpu::Address64>(byte_index),
+            mnos::cpu::DataSize::BYTE);
+        bytes[byte_index] = static_cast<char>(byte_value);
+    }
+    return bytes;
+}
+
+void write_user_bytes(
+    mnos::os::proc::Process& process,
+    mnos::os::sched::ThreadContext& thread,
+    const mnos::os::mm::VirtualAddress address,
+    std::span<const char> bytes)
+{
+    mnos::cpu::memory::MemoryManagementUnit mmu;
+    for (std::size_t byte_index = std::size_t{0}; byte_index < bytes.size(); ++byte_index)
+    {
+        const auto byte_value = static_cast<mnos::cpu::Byte>(static_cast<unsigned char>(bytes[byte_index]));
+        mmu.write(
+            process.address_space().memory_bus(),
+            thread.cpu_state().paging(),
+            mnos::cpu::system::PrivilegeLevel::RING3,
+            mnos::os::mm::to_cpu_address(address) + static_cast<mnos::cpu::Address64>(byte_index),
+            mnos::cpu::DataSize::BYTE,
+            byte_value);
+    }
+}
+
 void finish_syscall_success(mnos::os::kernel::SyscallFrame& frame, const mnos::cpu::Qword value) noexcept
 {
     frame.set_result(value);
@@ -76,6 +160,38 @@ void finish_syscall_success(mnos::os::kernel::SyscallFrame& frame, const mnos::c
 {
     frame.set_error(error);
     return result;
+}
+
+[[nodiscard]] mnos::os::kernel::SyscallResult finish_io_status_error(
+    mnos::os::kernel::SyscallFrame& frame,
+    const mnos::os::io::IoStatus status) noexcept
+{
+    switch (status)
+    {
+    case mnos::os::io::IoStatus::BAD_DESCRIPTOR:
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_FILE_DESCRIPTOR,
+            mnos::os::kernel::SyscallResult::BAD_DESCRIPTOR);
+    case mnos::os::io::IoStatus::BAD_ADDRESS:
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::BAD_ADDRESS,
+            mnos::os::kernel::SyscallResult::BAD_ADDRESS);
+    case mnos::os::io::IoStatus::INVALID_ARGUMENT:
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::INVALID_ARGUMENT,
+            mnos::os::kernel::SyscallResult::INVALID_ARGUMENT);
+    case mnos::os::io::IoStatus::READY:
+    case mnos::os::io::IoStatus::BLOCKED:
+    case mnos::os::io::IoStatus::COUNT:
+    default:
+        return finish_syscall_error(
+            frame,
+            mnos::os::kernel::SyscallError::INVALID_ARGUMENT,
+            mnos::os::kernel::SyscallResult::INVALID_ARGUMENT);
+    }
 }
 }
 
@@ -255,6 +371,10 @@ SyscallResult Kernel::dispatch_syscall_for_process(proc::Process* process, sched
         return this->dispatch_futex_wake_one(process, frame);
     case SyscallNumber::FUTEX_WAKE_ALL:
         return this->dispatch_futex_wake_all(process, frame);
+    case SyscallNumber::READ:
+        return this->dispatch_read(process, thread, frame);
+    case SyscallNumber::WRITE:
+        return this->dispatch_write(process, thread, frame);
     case SyscallNumber::COUNT:
         return finish_syscall_error(frame, SyscallError::NO_SYS, SyscallResult::UNSUPPORTED);
     }
@@ -445,6 +565,153 @@ SyscallResult Kernel::dispatch_futex_wake_all(proc::Process* process, SyscallFra
     const std::vector<sched::ThreadContext*> threads = this->wake_all_futex(*process, address);
     finish_syscall_success(frame, static_cast<cpu::Qword>(threads.size()));
     return SyscallResult::HANDLED;
+}
+
+SyscallResult Kernel::dispatch_read(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const io::FileDescriptor descriptor = syscall_file_descriptor(frame.argument(SyscallArgument::ARG0));
+    if (!process->file_descriptors().readable(descriptor))
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_DESCRIPTOR);
+    }
+
+    const cpu::Qword raw_byte_count = frame.argument(SyscallArgument::ARG2);
+    if (!syscall_transfer_size_is_valid(raw_byte_count))
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+
+    const std::size_t byte_count = syscall_transfer_size(raw_byte_count);
+    if (byte_count == std::size_t{0})
+    {
+        finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+        return SyscallResult::HANDLED;
+    }
+
+    const mm::VirtualAddress buffer_address = syscall_virtual_address(frame.argument(SyscallArgument::ARG1));
+    if (!is_valid_user_io_range(buffer_address, byte_count))
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+
+    try
+    {
+        check_user_io_access(
+            *process,
+            thread,
+            buffer_address,
+            byte_count,
+            cpu::memory::MemoryAccessKind::WRITE);
+        std::vector<char> buffer(byte_count);
+        const io::IoResult io_result = this->read_fd(*process, thread, descriptor, buffer);
+        if (io_result.is_blocked())
+        {
+            finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+            return SyscallResult::BLOCKED;
+        }
+        if (!io_result.is_ready())
+        {
+            return finish_io_status_error(frame, io_result.status());
+        }
+
+        write_user_bytes(
+            *process,
+            thread,
+            buffer_address,
+            std::span<const char>{buffer.data(), io_result.byte_count()});
+        finish_syscall_success(frame, static_cast<cpu::Qword>(io_result.byte_count()));
+        return SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_MEMORY, SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const cpu::memory::PageFault&)
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+}
+
+SyscallResult Kernel::dispatch_write(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const io::FileDescriptor descriptor = syscall_file_descriptor(frame.argument(SyscallArgument::ARG0));
+    if (!process->file_descriptors().writable(descriptor))
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_DESCRIPTOR);
+    }
+
+    const cpu::Qword raw_byte_count = frame.argument(SyscallArgument::ARG2);
+    if (!syscall_transfer_size_is_valid(raw_byte_count))
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+
+    const std::size_t byte_count = syscall_transfer_size(raw_byte_count);
+    if (byte_count == std::size_t{0})
+    {
+        finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+        return SyscallResult::HANDLED;
+    }
+
+    const mm::VirtualAddress buffer_address = syscall_virtual_address(frame.argument(SyscallArgument::ARG1));
+    if (!is_valid_user_io_range(buffer_address, byte_count))
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+
+    try
+    {
+        check_user_io_access(
+            *process,
+            thread,
+            buffer_address,
+            byte_count,
+            cpu::memory::MemoryAccessKind::READ);
+        const std::vector<char> buffer = read_user_bytes(*process, thread, buffer_address, byte_count);
+        const io::IoResult io_result = this->write_fd(
+            *process,
+            descriptor,
+            std::string_view{buffer.data(), buffer.size()});
+        if (!io_result.is_ready())
+        {
+            return finish_io_status_error(frame, io_result.status());
+        }
+
+        finish_syscall_success(frame, static_cast<cpu::Qword>(io_result.byte_count()));
+        return SyscallResult::HANDLED;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish_syscall_error(frame, SyscallError::NO_MEMORY, SyscallResult::OUT_OF_MEMORY);
+    }
+    catch (const cpu::memory::PageFault&)
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
+    catch (const std::out_of_range&)
+    {
+        return finish_io_status_error(frame, io::IoStatus::BAD_ADDRESS);
+    }
 }
 
 void Kernel::require_stage11_services() const

@@ -14,6 +14,7 @@
 #include <mnos/os/sched/round_robin_scheduler.hpp>
 
 namespace cpu = mnos::cpu;
+namespace io = mnos::os::io;
 namespace kernel = mnos::os::kernel;
 namespace mm = mnos::os::mm;
 namespace platform = mnos::os::platform;
@@ -46,6 +47,8 @@ TEST(ProcessTest, OwnsAddressSpaceAndThreadContexts)
 
     EXPECT_THAT(process.id(), Eq(proc::ProcessId::first_user_process()));
     EXPECT_TRUE(process.empty());
+    EXPECT_TRUE(const_process.file_descriptors().readable(io::FileDescriptor::stdin()));
+    EXPECT_TRUE(const_process.file_descriptors().writable(io::FileDescriptor::stdout()));
     sched::ThreadContext& thread = process.create_thread(sched::ThreadId::first_kernel_thread(), TEST_STACK_BOTTOM);
     EXPECT_FALSE(process.empty());
     EXPECT_THAT(process.thread_count(), Eq(std::size_t{1}));
@@ -64,12 +67,17 @@ TEST(SyscallTest, MapsNumbersAndNames)
 {
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::YIELD));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::EXIT));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READ));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::WRITE));
     EXPECT_FALSE(kernel::is_syscall_number_valid(kernel::SyscallNumber::COUNT));
     EXPECT_THAT(kernel::syscall_number_to_index(kernel::SyscallNumber::EXIT), Eq(std::size_t{1}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::YIELD), Eq(std::string_view{"YIELD"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READ), Eq(std::string_view{"READ"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::WRITE), Eq(std::string_view{"WRITE"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::COUNT), Eq(std::string_view{"<invalid>"}));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{0}), Eq(kernel::SyscallNumber::YIELD));
-    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{9}), Eq(kernel::SyscallNumber::COUNT));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{9}), Eq(kernel::SyscallNumber::WRITE));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::COUNT));
 }
 
 TEST(RoundRobinSchedulerTest, SchedulesBlocksWakesAndExitsThreads)

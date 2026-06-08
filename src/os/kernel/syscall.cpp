@@ -38,7 +38,9 @@ private:
             "FORK_COW",
             "FUTEX_WAIT",
             "FUTEX_WAKE_ONE",
-            "FUTEX_WAKE_ALL"},
+            "FUTEX_WAKE_ALL",
+            "READ",
+            "WRITE"},
         SYSCALL_NUMBER_INVALID_NAME);
 };
 

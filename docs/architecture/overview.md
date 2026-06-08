@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 12 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline。
+当前已经完成 x86-64 Stage 13 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -33,11 +33,13 @@ include/mnos/
     perf/               Stage8PerformanceModel、PerformanceCounters
   os/
     dev/                TextDisplayBuffer、KeyboardInputQueue、TerminalDevice
+    io/                 FileDescriptor、FileDescriptorTable、IoResult
     platform/           Machine facade，持有内存、core topology 和 terminal device
     kernel/             BootContext、Kernel、syscall ABI
     mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、AddressLayout、PhysicalPageAllocator、AddressSpace、PageFaultHandler
     proc/               ProcessId、Process、process_context、UserProgram/UserLoader、CopyOnWriteManager、FutexTable
     sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue、Event
+    shell/              ShellParser、ShellBuiltinRegistry、Shell session
     tty/                Console、TTY canonical line input、console read/write result
 ```
 
@@ -186,6 +188,19 @@ Console write         kernel console 输出写入 TextDisplayBuffer
 TTY canonical input   printable echo、backspace 删除、enter 提交整行，read 返回包含 newline 的字节
 Blocking read         无完整行时线程进入 WaitQueue；输入完成一行后由 Kernel 唤醒 scheduler
 Kernel Stage12 facade console_write、console_read、submit_terminal_input
+```
+
+Stage 13 当前语义：
+
+```text
+FileDescriptor        stdio value object，stdin=0/stdout=1/stderr=2，非法 fd 显式建模
+FileDescriptorTable   每进程持有 fd table，默认把 stdin/stdout/stderr 接到 TTY，fork COW 时继承表
+READ/WRITE syscall    fd 校验、最大传输长度、用户地址范围和 MMU access range 校验、负 errno 返回
+TTY fd bridge         stdin read 可阻塞当前线程，stdout/stderr write 写入 kernel console
+ShellParser           空白分隔、单双引号、反斜杠转义、未闭合引号诊断
+Builtin registry      help/clear/echo/ps/mem/cpu/ticks/exit 静态目录，函数指针分发，无虚调度
+Shell session         消费 parser + registry，通过 kernel console 输出，为后续 stdout fd 替换保留清晰边界
+Emulator smoke        启动时执行 shell echo，并打印 stage13=ready/shell_running=true
 ```
 
 Stage 3 当前语义：

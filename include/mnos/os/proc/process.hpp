@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <deque>
 
+#include <mnos/os/io/file_descriptor.hpp>
 #include <mnos/os/mm/address_space.hpp>
 #include <mnos/os/proc/process_id.hpp>
 #include <mnos/os/sched/thread_context.hpp>
@@ -18,6 +19,8 @@ public:
     [[nodiscard]] ProcessId id() const noexcept;
     [[nodiscard]] mm::AddressSpace& address_space() noexcept;
     [[nodiscard]] const mm::AddressSpace& address_space() const noexcept;
+    [[nodiscard]] io::FileDescriptorTable& file_descriptors() noexcept;
+    [[nodiscard]] const io::FileDescriptorTable& file_descriptors() const noexcept;
 
     [[nodiscard]] sched::ThreadContext& create_thread(
         sched::ThreadId thread_id,
@@ -34,6 +37,7 @@ private:
 
     ProcessId id_;
     mm::AddressSpace address_space_;
+    io::FileDescriptorTable file_descriptors_;
     std::deque<sched::ThreadContext> threads_;
 };
 }

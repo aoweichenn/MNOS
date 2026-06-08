@@ -20,6 +20,8 @@ enum class SyscallNumber : std::uint64_t
     FUTEX_WAIT = 5,
     FUTEX_WAKE_ONE = 6,
     FUTEX_WAKE_ALL = 7,
+    READ = 8,
+    WRITE = 9,
     COUNT
 };
 
@@ -30,6 +32,7 @@ enum class SyscallResult : std::uint8_t
     UNSUPPORTED,
     INVALID_CONTEXT,
     INVALID_ARGUMENT,
+    BAD_DESCRIPTOR,
     BAD_ADDRESS,
     OUT_OF_MEMORY,
     COUNT
@@ -38,6 +41,7 @@ enum class SyscallResult : std::uint8_t
 enum class SyscallError : std::int64_t
 {
     SUCCESS = 0,
+    BAD_FILE_DESCRIPTOR = 9,
     AGAIN = 11,
     NO_MEMORY = 12,
     BAD_ADDRESS = 14,
@@ -62,6 +66,7 @@ inline constexpr std::size_t SYSCALL_NUMBER_COUNT = static_cast<std::size_t>(Sys
 inline constexpr std::size_t SYSCALL_ARGUMENT_COUNT = static_cast<std::size_t>(SyscallArgument::COUNT);
 inline constexpr cpu::Qword SYSCALL_SUCCESS_RESULT = cpu::Qword{0};
 inline constexpr std::uint64_t SYSCALL_FORK_MAX_COW_PAGE_COUNT = std::uint64_t{256};
+inline constexpr std::size_t SYSCALL_IO_MAX_TRANSFER_BYTES = std::size_t{4096};
 inline constexpr cpu::Qword SYSCALL_FUTEX_WORD_MASK = cpu::Qword{0xFFFF'FFFF};
 
 [[nodiscard]] constexpr cpu::Qword syscall_error_result(const SyscallError error) noexcept

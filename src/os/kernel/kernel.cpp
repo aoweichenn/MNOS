@@ -14,6 +14,7 @@ constexpr const char* KERNEL_STAGE7_NOT_READY_MESSAGE = "kernel stage7 services 
 constexpr const char* KERNEL_STAGE9_NOT_READY_MESSAGE = "kernel stage9 services are not initialized";
 constexpr const char* KERNEL_STAGE10_NOT_READY_MESSAGE = "kernel stage10 services are not initialized";
 constexpr const char* KERNEL_STAGE12_NOT_READY_MESSAGE = "kernel stage12 services are not initialized";
+constexpr const char* KERNEL_STAGE13_NOT_READY_MESSAGE = "kernel stage13 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
@@ -141,6 +142,11 @@ bool Kernel::has_stage11_services() const noexcept
 bool Kernel::has_stage12_services() const noexcept
 {
     return this->has_stage11_services();
+}
+
+bool Kernel::has_stage13_services() const noexcept
+{
+    return this->has_stage12_services();
 }
 
 mm::PhysicalPageAllocator& Kernel::physical_page_allocator()
@@ -347,6 +353,7 @@ proc::Process& Kernel::fork_process_cow(
 {
     this->require_stage10_services();
     proc::Process& child_process = this->create_process();
+    child_process.file_descriptors() = parent_process.file_descriptors();
     static_cast<void>(this->copy_on_write_manager_.share_pages(parent_process, child_process, cow_pages));
     return child_process;
 }
@@ -422,6 +429,55 @@ std::vector<sched::ThreadContext*> Kernel::submit_terminal_input(const std::stri
         this->scheduler_.wake(*reader);
     }
     return readers;
+}
+
+io::IoResult Kernel::read_fd(
+    proc::Process& process,
+    sched::ThreadContext& thread,
+    const io::FileDescriptor descriptor,
+    std::span<char> destination)
+{
+    this->require_stage13_services();
+    const io::FileDescriptorEntry* const entry = process.file_descriptors().find(descriptor);
+    if (entry == nullptr || !entry->readable())
+    {
+        return io::IoResult::bad_descriptor();
+    }
+
+    switch (entry->device_kind())
+    {
+    case io::FileDeviceKind::TTY:
+    {
+        const tty::ConsoleReadResult result = this->console_read(thread, destination);
+        return result.is_blocked() ? io::IoResult::blocked() : io::IoResult::ready(result.byte_count());
+    }
+    case io::FileDeviceKind::COUNT:
+    default:
+        return io::IoResult::bad_descriptor();
+    }
+}
+
+io::IoResult Kernel::write_fd(
+    proc::Process& process,
+    const io::FileDescriptor descriptor,
+    const std::string_view text)
+{
+    this->require_stage13_services();
+    const io::FileDescriptorEntry* const entry = process.file_descriptors().find(descriptor);
+    if (entry == nullptr || !entry->writable())
+    {
+        return io::IoResult::bad_descriptor();
+    }
+
+    switch (entry->device_kind())
+    {
+    case io::FileDeviceKind::TTY:
+        this->console_write(text);
+        return io::IoResult::ready(text.size());
+    case io::FileDeviceKind::COUNT:
+    default:
+        return io::IoResult::bad_descriptor();
+    }
 }
 
 sched::SchedulerTick Kernel::scheduler_tick_count() const noexcept
@@ -772,6 +828,15 @@ void Kernel::require_stage12_services() const
     if (!this->has_stage12_services())
     {
         throw std::logic_error{KERNEL_STAGE12_NOT_READY_MESSAGE};
+    }
+}
+
+void Kernel::require_stage13_services() const
+{
+    this->require_booted();
+    if (!this->has_stage13_services())
+    {
+        throw std::logic_error{KERNEL_STAGE13_NOT_READY_MESSAGE};
     }
 }
 

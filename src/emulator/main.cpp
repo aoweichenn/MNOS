@@ -10,10 +10,12 @@
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/platform/machine.hpp>
+#include <mnos/os/shell/shell.hpp>
 
 namespace cpu = mnos::cpu;
 namespace kernel = mnos::os::kernel;
 namespace platform = mnos::os::platform;
+namespace shell = mnos::os::shell;
 
 namespace
 {
@@ -31,6 +33,8 @@ int main()
     kernel::Kernel os_kernel{boot_context};
     os_kernel.boot();
     os_kernel.console_write("MNOS terminal ready\n");
+    shell::Shell os_shell{os_kernel};
+    static_cast<void>(os_shell.execute_line("echo shell ready"));
 
     const cpu::ExecutableImage bootstrap_image{
         0x48, 0xBD, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RBP, 64
@@ -54,6 +58,8 @@ int main()
               << ", stage10=" << (os_kernel.has_stage10_services() ? "ready" : "not-ready")
               << ", stage11=" << (os_kernel.has_stage11_services() ? "ready" : "not-ready")
               << ", stage12=" << (os_kernel.has_stage12_services() ? "ready" : "not-ready")
+              << ", stage13=" << (os_kernel.has_stage13_services() ? "ready" : "not-ready")
+              << ", shell_running=" << (os_shell.running() ? "true" : "false")
               << ", cores=" << os_kernel.bootstrap_processor_count()
               << ", terminal_scrolls=" << machine.terminal_device().display().scroll_count()
               << ", " << cpu::opcode_to_assembly_name(cpu::Opcode::HLT)

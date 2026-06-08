@@ -48,6 +48,16 @@ const mm::AddressSpace& Process::address_space() const noexcept
     return this->address_space_;
 }
 
+io::FileDescriptorTable& Process::file_descriptors() noexcept
+{
+    return this->file_descriptors_;
+}
+
+const io::FileDescriptorTable& Process::file_descriptors() const noexcept
+{
+    return this->file_descriptors_;
+}
+
 sched::ThreadContext& Process::create_thread(
     const sched::ThreadId thread_id,
     const mm::VirtualAddress kernel_stack_bottom,
