@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache，为后续 SimpleFS/VFS/open/read/write/close 提供真实块存储地基。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，为后续 open/read/write/close syscall 提供真实文件系统地基。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -227,13 +227,25 @@ Stats                 hit/miss、device read、write call、device writeback、d
 Benchmark             MemoryBlockDevice read/write 与 BufferCache read-hit 已进入 benchmark smoke
 ```
 
+Stage 15B 已经完成第一版 SimpleFS 和 VFS 文件对象：
+
+```text
+SimpleFS format/mount  superblock、inode table、data bitmap、data block 区的真实块格式
+Inode/dirent           固定 inode record、direct block、固定目录项，支持 file/directory kind
+File I/O               跨块 read/write、overwrite、append、direct-block 容量检查和 no-sparse 约束
+Directory I/O          root/nested directory、lookup、create_file、create_directory、read_directory
+VFS facade             absolute path 解析、lookup/create/open_file/read_directory，不引入 syscall
+VfsFile                持有 inode + open mode + offset，支持 read/write/seek 和 mode 校验
+Benchmark              SimpleFS file read/write 已进入 benchmark smoke
+```
+
 ## 下一步
 
 合理顺序：
 
 ```text
-1. SimpleFS + VFS inode/file object，把 fd 从固定 stdio 扩展到真实文件
-2. open/read/write/close/stat/readdir syscall，让 shell 能访问文件系统
+1. open/read/write/close/stat/readdir syscall，把 fd 从固定 stdio 扩展到真实文件
+2. shell 文件命令：ls/cat/touch/write/stat，让交互终端能访问 SimpleFS
 3. exec/wait/process lifecycle，把 user loader、syscall 和 fd 语义连成可运行用户程序闭环
 4. pipe/dup/redirect，把 shell 变成可组合的交互环境
 5. network device + packet ring + high-performance network path

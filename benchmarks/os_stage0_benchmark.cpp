@@ -11,6 +11,7 @@
 #include <mnos/cpu/system/interrupt_vector.hpp>
 #include <mnos/os/block/block_device.hpp>
 #include <mnos/os/block/buffer_cache.hpp>
+#include <mnos/os/fs/simple_fs.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/mm/page.hpp>
@@ -25,6 +26,7 @@ namespace cpu = mnos::cpu;
 namespace cpu_memory = mnos::cpu::memory;
 namespace cpu_system = mnos::cpu::system;
 namespace block = mnos::os::block;
+namespace fs = mnos::os::fs;
 namespace kernel = mnos::os::kernel;
 namespace mm = mnos::os::mm;
 namespace platform = mnos::os::platform;
@@ -56,6 +58,7 @@ constexpr std::size_t BENCHMARK_BUFFER_CACHE_CAPACITY_BLOCKS = 64;
 constexpr block::BlockAddress BENCHMARK_BLOCK_DEVICE_IO_ADDRESS{std::uint64_t{32}};
 constexpr block::BlockAddress BENCHMARK_BUFFER_CACHE_HIT_ADDRESS{std::uint64_t{64}};
 constexpr cpu::Byte BENCHMARK_BLOCK_DATA_SEED = cpu::Byte{0x5A};
+constexpr std::uint32_t BENCHMARK_SIMPLE_FS_INODE_COUNT = std::uint32_t{64};
 
 [[nodiscard]] std::vector<cpu::Byte> make_benchmark_block()
 {
@@ -328,6 +331,31 @@ static void BM_BufferCacheReadHit(benchmark::State& state)
         static_cast<std::int64_t>(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES));
 }
 
+static void BM_SimpleFsFileReadWrite(benchmark::State& state)
+{
+    block::MemoryBlockDevice device{
+        block::BlockDeviceGeometry{block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES, BENCHMARK_BLOCK_DEVICE_BLOCK_COUNT}};
+    block::BufferCache cache{device, BENCHMARK_BUFFER_CACHE_CAPACITY_BLOCKS};
+    fs::SimpleFileSystem::format(cache, fs::SimpleFsFormatOptions{BENCHMARK_SIMPLE_FS_INODE_COUNT});
+    fs::SimpleFileSystem file_system{cache};
+    const fs::InodeNumber file = file_system.create_file(file_system.root_inode(), "bench");
+    const std::vector<cpu::Byte> source = make_benchmark_block();
+    std::vector<cpu::Byte> destination(source.size());
+
+    for (auto unused_iteration : state)
+    {
+        static_cast<void>(unused_iteration);
+        benchmark::DoNotOptimize(file_system.write_file(file, std::uint64_t{0}, source));
+        benchmark::DoNotOptimize(file_system.read_file(file, std::uint64_t{0}, destination));
+        benchmark::DoNotOptimize(destination.data());
+    }
+
+    state.SetItemsProcessed(state.iterations());
+    state.SetBytesProcessed(
+        static_cast<std::int64_t>(state.iterations()) *
+        static_cast<std::int64_t>(block::BLOCK_DEVICE_DEFAULT_BLOCK_SIZE_BYTES * std::size_t{2}));
+}
+
 BENCHMARK(BM_OSKernelBoot);
 BENCHMARK(BM_ThreadContextReset);
 BENCHMARK(BM_PhysicalPageAllocatorAllocateFree);
@@ -340,3 +368,4 @@ BENCHMARK(BM_KernelTimerPreempt);
 BENCHMARK(BM_TlbShootdownApply);
 BENCHMARK(BM_MemoryBlockDeviceReadWrite);
 BENCHMARK(BM_BufferCacheReadHit);
+BENCHMARK(BM_SimpleFsFileReadWrite);
