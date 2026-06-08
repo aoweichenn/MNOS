@@ -192,6 +192,29 @@ target_link_libraries(mnos_emulator PRIVATE mnos_os)
 mnos_apply_project_options(mnos_emulator)
 
 set(
+    MNOS_HOST_SOURCES
+        src/host/terminal_runner.cpp
+)
+
+add_library(mnos_host STATIC ${MNOS_HOST_SOURCES})
+
+target_compile_features(mnos_host PUBLIC cxx_std_20)
+
+target_include_directories(
+    mnos_host
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+)
+
+target_link_libraries(mnos_host PUBLIC mnos_os)
+
+mnos_apply_project_options(mnos_host)
+
+add_executable(mnos_console src/host/console_main.cpp)
+target_link_libraries(mnos_console PRIVATE mnos_host)
+mnos_apply_project_options(mnos_console)
+
+set(
     MNOS_BENCHMARK_SOURCES
         benchmarks/cpu_executor_benchmark.cpp
         benchmarks/os_stage0_benchmark.cpp
@@ -218,6 +241,8 @@ set(MNOS_CPU_TEST_TARGETS)
 set(MNOS_CPU_COVERAGE_TEST_GCDA_FILES)
 set(MNOS_OS_TEST_TARGETS)
 set(MNOS_OS_COVERAGE_TEST_GCDA_FILES)
+set(MNOS_HOST_TEST_TARGETS)
+set(MNOS_HOST_COVERAGE_TEST_GCDA_FILES)
 
 function(mnos_add_module_test target_name source_file linked_target test_targets_variable test_gcda_files_variable)
     add_executable(${target_name} ${source_file})
@@ -256,6 +281,16 @@ macro(mnos_add_os_test target_name source_file)
         mnos_os
         MNOS_OS_TEST_TARGETS
         MNOS_OS_COVERAGE_TEST_GCDA_FILES
+    )
+endmacro()
+
+macro(mnos_add_host_test target_name source_file)
+    mnos_add_module_test(
+        ${target_name}
+        ${source_file}
+        mnos_host
+        MNOS_HOST_TEST_TARGETS
+        MNOS_HOST_COVERAGE_TEST_GCDA_FILES
     )
 endmacro()
 
@@ -317,6 +352,8 @@ mnos_add_os_test(mnos_os_stage9_chaos_tests tests/os/chaos/stage9_smp_scheduler_
 mnos_add_os_test(mnos_os_stage10_chaos_tests tests/os/chaos/stage10_sync_chaos_test.cpp)
 mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz_test.cpp)
 mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
+
+mnos_add_host_test(mnos_host_terminal_runner_tests tests/host/terminal_runner_test.cpp)
 
 if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_program(MNOS_GCOV_EXECUTABLE gcov)
@@ -382,6 +419,12 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             MNOS_OS_COVERAGE_GCNO_FILES
             MNOS_OS_COVERAGE_LIBRARY_GCDA_FILES
         )
+        mnos_collect_target_coverage_files(
+            mnos_host
+            MNOS_HOST_SOURCES
+            MNOS_HOST_COVERAGE_GCNO_FILES
+            MNOS_HOST_COVERAGE_LIBRARY_GCDA_FILES
+        )
 
         set(
             MNOS_CPU_COVERAGE_GCDA_FILES
@@ -393,9 +436,24 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                 ${MNOS_OS_COVERAGE_LIBRARY_GCDA_FILES}
                 ${MNOS_OS_COVERAGE_TEST_GCDA_FILES}
         )
-        set(MNOS_ALL_TEST_TARGETS ${MNOS_CPU_TEST_TARGETS} ${MNOS_OS_TEST_TARGETS})
-        set(MNOS_ALL_COVERAGE_GCNO_FILES ${MNOS_CPU_COVERAGE_GCNO_FILES} ${MNOS_OS_COVERAGE_GCNO_FILES})
-        set(MNOS_ALL_COVERAGE_GCDA_FILES ${MNOS_CPU_COVERAGE_GCDA_FILES} ${MNOS_OS_COVERAGE_GCDA_FILES})
+        set(
+            MNOS_HOST_COVERAGE_GCDA_FILES
+                ${MNOS_HOST_COVERAGE_LIBRARY_GCDA_FILES}
+                ${MNOS_HOST_COVERAGE_TEST_GCDA_FILES}
+        )
+        set(MNOS_ALL_TEST_TARGETS ${MNOS_CPU_TEST_TARGETS} ${MNOS_OS_TEST_TARGETS} ${MNOS_HOST_TEST_TARGETS})
+        set(
+            MNOS_ALL_COVERAGE_GCNO_FILES
+                ${MNOS_CPU_COVERAGE_GCNO_FILES}
+                ${MNOS_OS_COVERAGE_GCNO_FILES}
+                ${MNOS_HOST_COVERAGE_GCNO_FILES}
+        )
+        set(
+            MNOS_ALL_COVERAGE_GCDA_FILES
+                ${MNOS_CPU_COVERAGE_GCDA_FILES}
+                ${MNOS_OS_COVERAGE_GCDA_FILES}
+                ${MNOS_HOST_COVERAGE_GCDA_FILES}
+        )
 
         mnos_create_coverage_target(
             mnos_cpu_coverage
@@ -410,6 +468,13 @@ if(MNOS_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             MNOS_OS_TEST_TARGETS
             MNOS_OS_COVERAGE_GCNO_FILES
             MNOS_OS_COVERAGE_GCDA_FILES
+        )
+        mnos_create_coverage_target(
+            mnos_host_coverage
+            host
+            MNOS_HOST_TEST_TARGETS
+            MNOS_HOST_COVERAGE_GCNO_FILES
+            MNOS_HOST_COVERAGE_GCDA_FILES
         )
         mnos_create_coverage_target(
             mnos_coverage

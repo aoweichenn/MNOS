@@ -60,6 +60,7 @@ cmake --build builds/debug --parallel
 ctest --test-dir builds/debug --output-on-failure
 cmake --build builds/debug --target mnos_benchmark_smoke
 builds/debug/mnos_emulator
+builds/debug/mnos_console
 ```
 
 新增模块应配套：

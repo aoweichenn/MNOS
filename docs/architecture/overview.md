@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 15C CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令。
+当前已经完成 x86-64 Stage 15D CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令，Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -21,6 +21,7 @@ decode    ExecutableImage + REX.W + LOCK + ModRM/SIB + rel8/rel32 + RIP-relative
 ```text
 include/mnos/
   core/                 EnumMap 等通用基础设施
+  host/                 宿主机交互 adapter，例如 TerminalRunner
   cpu/
     common/             x86-64 基础整数类型、DataSize
     decode/             ExecutableImage、Decoder、DecodedInstruction
@@ -43,12 +44,15 @@ include/mnos/
     sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue、Event
     shell/              ShellParser、ShellBuiltinRegistry、Shell、ShellSession 交互 loop、文件命令
     tty/                Console、TTY canonical line input、console read/write result
+src/
+  host/                 mnos_console 入口和宿主机终端 adapter 实现
 ```
 
 依赖方向必须保持：
 
 ```text
 mnos_emulator -> mnos_os -> mnos_cpu
+mnos_console  -> mnos_host -> mnos_os -> mnos_cpu
 benchmarks    -> mnos_os/mnos_cpu
 tests         -> 被测目标
 ```
@@ -251,6 +255,16 @@ Shell file commands       ls/cat/touch/write/stat 通过 Kernel::vfs() 操作 ro
 Benchmark smoke           Kernel VFS open/close fd
 ```
 
+Stage 15D 当前语义：
+
+```text
+TerminalRunner            宿主机终端 adapter，读取 host stdin，提交到 Kernel::submit_terminal_input
+Shell drive loop          复用 ShellSession::poll，驱动 prompt、blocking read、命令执行和 exit
+Screen renderer           将 TextDisplayBuffer 作为 80x25 文本屏幕渲染到 host stdout
+mnos_console              可直接运行的交互入口，默认 ANSI screen，--plain 便于 pipe/测试输出
+Host tests                用 istringstream/ostringstream 覆盖 help、文件命令和 EOF without exit
+```
+
 Stage 3 当前语义：
 
 ```text
@@ -383,7 +397,7 @@ RIP-relative addressing
 DecodeError 非法编码入口
 ```
 
-后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。下一步应沿 exec/wait、pipe/dup/redirect、page cache/mmap 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
+后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。Stage 15D 已经补上宿主机交互终端入口；下一步应先考虑可选窗口终端 adapter，再沿 exec/wait、pipe/dup/redirect、page cache/mmap 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
 
 ### Stage 2: 更完整的整数 ISA 已完成当前教学范围
 
@@ -462,7 +476,7 @@ INVLPG/PCID/TLB shootdown
 多核心 scheduler handoff
 ```
 
-Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，Stage 9 已经补齐 per-core scheduler 当前底座，Stage 10-15C 已经把用户进程、终端交互和文件系统接入主线，下一步再逐步扩成 exec/wait、pipe/redirect、page cache/mmap 和更复杂的设备模型。
+Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，Stage 9 已经补齐 per-core scheduler 当前底座，Stage 10-15D 已经把用户进程、终端交互、文件系统和宿主机交互入口接入主线，下一步再逐步扩成窗口终端 adapter、exec/wait、pipe/redirect、page cache/mmap 和更复杂的设备模型。
 
 ### Stage 8: cache、pipeline、性能计数 已完成当前底座
 
@@ -557,7 +571,9 @@ emulator stage14 smoke
 Stage 15A 已完成: block device + buffer cache
 Stage 15B 已完成: SimpleFS + VFS inode/file object
 Stage 15C 已完成: open/read/write/close/stat/readdir syscall + shell file commands
-后续扩展: exec/wait/process lifecycle
+Stage 15D 已完成: host interactive terminal adapter + mnos_console
+后续扩展: 可选窗口终端 adapter
+exec/wait/process lifecycle
 pipe/dup/redirect
 page cache / mmap / demand file paging
 block DMA / async I/O
@@ -590,4 +606,5 @@ cmake --build builds/debug --parallel
 ctest --test-dir builds/debug --output-on-failure
 cmake --build builds/debug --target mnos_benchmark_smoke
 builds/debug/mnos_emulator
+builds/debug/mnos_console
 ```
