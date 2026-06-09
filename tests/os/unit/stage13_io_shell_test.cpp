@@ -1,4 +1,5 @@
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -212,6 +213,23 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
     EXPECT_TRUE(registry.contains("stat"));
     EXPECT_TRUE(registry.contains("exit"));
     EXPECT_FALSE(registry.contains("missing"));
+    const std::optional<shell::ShellBuiltinInfo> ls_info = registry.find("ls");
+    ASSERT_TRUE(ls_info.has_value());
+    EXPECT_THAT(ls_info->name, Eq(std::string_view{"ls"}));
+    EXPECT_THAT(ls_info->syntax, Eq(std::string_view{"ls [path]"}));
+    EXPECT_THAT(ls_info->description, Eq(std::string_view{"list directory entries"}));
+    EXPECT_FALSE(registry.find("missing").has_value());
+
+    const shell::ShellBuiltinInfo help_info = registry.info_at(std::size_t{0});
+    EXPECT_THAT(help_info.name, Eq(std::string_view{"help"}));
+    EXPECT_THAT(help_info.syntax, Eq(std::string_view{"help [command]"}));
     EXPECT_THAT(registry.name_at(std::size_t{0}), Eq(std::string_view{"help"}));
+    EXPECT_THAT(registry.syntax_at(std::size_t{0}), Eq(std::string_view{"help [command]"}));
+    EXPECT_THAT(
+        registry.description_at(std::size_t{0}),
+        Eq(std::string_view{"show all commands or details for one command"}));
+    EXPECT_THROW(static_cast<void>(registry.info_at(registry.size())), std::out_of_range);
     EXPECT_THROW(static_cast<void>(registry.name_at(registry.size())), std::out_of_range);
+    EXPECT_THROW(static_cast<void>(registry.syntax_at(registry.size())), std::out_of_range);
+    EXPECT_THROW(static_cast<void>(registry.description_at(registry.size())), std::out_of_range);
 }

@@ -386,6 +386,15 @@ TEST(Stage13ShellIoIntegrationTest, ShellExecutesBuiltinsThroughKernelConsole)
 
     EXPECT_THAT(session.execute_line("help").status(), Eq(shell::ShellCommandStatus::HANDLED));
     EXPECT_THAT(display_text(machine), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
+    EXPECT_THAT(display_text(machine), HasSubstr("commands:"));
+    EXPECT_THAT(display_text(machine), HasSubstr("usage: help [command]"));
+
+    EXPECT_THAT(session.execute_line("help ls").status(), Eq(shell::ShellCommandStatus::HANDLED));
+    EXPECT_THAT(display_text(machine), HasSubstr("usage: ls [path]"));
+    EXPECT_THAT(display_text(machine), HasSubstr("description: list directory entries"));
+
+    EXPECT_THAT(session.execute_line("help missing").status(), Eq(shell::ShellCommandStatus::UNKNOWN_COMMAND));
+    EXPECT_THAT(display_text(machine), HasSubstr("unknown command: missing"));
 
     EXPECT_THAT(session.execute_line("clear").status(), Eq(shell::ShellCommandStatus::HANDLED));
     EXPECT_TRUE(machine.terminal_device().display().empty());

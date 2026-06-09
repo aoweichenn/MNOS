@@ -20,15 +20,41 @@ constexpr std::string_view SHELL_UNKNOWN_COMMAND_PREFIX = "unknown command: ";
 constexpr std::string_view SHELL_PARSE_ERROR_UNTERMINATED_QUOTE = "parse error: unterminated quote\n";
 constexpr std::string_view SHELL_ARGUMENT_SEPARATOR = " ";
 constexpr std::string_view SHELL_LINE_ENDING = "\n";
+constexpr std::string_view SHELL_USAGE_PREFIX = "usage: ";
+constexpr std::string_view SHELL_DESCRIPTION_PREFIX = "description: ";
 constexpr std::string_view SHELL_NO_PARENT_TEXT = "0";
 constexpr std::string_view SHELL_NO_EXIT_CODE_TEXT = "-";
 constexpr std::string_view SHELL_ROOT_PATH = "/";
 constexpr std::string_view SHELL_DIRECTORY_SUFFIX = "/";
-constexpr std::string_view SHELL_USAGE_LS = "usage: ls [path]\n";
-constexpr std::string_view SHELL_USAGE_CAT = "usage: cat path\n";
-constexpr std::string_view SHELL_USAGE_TOUCH = "usage: touch path\n";
-constexpr std::string_view SHELL_USAGE_WRITE = "usage: write path text...\n";
-constexpr std::string_view SHELL_USAGE_STAT = "usage: stat path\n";
+constexpr std::string_view SHELL_HELP_CATALOG_HEADING = "commands:";
+constexpr std::string_view SHELL_HELP_ITEM_INDENT = "  ";
+constexpr std::string_view SHELL_HELP_DESCRIPTION_SEPARATOR = " - ";
+constexpr std::string_view SHELL_SYNTAX_HELP = "help [command]";
+constexpr std::string_view SHELL_SYNTAX_CLEAR = "clear";
+constexpr std::string_view SHELL_SYNTAX_ECHO = "echo [text...]";
+constexpr std::string_view SHELL_SYNTAX_PS = "ps";
+constexpr std::string_view SHELL_SYNTAX_MEM = "mem";
+constexpr std::string_view SHELL_SYNTAX_CPU = "cpu";
+constexpr std::string_view SHELL_SYNTAX_TICKS = "ticks";
+constexpr std::string_view SHELL_SYNTAX_LS = "ls [path]";
+constexpr std::string_view SHELL_SYNTAX_CAT = "cat path";
+constexpr std::string_view SHELL_SYNTAX_TOUCH = "touch path";
+constexpr std::string_view SHELL_SYNTAX_WRITE = "write path text...";
+constexpr std::string_view SHELL_SYNTAX_STAT = "stat path";
+constexpr std::string_view SHELL_SYNTAX_EXIT = "exit";
+constexpr std::string_view SHELL_DESCRIPTION_HELP = "show all commands or details for one command";
+constexpr std::string_view SHELL_DESCRIPTION_CLEAR = "clear the terminal display";
+constexpr std::string_view SHELL_DESCRIPTION_ECHO = "print arguments to the terminal";
+constexpr std::string_view SHELL_DESCRIPTION_PS = "list processes and thread states";
+constexpr std::string_view SHELL_DESCRIPTION_MEM = "show physical page allocator counters";
+constexpr std::string_view SHELL_DESCRIPTION_CPU = "show current shell CPU state";
+constexpr std::string_view SHELL_DESCRIPTION_TICKS = "show kernel scheduler tick counters";
+constexpr std::string_view SHELL_DESCRIPTION_LS = "list directory entries";
+constexpr std::string_view SHELL_DESCRIPTION_CAT = "print file contents";
+constexpr std::string_view SHELL_DESCRIPTION_TOUCH = "create an empty file";
+constexpr std::string_view SHELL_DESCRIPTION_WRITE = "replace file contents with text";
+constexpr std::string_view SHELL_DESCRIPTION_STAT = "show file kind and size";
+constexpr std::string_view SHELL_DESCRIPTION_EXIT = "stop the interactive shell session";
 constexpr std::string_view SHELL_FS_NOT_FOUND_PREFIX = "not found: ";
 constexpr std::string_view SHELL_FS_INVALID_PATH_PREFIX = "invalid path: ";
 constexpr std::string_view SHELL_FS_NOT_DIRECTORY_PREFIX = "not a directory: ";
@@ -47,7 +73,7 @@ using BuiltinHandler = mnos::os::shell::ShellCommandResult (*)(
 
 struct ShellBuiltinSpec final
 {
-    std::string_view name;
+    mnos::os::shell::ShellBuiltinInfo info;
     BuiltinHandler handler;
 };
 
@@ -64,6 +90,22 @@ struct ShellBuiltinSpec final
 void shell_write(mnos::os::shell::ShellContext& context, const std::string_view text)
 {
     context.os_kernel().console_write(text);
+}
+
+void shell_write_usage(mnos::os::shell::ShellContext& context, const std::string_view syntax)
+{
+    std::string output{SHELL_USAGE_PREFIX};
+    output.append(syntax);
+    output.append(SHELL_LINE_ENDING);
+    shell_write(context, output);
+}
+
+void shell_write_unknown_command(mnos::os::shell::ShellContext& context, const std::string_view name)
+{
+    std::string output{SHELL_UNKNOWN_COMMAND_PREFIX};
+    output.append(name);
+    output.append(SHELL_LINE_ENDING);
+    shell_write(context, output);
 }
 
 [[nodiscard]] std::string shell_join_arguments(const mnos::os::shell::ShellCommand& command)
@@ -176,39 +218,97 @@ void shell_write_path_error(
 [[nodiscard]] const std::array<ShellBuiltinSpec, SHELL_BUILTIN_COUNT>& shell_builtin_catalog() noexcept
 {
     static constexpr std::array<ShellBuiltinSpec, SHELL_BUILTIN_COUNT> CATALOG{
-        ShellBuiltinSpec{"help", handle_help},
-        ShellBuiltinSpec{"clear", handle_clear},
-        ShellBuiltinSpec{"echo", handle_echo},
-        ShellBuiltinSpec{"ps", handle_ps},
-        ShellBuiltinSpec{"mem", handle_mem},
-        ShellBuiltinSpec{"cpu", handle_cpu},
-        ShellBuiltinSpec{"ticks", handle_ticks},
-        ShellBuiltinSpec{"ls", handle_ls},
-        ShellBuiltinSpec{"cat", handle_cat},
-        ShellBuiltinSpec{"touch", handle_touch},
-        ShellBuiltinSpec{"write", handle_write},
-        ShellBuiltinSpec{"stat", handle_stat},
-        ShellBuiltinSpec{"exit", handle_exit}};
+        ShellBuiltinSpec{{"help", SHELL_SYNTAX_HELP, SHELL_DESCRIPTION_HELP}, handle_help},
+        ShellBuiltinSpec{{"clear", SHELL_SYNTAX_CLEAR, SHELL_DESCRIPTION_CLEAR}, handle_clear},
+        ShellBuiltinSpec{{"echo", SHELL_SYNTAX_ECHO, SHELL_DESCRIPTION_ECHO}, handle_echo},
+        ShellBuiltinSpec{{"ps", SHELL_SYNTAX_PS, SHELL_DESCRIPTION_PS}, handle_ps},
+        ShellBuiltinSpec{{"mem", SHELL_SYNTAX_MEM, SHELL_DESCRIPTION_MEM}, handle_mem},
+        ShellBuiltinSpec{{"cpu", SHELL_SYNTAX_CPU, SHELL_DESCRIPTION_CPU}, handle_cpu},
+        ShellBuiltinSpec{{"ticks", SHELL_SYNTAX_TICKS, SHELL_DESCRIPTION_TICKS}, handle_ticks},
+        ShellBuiltinSpec{{"ls", SHELL_SYNTAX_LS, SHELL_DESCRIPTION_LS}, handle_ls},
+        ShellBuiltinSpec{{"cat", SHELL_SYNTAX_CAT, SHELL_DESCRIPTION_CAT}, handle_cat},
+        ShellBuiltinSpec{{"touch", SHELL_SYNTAX_TOUCH, SHELL_DESCRIPTION_TOUCH}, handle_touch},
+        ShellBuiltinSpec{{"write", SHELL_SYNTAX_WRITE, SHELL_DESCRIPTION_WRITE}, handle_write},
+        ShellBuiltinSpec{{"stat", SHELL_SYNTAX_STAT, SHELL_DESCRIPTION_STAT}, handle_stat},
+        ShellBuiltinSpec{{"exit", SHELL_SYNTAX_EXIT, SHELL_DESCRIPTION_EXIT}, handle_exit}};
     return CATALOG;
 }
 
-[[nodiscard]] std::string shell_help_text()
+[[nodiscard]] const ShellBuiltinSpec* shell_find_builtin(const std::string_view name) noexcept
+{
+    const std::array<ShellBuiltinSpec, SHELL_BUILTIN_COUNT>& catalog = shell_builtin_catalog();
+    const auto builtin = std::ranges::find_if(
+        catalog,
+        [name](const ShellBuiltinSpec& spec) noexcept
+        {
+            return spec.info.name == name;
+        });
+    return builtin == catalog.end() ? nullptr : &*builtin;
+}
+
+void append_shell_usage_line(std::string& output, const std::string_view syntax)
+{
+    output.append(SHELL_USAGE_PREFIX);
+    output.append(syntax);
+    output.append(SHELL_LINE_ENDING);
+}
+
+[[nodiscard]] std::string shell_help_detail_text(const mnos::os::shell::ShellBuiltinInfo& info)
+{
+    std::string output;
+    append_shell_usage_line(output, info.syntax);
+    output.append(SHELL_DESCRIPTION_PREFIX);
+    output.append(info.description);
+    output.append(SHELL_LINE_ENDING);
+    return output;
+}
+
+[[nodiscard]] std::string shell_help_catalog_text()
 {
     std::string output{"builtins:"};
     for (const ShellBuiltinSpec& builtin : shell_builtin_catalog())
     {
         output.append(SHELL_ARGUMENT_SEPARATOR);
-        output.append(builtin.name);
+        output.append(builtin.info.name);
     }
     output.append(SHELL_LINE_ENDING);
+    output.append(SHELL_HELP_CATALOG_HEADING);
+    output.append(SHELL_LINE_ENDING);
+    for (const ShellBuiltinSpec& builtin : shell_builtin_catalog())
+    {
+        output.append(SHELL_HELP_ITEM_INDENT);
+        output.append(SHELL_USAGE_PREFIX);
+        output.append(builtin.info.syntax);
+        output.append(SHELL_HELP_DESCRIPTION_SEPARATOR);
+        output.append(builtin.info.description);
+        output.append(SHELL_LINE_ENDING);
+    }
     return output;
 }
 
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_help(
-    const mnos::os::shell::ShellCommand&,
+    const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context)
 {
-    shell_write(context, shell_help_text());
+    if (command.argument_count() == std::size_t{0})
+    {
+        shell_write(context, shell_help_catalog_text());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    if (command.argument_count() != std::size_t{1})
+    {
+        shell_write_usage(context, SHELL_SYNTAX_HELP);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const ShellBuiltinSpec* const builtin = shell_find_builtin(command.argument_at(std::size_t{0}));
+    if (builtin == nullptr)
+    {
+        shell_write_unknown_command(context, command.argument_at(std::size_t{0}));
+        return mnos::os::shell::ShellCommandResult::unknown_command();
+    }
+
+    shell_write(context, shell_help_detail_text(builtin->info));
     return mnos::os::shell::ShellCommandResult::handled();
 }
 
@@ -324,7 +424,7 @@ void shell_write_path_error(
 {
     if (command.argument_count() > std::size_t{1})
     {
-        shell_write(context, SHELL_USAGE_LS);
+        shell_write_usage(context, SHELL_SYNTAX_LS);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
@@ -370,7 +470,7 @@ void shell_write_path_error(
 {
     if (command.argument_count() != std::size_t{1})
     {
-        shell_write(context, SHELL_USAGE_CAT);
+        shell_write_usage(context, SHELL_SYNTAX_CAT);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
@@ -415,7 +515,7 @@ void shell_write_path_error(
 {
     if (command.argument_count() != std::size_t{1})
     {
-        shell_write(context, SHELL_USAGE_TOUCH);
+        shell_write_usage(context, SHELL_SYNTAX_TOUCH);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
@@ -457,7 +557,7 @@ void shell_write_path_error(
 {
     if (command.argument_count() < std::size_t{2})
     {
-        shell_write(context, SHELL_USAGE_WRITE);
+        shell_write_usage(context, SHELL_SYNTAX_WRITE);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
@@ -507,7 +607,7 @@ void shell_write_path_error(
 {
     if (command.argument_count() != std::size_t{1})
     {
-        shell_write(context, SHELL_USAGE_STAT);
+        shell_write_usage(context, SHELL_SYNTAX_STAT);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
@@ -765,12 +865,17 @@ const kernel::Kernel& ShellContext::os_kernel() const noexcept
 
 bool ShellBuiltinRegistry::contains(const std::string_view name) const noexcept
 {
-    return std::ranges::any_of(
-        shell_builtin_catalog(),
-        [name](const ShellBuiltinSpec& builtin) noexcept
-        {
-            return builtin.name == name;
-        });
+    return this->find(name).has_value();
+}
+
+std::optional<ShellBuiltinInfo> ShellBuiltinRegistry::find(const std::string_view name) const noexcept
+{
+    const ShellBuiltinSpec* const builtin = shell_find_builtin(name);
+    if (builtin == nullptr)
+    {
+        return std::nullopt;
+    }
+    return builtin->info;
 }
 
 std::size_t ShellBuiltinRegistry::size() const noexcept
@@ -778,14 +883,29 @@ std::size_t ShellBuiltinRegistry::size() const noexcept
     return shell_builtin_catalog().size();
 }
 
-std::string_view ShellBuiltinRegistry::name_at(const std::size_t index) const
+ShellBuiltinInfo ShellBuiltinRegistry::info_at(const std::size_t index) const
 {
     const std::array<ShellBuiltinSpec, SHELL_BUILTIN_COUNT>& catalog = shell_builtin_catalog();
     if (index >= catalog.size())
     {
         throw std::out_of_range{SHELL_BUILTIN_INDEX_OUT_OF_RANGE_MESSAGE};
     }
-    return catalog[index].name;
+    return catalog[index].info;
+}
+
+std::string_view ShellBuiltinRegistry::name_at(const std::size_t index) const
+{
+    return this->info_at(index).name;
+}
+
+std::string_view ShellBuiltinRegistry::syntax_at(const std::size_t index) const
+{
+    return this->info_at(index).syntax;
+}
+
+std::string_view ShellBuiltinRegistry::description_at(const std::size_t index) const
+{
+    return this->info_at(index).description;
 }
 
 ShellCommandResult ShellBuiltinRegistry::execute(const ShellCommand& command, ShellContext& context) const
@@ -795,14 +915,11 @@ ShellCommandResult ShellBuiltinRegistry::execute(const ShellCommand& command, Sh
         catalog,
         [&command](const ShellBuiltinSpec& spec) noexcept
         {
-            return spec.name == command.name();
+            return spec.info.name == command.name();
         });
     if (builtin == catalog.end())
     {
-        std::string output{SHELL_UNKNOWN_COMMAND_PREFIX};
-        output.append(command.name());
-        output.append(SHELL_LINE_ENDING);
-        shell_write(context, output);
+        shell_write_unknown_command(context, command.name());
         return ShellCommandResult::unknown_command();
     }
     return builtin->handler(command, context);

@@ -306,15 +306,59 @@ void append_u64_le(std::vector<cpu::Byte>& bytes, const std::uint64_t value)
     return output.str();
 }
 
+[[nodiscard]] bool run_control_machine_ready(
+    const bool booted,
+    const mnos::host::HostDebuggerRunState run_state,
+    const mnos::host::HostMachineSessionStatus status) noexcept
+{
+    return booted &&
+        run_state == mnos::host::HostDebuggerRunState::PAUSED &&
+        status == mnos::host::HostMachineSessionStatus::WAITING_FOR_INPUT;
+}
+
+[[nodiscard]] mnos::host::HostDebuggerControlState make_control_state(
+    const bool booted,
+    const mnos::host::HostDebuggerRunState run_state,
+    const mnos::host::HostMachineSessionStatus status,
+    const bool accepts_input) noexcept
+{
+    const bool running = run_state == mnos::host::HostDebuggerRunState::RUNNING;
+    const bool machine_ready = run_control_machine_ready(booted, run_state, status);
+    mnos::host::HostDebuggerControlState controls;
+    controls.can_reset = !running;
+    controls.can_step = machine_ready;
+    controls.can_run = machine_ready;
+    controls.can_pause = running;
+    controls.can_execute_user_program = machine_ready;
+    controls.can_submit_input = accepts_input && !running;
+    controls.can_send_exit = accepts_input && !running;
+    return controls;
+}
+
+void append_control_state(
+    std::ostream& output,
+    const mnos::host::HostDebuggerControlState& controls)
+{
+    output << " controls reset=" << bool_text(controls.can_reset)
+           << " step=" << bool_text(controls.can_step)
+           << " run=" << bool_text(controls.can_run)
+           << " pause=" << bool_text(controls.can_pause)
+           << " exec=" << bool_text(controls.can_execute_user_program)
+           << " input=" << bool_text(controls.can_submit_input)
+           << " exit=" << bool_text(controls.can_send_exit);
+}
+
 [[nodiscard]] std::string make_run_control_text(
     const mnos::host::HostDebuggerRunState run_state,
     const std::size_t trace_entry_count,
-    const std::size_t instruction_trace_entry_count)
+    const std::size_t instruction_trace_entry_count,
+    const mnos::host::HostDebuggerControlState& controls)
 {
     std::ostringstream output;
     output << "debugger_run_state=" << mnos::host::host_debugger_run_state_to_name(run_state)
            << " trace_entries=" << trace_entry_count
            << " instruction_trace_entries=" << instruction_trace_entry_count;
+    append_control_state(output, controls);
     return output.str();
 }
 
@@ -871,6 +915,11 @@ HostDebuggerFrame HostDebuggerSession::frame() const
     result.accepts_input = this->machine_session_.waiting_for_input();
     result.trace_entry_count = this->trace_entries_.size();
     result.instruction_trace_entry_count = this->instruction_trace_entries_.size();
+    result.controls = make_control_state(
+        result.booted,
+        result.run_state,
+        result.snapshot.status,
+        result.accepts_input);
 
     if (result.booted)
     {
@@ -892,7 +941,8 @@ HostDebuggerFrame HostDebuggerSession::frame() const
     result.run_control_text = make_run_control_text(
         result.run_state,
         result.trace_entry_count,
-        result.instruction_trace_entry_count);
+        result.instruction_trace_entry_count,
+        result.controls);
     result.status_text = make_status_text(result.snapshot, result.booted, result.accepts_input);
     result.counters_text = make_counters_text(result.snapshot);
     result.memory_text = make_memory_text(result.snapshot);

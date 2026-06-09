@@ -70,6 +70,13 @@ TEST(HostDebuggerSessionTest, FrameBeforeBootDescribesCreatedMachine)
 
     EXPECT_FALSE(frame.booted);
     EXPECT_FALSE(frame.accepts_input);
+    EXPECT_TRUE(frame.controls.can_reset);
+    EXPECT_FALSE(frame.controls.can_step);
+    EXPECT_FALSE(frame.controls.can_run);
+    EXPECT_FALSE(frame.controls.can_pause);
+    EXPECT_FALSE(frame.controls.can_execute_user_program);
+    EXPECT_FALSE(frame.controls.can_submit_input);
+    EXPECT_FALSE(frame.controls.can_send_exit);
     EXPECT_THAT(frame.run_state, Eq(host::HostDebuggerRunState::PAUSED));
     EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{0}));
     EXPECT_THAT(frame.title, Eq(TEST_DEBUGGER_TITLE));
@@ -77,6 +84,7 @@ TEST(HostDebuggerSessionTest, FrameBeforeBootDescribesCreatedMachine)
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_NOT_BOOTED_TEXT));
     EXPECT_THAT(frame.run_control_text, HasSubstr("debugger_run_state=PAUSED"));
     EXPECT_THAT(frame.run_control_text, HasSubstr("instruction_trace_entries=0"));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("controls reset=yes step=no run=no pause=no exec=no input=no exit=no"));
     EXPECT_THAT(frame.status_text, HasSubstr("state=CREATED"));
     EXPECT_THAT(frame.status_text, HasSubstr("booted=no"));
     EXPECT_THAT(frame.cpu_text, HasSubstr("cpu unavailable"));
@@ -134,6 +142,13 @@ TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
 
     EXPECT_TRUE(frame.booted);
     EXPECT_TRUE(frame.accepts_input);
+    EXPECT_TRUE(frame.controls.can_reset);
+    EXPECT_TRUE(frame.controls.can_step);
+    EXPECT_TRUE(frame.controls.can_run);
+    EXPECT_FALSE(frame.controls.can_pause);
+    EXPECT_TRUE(frame.controls.can_execute_user_program);
+    EXPECT_TRUE(frame.controls.can_submit_input);
+    EXPECT_TRUE(frame.controls.can_send_exit);
     EXPECT_THAT(frame.snapshot.status, Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
     EXPECT_THAT(frame.display_column_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_COLUMN_COUNT));
     EXPECT_THAT(frame.display_row_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_ROW_COUNT));
@@ -141,6 +156,7 @@ TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
     EXPECT_THAT(frame.display_text, Eq(std::string{TEST_PROMPT}));
     EXPECT_THAT(frame.run_control_text, HasSubstr("trace_entries=2"));
     EXPECT_THAT(frame.run_control_text, HasSubstr("instruction_trace_entries=0"));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("controls reset=yes step=yes run=yes pause=no exec=yes input=yes exit=yes"));
     EXPECT_THAT(frame.status_text, HasSubstr("accepts_input=yes"));
     EXPECT_THAT(frame.counters_text, HasSubstr("commands=0"));
     EXPECT_THAT(frame.memory_text, HasSubstr("memory_pages total=512"));
@@ -453,6 +469,13 @@ TEST(HostDebuggerSessionTest, ExitCommandMakesFrameReadOnlyUntilReset)
 
     EXPECT_TRUE(frame.booted);
     EXPECT_FALSE(frame.accepts_input);
+    EXPECT_TRUE(frame.controls.can_reset);
+    EXPECT_FALSE(frame.controls.can_step);
+    EXPECT_FALSE(frame.controls.can_run);
+    EXPECT_FALSE(frame.controls.can_pause);
+    EXPECT_FALSE(frame.controls.can_execute_user_program);
+    EXPECT_FALSE(frame.controls.can_submit_input);
+    EXPECT_FALSE(frame.controls.can_send_exit);
     EXPECT_THAT(frame.snapshot.status, Eq(host::HostMachineSessionStatus::EXITED));
     EXPECT_THAT(frame.status_text, HasSubstr("state=EXITED"));
     EXPECT_THAT(frame.trace_text, HasSubstr("action=input_command"));
@@ -473,6 +496,13 @@ TEST(HostDebuggerSessionTest, ShellIoErrorStatusAppearsInFrameSummary)
 
     EXPECT_TRUE(frame.booted);
     EXPECT_FALSE(frame.accepts_input);
+    EXPECT_TRUE(frame.controls.can_reset);
+    EXPECT_FALSE(frame.controls.can_step);
+    EXPECT_FALSE(frame.controls.can_run);
+    EXPECT_FALSE(frame.controls.can_pause);
+    EXPECT_FALSE(frame.controls.can_execute_user_program);
+    EXPECT_FALSE(frame.controls.can_submit_input);
+    EXPECT_FALSE(frame.controls.can_send_exit);
     EXPECT_TRUE(frame.snapshot.has_shell_io_status);
     EXPECT_THAT(frame.snapshot.shell_io_status, Eq(io::IoStatus::BAD_DESCRIPTOR));
     EXPECT_THAT(frame.status_text, HasSubstr("state=SHELL_IO_ERROR"));

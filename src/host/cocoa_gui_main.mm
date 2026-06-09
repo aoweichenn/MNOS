@@ -456,6 +456,13 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     NSTextField* status_counters_field_;
     NSTextField* status_cursor_field_;
     NSTextField* input_field_;
+    NSButton* reset_button_;
+    NSButton* step_button_;
+    NSButton* exec_button_;
+    NSButton* run_button_;
+    NSButton* pause_button_;
+    NSButton* exit_button_;
+    NSButton* send_button_;
     std::unique_ptr<mnos::host::HostDebuggerSession> session_;
 }
 
@@ -510,12 +517,18 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [content_view addSubview:toolbar];
 
     [toolbar addArrangedSubview:make_title_field(@"MNOS x86-64 Machine Debugger")];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Reset", self, @selector(resetMachine:))];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Step", self, @selector(stepMachine:))];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Exec", self, @selector(execUserProgram:))];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Run", self, @selector(runMachine:))];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Pause", self, @selector(pauseMachine:))];
-    [toolbar addArrangedSubview:make_toolbar_button(@"Exit", self, @selector(sendExitCommand:))];
+    reset_button_ = make_toolbar_button(@"Reset", self, @selector(resetMachine:));
+    step_button_ = make_toolbar_button(@"Step", self, @selector(stepMachine:));
+    exec_button_ = make_toolbar_button(@"Exec", self, @selector(execUserProgram:));
+    run_button_ = make_toolbar_button(@"Run", self, @selector(runMachine:));
+    pause_button_ = make_toolbar_button(@"Pause", self, @selector(pauseMachine:));
+    exit_button_ = make_toolbar_button(@"Exit", self, @selector(sendExitCommand:));
+    [toolbar addArrangedSubview:reset_button_];
+    [toolbar addArrangedSubview:step_button_];
+    [toolbar addArrangedSubview:exec_button_];
+    [toolbar addArrangedSubview:run_button_];
+    [toolbar addArrangedSubview:pause_button_];
+    [toolbar addArrangedSubview:exit_button_];
 
     NSStackView* const status_strip = [[NSStackView alloc] initWithFrame:NSZeroRect];
     [status_strip setOrientation:NSUserInterfaceLayoutOrientationHorizontal];
@@ -631,8 +644,8 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [input_field_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     [input_row addSubview:input_field_];
 
-    NSButton* const send_button = make_send_button(self, @selector(submitCommand:));
-    [input_row addSubview:send_button];
+    send_button_ = make_send_button(self, @selector(submitCommand:));
+    [input_row addSubview:send_button_];
 
     [NSLayoutConstraint activateConstraints:@[
         [[toolbar leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor]
@@ -674,14 +687,26 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
 
         [[input_field_ leadingAnchor] constraintEqualToAnchor:[command_label trailingAnchor]
                                                      constant:HOST_GUI_CONTROL_GAP],
-        [[input_field_ trailingAnchor] constraintEqualToAnchor:[send_button leadingAnchor]
+        [[input_field_ trailingAnchor] constraintEqualToAnchor:[send_button_ leadingAnchor]
                                                       constant:-HOST_GUI_CONTROL_GAP],
         [[input_field_ centerYAnchor] constraintEqualToAnchor:[input_row centerYAnchor]],
         [[input_field_ heightAnchor] constraintEqualToConstant:HOST_GUI_INPUT_HEIGHT],
 
-        [[send_button trailingAnchor] constraintEqualToAnchor:[input_row trailingAnchor]],
-        [[send_button centerYAnchor] constraintEqualToAnchor:[input_row centerYAnchor]]
+        [[send_button_ trailingAnchor] constraintEqualToAnchor:[input_row trailingAnchor]],
+        [[send_button_ centerYAnchor] constraintEqualToAnchor:[input_row centerYAnchor]]
     ]];
+}
+
+- (void)renderControls:(const mnos::host::HostDebuggerFrame&)frame
+{
+    [reset_button_ setEnabled:frame.controls.can_reset];
+    [step_button_ setEnabled:frame.controls.can_step];
+    [exec_button_ setEnabled:frame.controls.can_execute_user_program];
+    [run_button_ setEnabled:frame.controls.can_run];
+    [pause_button_ setEnabled:frame.controls.can_pause];
+    [exit_button_ setEnabled:frame.controls.can_send_exit];
+    [input_field_ setEnabled:frame.controls.can_submit_input];
+    [send_button_ setEnabled:frame.controls.can_submit_input];
 }
 
 - (void)bootMachine
@@ -711,7 +736,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [paging_view_ setString:ns_wrapped_debugger_text(frame.paging_text, detail_layout)];
     [trace_view_ setString:ns_wrapped_debugger_text(frame.trace_text, detail_layout)];
     [instruction_trace_view_ setString:ns_wrapped_debugger_text(frame.instruction_trace_text, detail_layout)];
-    [input_field_ setEnabled:frame.accepts_input];
+    [self renderControls:frame];
     [terminal_view_ scrollRangeToVisible:NSMakeRange([[terminal_view_ string] length], 0)];
     [registers_view_ scrollRangeToVisible:NSMakeRange(0, 0)];
     [paging_view_ scrollRangeToVisible:NSMakeRange(0, 0)];
@@ -732,44 +757,55 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [trace_view_ setString:error_text];
     [instruction_trace_view_ setString:error_text];
     [input_field_ setEnabled:NO];
+    [send_button_ setEnabled:NO];
+    [reset_button_ setEnabled:YES];
+    [step_button_ setEnabled:NO];
+    [exec_button_ setEnabled:NO];
+    [run_button_ setEnabled:NO];
+    [pause_button_ setEnabled:NO];
+    [exit_button_ setEnabled:NO];
+}
+
+- (void)submitHostCommandLine:(std::string_view)commandLine
+{
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(session_->submit_command_line(commandLine));
+    [self renderFrame];
+}
+
+- (void)submitHostInputEvent:(const mnos::host::HostInputEvent&)event
+{
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(session_->submit_input_event(event));
+    [self renderFrame];
 }
 
 - (void)submitCommand:(id)sender
 {
     (void)sender;
-    if (session_ == nullptr)
-    {
-        return;
-    }
-
     const std::string command = std_string_from_ns([input_field_ stringValue]);
     [input_field_ setStringValue:@""];
-    static_cast<void>(session_->submit_command_line(command));
-    [self renderFrame];
+    [self submitHostCommandLine:command];
 }
 
 - (void)terminalTextView:(MnosTerminalTextView*)terminalView submitText:(NSString*)text
 {
     (void)terminalView;
-    if (session_ == nullptr)
-    {
-        return;
-    }
-
-    static_cast<void>(session_->submit_text(std_string_from_ns(text)));
-    [self renderFrame];
+    [self submitHostInputEvent:mnos::host::HostInputEvent::text(std_string_from_ns(text))];
 }
 
 - (void)terminalTextView:(MnosTerminalTextView*)terminalView submitSpecialKey:(mnos::host::HostSpecialKey)key
 {
     (void)terminalView;
-    if (session_ == nullptr)
-    {
-        return;
-    }
-
-    static_cast<void>(session_->submit_special_key(key));
-    [self renderFrame];
+    [self submitHostInputEvent:mnos::host::HostInputEvent::special_key(key)];
 }
 
 - (void)resetMachine:(id)sender
@@ -849,13 +885,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
 - (void)sendExitCommand:(id)sender
 {
     (void)sender;
-    if (session_ == nullptr)
-    {
-        return;
-    }
-
-    static_cast<void>(session_->submit_command_line("exit"));
-    [self renderFrame];
+    [self submitHostCommandLine:"exit"];
 }
 @end
 

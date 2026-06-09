@@ -14,6 +14,13 @@ class Kernel;
 
 namespace mnos::os::shell
 {
+struct ShellBuiltinInfo final
+{
+    std::string_view name;
+    std::string_view syntax;
+    std::string_view description;
+};
+
 enum class ShellParseStatus : std::uint8_t
 {
     COMMAND,
@@ -105,8 +112,12 @@ class ShellBuiltinRegistry final
 {
 public:
     [[nodiscard]] bool contains(std::string_view name) const noexcept;
+    [[nodiscard]] std::optional<ShellBuiltinInfo> find(std::string_view name) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] ShellBuiltinInfo info_at(std::size_t index) const;
     [[nodiscard]] std::string_view name_at(std::size_t index) const;
+    [[nodiscard]] std::string_view syntax_at(std::size_t index) const;
+    [[nodiscard]] std::string_view description_at(std::size_t index) const;
     [[nodiscard]] ShellCommandResult execute(const ShellCommand& command, ShellContext& context) const;
 };
 

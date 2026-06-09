@@ -39,9 +39,21 @@ struct HostDebuggerSessionConfig final
     std::size_t instruction_trace_capacity = HOST_DEBUGGER_DEFAULT_INSTRUCTION_TRACE_CAPACITY;
 };
 
+struct HostDebuggerControlState final
+{
+    bool can_reset = true;
+    bool can_step = false;
+    bool can_run = false;
+    bool can_pause = false;
+    bool can_execute_user_program = false;
+    bool can_submit_input = false;
+    bool can_send_exit = false;
+};
+
 struct HostDebuggerFrame final
 {
     HostMachineSessionSnapshot snapshot;
+    HostDebuggerControlState controls;
     std::string title;
     std::string run_control_text;
     std::string status_text;
