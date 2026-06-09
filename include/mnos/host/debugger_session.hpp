@@ -3,9 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <span>
 #include <string>
 #include <string_view>
 
+#include <mnos/cpu/execution/trace.hpp>
 #include <mnos/host/machine_session.hpp>
 #include <mnos/host/terminal_backend.hpp>
 
@@ -13,6 +15,7 @@ namespace mnos::host
 {
 inline constexpr std::string_view HOST_DEBUGGER_DEFAULT_TITLE = "MNOS x86-64 Machine";
 inline constexpr std::size_t HOST_DEBUGGER_DEFAULT_TRACE_CAPACITY = std::size_t{64};
+inline constexpr std::size_t HOST_DEBUGGER_DEFAULT_INSTRUCTION_TRACE_CAPACITY = std::size_t{64};
 
 enum class HostDebuggerRunState : std::uint8_t
 {
@@ -33,6 +36,7 @@ struct HostDebuggerSessionConfig final
     HostMachineSessionConfig machine;
     std::string title{HOST_DEBUGGER_DEFAULT_TITLE};
     std::size_t trace_capacity = HOST_DEBUGGER_DEFAULT_TRACE_CAPACITY;
+    std::size_t instruction_trace_capacity = HOST_DEBUGGER_DEFAULT_INSTRUCTION_TRACE_CAPACITY;
 };
 
 struct HostDebuggerFrame final
@@ -45,10 +49,13 @@ struct HostDebuggerFrame final
     std::string memory_text;
     std::string processor_text;
     std::string cpu_text;
+    std::string registers_text;
+    std::string paging_text;
     std::string cursor_text;
     std::string summary_text;
     std::string display_text;
     std::string trace_text;
+    std::string instruction_trace_text;
     HostDebuggerRunState run_state = HostDebuggerRunState::PAUSED;
     bool booted = false;
     bool accepts_input = false;
@@ -57,6 +64,7 @@ struct HostDebuggerFrame final
     std::size_t cursor_column = std::size_t{0};
     std::size_t cursor_row = std::size_t{0};
     std::size_t trace_entry_count = std::size_t{0};
+    std::size_t instruction_trace_entry_count = std::size_t{0};
     std::uint64_t scroll_count = std::uint64_t{0};
 };
 
@@ -75,11 +83,15 @@ public:
     [[nodiscard]] HostMachineSession& machine_session() noexcept;
     [[nodiscard]] HostDebuggerRunState run_state() const noexcept;
     [[nodiscard]] std::size_t trace_entry_count() const noexcept;
+    [[nodiscard]] std::size_t instruction_trace_entry_count() const noexcept;
 
     void boot();
     void reset();
     void pause();
     void clear_trace() noexcept;
+    void clear_instruction_trace() noexcept;
+    void record_instruction_trace(std::span<const cpu::ExecutionTraceEntry> entries);
+    void record_instruction_trace(const cpu::ExecutionTrace& trace);
 
     [[nodiscard]] HostMachineSessionStatus pump_until_waiting();
     [[nodiscard]] HostMachineSessionStatus step_until_waiting();
@@ -92,11 +104,14 @@ public:
 
 private:
     void append_trace(std::string_view action, HostMachineSessionStatus status, std::string_view detail = {});
+    void append_instruction_trace(const cpu::ExecutionTraceEntry& entry);
 
     HostDebuggerSessionConfig config_;
     HostMachineSession machine_session_;
     std::deque<std::string> trace_entries_;
+    std::deque<std::string> instruction_trace_entries_;
     HostDebuggerRunState run_state_ = HostDebuggerRunState::PAUSED;
     std::uint64_t next_trace_sequence_ = std::uint64_t{1};
+    std::uint64_t next_instruction_trace_sequence_ = std::uint64_t{1};
 };
 }

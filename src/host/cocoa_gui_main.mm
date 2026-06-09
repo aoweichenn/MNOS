@@ -28,12 +28,12 @@ constexpr CGFloat HOST_GUI_BUTTON_WIDTH = 96.0;
 constexpr CGFloat HOST_GUI_BUTTON_HEIGHT = 28.0;
 constexpr CGFloat HOST_GUI_TOOLBAR_HEIGHT = 36.0;
 constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 5.0;
-constexpr CGFloat HOST_GUI_TRACE_PANEL_HEIGHT = 190.0;
+constexpr CGFloat HOST_GUI_DETAIL_PANEL_HEIGHT = 320.0;
 constexpr CGFloat HOST_GUI_CONTROL_GAP = 8.0;
 constexpr CGFloat HOST_GUI_TERMINAL_FONT_SIZE = 13.0;
 constexpr CGFloat HOST_GUI_STATUS_FONT_SIZE = 12.0;
 constexpr CGFloat HOST_GUI_MIN_WINDOW_WIDTH = 820.0;
-constexpr CGFloat HOST_GUI_MIN_WINDOW_HEIGHT = 520.0;
+constexpr CGFloat HOST_GUI_MIN_WINDOW_HEIGHT = 620.0;
 constexpr NSEventModifierFlags HOST_GUI_DEVICE_INDEPENDENT_MODIFIER_MASK =
     NSEventModifierFlagDeviceIndependentFlagsMask;
 constexpr unichar HOST_GUI_ESCAPE_CHARACTER = unichar{0x001B};
@@ -148,6 +148,17 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
     [text_view setAutomaticQuoteSubstitutionEnabled:NO];
     [text_view setAutomaticDashSubstitutionEnabled:NO];
     [text_view setAutomaticTextReplacementEnabled:NO];
+}
+
+void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
+{
+    NSScrollView* const scroll_view = make_scroll_view(text_view, NSZeroRect);
+    [scroll_view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+    NSTabViewItem* const item = [[NSTabViewItem alloc] initWithIdentifier:label];
+    [item setLabel:label];
+    [item setView:scroll_view];
+    [tab_view addTabViewItem:item];
 }
 }
 
@@ -264,7 +275,10 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
     NSWindow* window_;
     MnosTerminalTextView* terminal_view_;
     NSTextView* status_view_;
+    NSTextView* registers_view_;
+    NSTextView* paging_view_;
     NSTextView* trace_view_;
+    NSTextView* instruction_trace_view_;
     NSTextField* input_field_;
     std::unique_ptr<mnos::host::HostDebuggerSession> session_;
 }
@@ -319,8 +333,8 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
         content_height - terminal_y - HOST_GUI_TOOLBAR_HEIGHT - (HOST_GUI_PANEL_PADDING * 2.0);
     const CGFloat right_panel_height = terminal_height + HOST_GUI_INPUT_HEIGHT + HOST_GUI_CONTROL_GAP;
     const CGFloat status_height =
-        right_panel_height - HOST_GUI_TRACE_PANEL_HEIGHT - HOST_GUI_CONTROL_GAP;
-    const CGFloat status_y = terminal_y + HOST_GUI_TRACE_PANEL_HEIGHT + HOST_GUI_CONTROL_GAP;
+        right_panel_height - HOST_GUI_DETAIL_PANEL_HEIGHT - HOST_GUI_CONTROL_GAP;
+    const CGFloat status_y = terminal_y + HOST_GUI_DETAIL_PANEL_HEIGHT + HOST_GUI_CONTROL_GAP;
     const CGFloat toolbar_y = content_height - HOST_GUI_PANEL_PADDING - HOST_GUI_BUTTON_HEIGHT;
     const CGFloat send_button_x = right_panel_x - HOST_GUI_CONTROL_GAP - HOST_GUI_BUTTON_WIDTH;
     const CGFloat input_width = send_button_x - HOST_GUI_PANEL_PADDING - HOST_GUI_CONTROL_GAP;
@@ -358,17 +372,42 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
     [status_scroll setAutoresizingMask:NSViewMinXMargin | NSViewHeightSizable];
     [content_view addSubview:status_scroll];
 
+    NSTabView* const detail_tab_view = [[NSTabView alloc] initWithFrame:
+        NSMakeRect(right_panel_x, terminal_y, HOST_GUI_STATUS_PANEL_WIDTH, HOST_GUI_DETAIL_PANEL_HEIGHT)];
+    [detail_tab_view setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
+    [content_view addSubview:detail_tab_view];
+
+    registers_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    configure_text_view(
+        registers_view_,
+        status_font,
+        [NSColor colorWithCalibratedRed:0.90 green:0.93 blue:0.86 alpha:1.0],
+        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+    add_text_tab(detail_tab_view, @"Registers", registers_view_);
+
+    paging_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    configure_text_view(
+        paging_view_,
+        status_font,
+        [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.78 alpha:1.0],
+        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+    add_text_tab(detail_tab_view, @"Paging", paging_view_);
+
     trace_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
         trace_view_,
         status_font,
         [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:1.0 alpha:1.0],
         [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
-    NSScrollView* const trace_scroll = make_scroll_view(
-        trace_view_,
-        NSMakeRect(right_panel_x, terminal_y, HOST_GUI_STATUS_PANEL_WIDTH, HOST_GUI_TRACE_PANEL_HEIGHT));
-    [trace_scroll setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
-    [content_view addSubview:trace_scroll];
+    add_text_tab(detail_tab_view, @"Actions", trace_view_);
+
+    instruction_trace_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    configure_text_view(
+        instruction_trace_view_,
+        status_font,
+        [NSColor colorWithCalibratedRed:0.82 green:0.96 blue:0.92 alpha:1.0],
+        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+    add_text_tab(detail_tab_view, @"Instructions", instruction_trace_view_);
 
     input_field_ = [[NSTextField alloc] initWithFrame:
         NSMakeRect(HOST_GUI_PANEL_PADDING, input_y, input_width, HOST_GUI_INPUT_HEIGHT)];
@@ -453,17 +492,26 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
     [window_ setTitle:ns_string_from_std(frame.title)];
     [terminal_view_ setString:ns_string_from_std(frame.display_text)];
     [status_view_ setString:ns_string_from_std(make_status_panel_text(frame))];
+    [registers_view_ setString:ns_string_from_std(frame.registers_text)];
+    [paging_view_ setString:ns_string_from_std(frame.paging_text)];
     [trace_view_ setString:ns_string_from_std(frame.trace_text)];
+    [instruction_trace_view_ setString:ns_string_from_std(frame.instruction_trace_text)];
     [input_field_ setEnabled:frame.accepts_input];
     [terminal_view_ scrollRangeToVisible:NSMakeRange([[terminal_view_ string] length], 0)];
+    [registers_view_ scrollRangeToVisible:NSMakeRange(0, 0)];
+    [paging_view_ scrollRangeToVisible:NSMakeRange(0, 0)];
     [trace_view_ scrollRangeToVisible:NSMakeRange([[trace_view_ string] length], 0)];
+    [instruction_trace_view_ scrollRangeToVisible:NSMakeRange([[instruction_trace_view_ string] length], 0)];
 }
 
 - (void)renderError:(const char*)message
 {
     NSString* const error_text = message == nullptr ? @"runtime error" : [NSString stringWithUTF8String:message];
     [status_view_ setString:error_text];
+    [registers_view_ setString:error_text];
+    [paging_view_ setString:error_text];
     [trace_view_ setString:error_text];
+    [instruction_trace_view_ setString:error_text];
     [input_field_ setEnabled:NO];
 }
 

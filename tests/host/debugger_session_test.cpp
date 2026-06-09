@@ -7,6 +7,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <mnos/cpu/execution/cpu_state.hpp>
+#include <mnos/cpu/execution/executor.hpp>
+#include <mnos/cpu/execution/program.hpp>
+#include <mnos/cpu/execution/trace.hpp>
+#include <mnos/cpu/instruction/instruction.hpp>
+#include <mnos/cpu/instruction/operand.hpp>
+#include <mnos/cpu/register/id.hpp>
 #include <mnos/host/debugger_session.hpp>
 #include <mnos/os/dev/terminal.hpp>
 #include <mnos/os/io/file_descriptor.hpp>
@@ -15,6 +22,7 @@
 
 namespace
 {
+namespace cpu = mnos::cpu;
 namespace host = mnos::host;
 namespace io = mnos::os::io;
 namespace mm = mnos::os::mm;
@@ -25,8 +33,10 @@ using ::testing::HasSubstr;
 constexpr std::string_view TEST_DEBUGGER_TITLE = "MNOS Test Debugger";
 constexpr std::string_view TEST_NOT_BOOTED_TEXT = "not booted";
 constexpr std::string_view TEST_PROMPT = "mnos> ";
+constexpr cpu::SignedQword TEST_TRACE_PROGRAM_VALUE = cpu::SignedQword{7};
 constexpr std::size_t TEST_UNBOOTABLE_MEMORY_SIZE_BYTES =
     static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES / mm::AddressValue{2});
+constexpr std::size_t TEST_TRACE_PROGRAM_MAX_STEPS = std::size_t{4};
 
 [[nodiscard]] std::size_t count_substring(const std::string_view text, const std::string_view needle) noexcept
 {
@@ -51,6 +61,22 @@ constexpr std::size_t TEST_UNBOOTABLE_MEMORY_SIZE_BYTES =
     config.title = std::string{TEST_DEBUGGER_TITLE};
     return host::HostDebuggerSession{config};
 }
+
+[[nodiscard]] cpu::ExecutionTrace make_real_cpu_execution_trace()
+{
+    cpu::Program program{
+        cpu::Instruction::make_mov(
+            cpu::Operand::reg(cpu::RegisterId::RAX),
+            cpu::Operand::imm(TEST_TRACE_PROGRAM_VALUE)),
+        cpu::Instruction::make_hlt(),
+    };
+
+    cpu::CpuState state;
+    cpu::Executor executor;
+    cpu::ExecutionTrace trace;
+    static_cast<void>(executor.run(state, program, TEST_TRACE_PROGRAM_MAX_STEPS, &trace));
+    return trace;
+}
 }
 
 TEST(HostDebuggerSessionTest, FrameBeforeBootDescribesCreatedMachine)
@@ -67,10 +93,14 @@ TEST(HostDebuggerSessionTest, FrameBeforeBootDescribesCreatedMachine)
     EXPECT_THAT(frame.snapshot.status, Eq(host::HostMachineSessionStatus::CREATED));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_NOT_BOOTED_TEXT));
     EXPECT_THAT(frame.run_control_text, HasSubstr("debugger_run_state=PAUSED"));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("instruction_trace_entries=0"));
     EXPECT_THAT(frame.status_text, HasSubstr("state=CREATED"));
     EXPECT_THAT(frame.status_text, HasSubstr("booted=no"));
     EXPECT_THAT(frame.cpu_text, HasSubstr("cpu unavailable"));
+    EXPECT_THAT(frame.registers_text, HasSubstr("registers unavailable"));
+    EXPECT_THAT(frame.paging_text, HasSubstr("paging unavailable"));
     EXPECT_THAT(frame.trace_text, HasSubstr("trace empty"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("instruction trace empty"));
     EXPECT_THAT(frame.summary_text, HasSubstr(TEST_DEBUGGER_TITLE));
     EXPECT_THAT(frame.processor_text, HasSubstr("processors=2"));
 }
@@ -126,16 +156,25 @@ TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
     EXPECT_THAT(frame.display_row_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_ROW_COUNT));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_PROMPT));
     EXPECT_THAT(frame.run_control_text, HasSubstr("trace_entries=2"));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("instruction_trace_entries=0"));
     EXPECT_THAT(frame.status_text, HasSubstr("accepts_input=yes"));
     EXPECT_THAT(frame.counters_text, HasSubstr("commands=0"));
     EXPECT_THAT(frame.memory_text, HasSubstr("memory_pages total=512"));
     EXPECT_THAT(frame.cpu_text, HasSubstr("thread id=1"));
     EXPECT_THAT(frame.cpu_text, HasSubstr("rip=0x"));
     EXPECT_THAT(frame.cpu_text, HasSubstr("paging enabled="));
+    EXPECT_THAT(frame.registers_text, HasSubstr("register drill-down"));
+    EXPECT_THAT(frame.registers_text, HasSubstr("RAX=0x"));
+    EXPECT_THAT(frame.paging_text, HasSubstr("address_space root=0x"));
+    EXPECT_THAT(frame.paging_text, HasSubstr("rip linear=0x"));
+    EXPECT_THAT(frame.paging_text, HasSubstr("PML4 table=0x"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("instruction trace empty"));
     EXPECT_THAT(frame.trace_text, HasSubstr("action=boot"));
     EXPECT_THAT(frame.trace_text, HasSubstr("skipped"));
     EXPECT_THAT(frame.summary_text, HasSubstr(frame.cursor_text));
     EXPECT_THAT(frame.summary_text, HasSubstr(frame.cpu_text));
+    EXPECT_THAT(frame.summary_text, HasSubstr(frame.registers_text));
+    EXPECT_THAT(frame.summary_text, HasSubstr(frame.paging_text));
 }
 
 TEST(HostDebuggerSessionTest, MoveOperationsPreserveDebuggerState)
@@ -251,14 +290,18 @@ TEST(HostDebuggerSessionTest, ResetRebootsFreshMachineFrame)
 
     session.boot();
     static_cast<void>(session.submit_command_line("echo before reset"));
+    session.record_instruction_trace(make_real_cpu_execution_trace());
+    EXPECT_THAT(session.instruction_trace_entry_count(), Eq(std::size_t{2}));
     session.reset();
     const host::HostDebuggerFrame frame = session.frame();
 
     EXPECT_TRUE(frame.booted);
     EXPECT_TRUE(frame.accepts_input);
     EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{0}));
+    EXPECT_THAT(frame.instruction_trace_entry_count, Eq(std::size_t{0}));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_PROMPT));
     EXPECT_THAT(frame.display_text.find("before reset"), Eq(std::string::npos));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("instruction trace empty"));
     EXPECT_THAT(frame.trace_text, HasSubstr("action=reset"));
 }
 
@@ -318,6 +361,58 @@ TEST(HostDebuggerSessionTest, ZeroTraceCapacityDisablesTraceStorage)
     EXPECT_THAT(session.trace_entry_count(), Eq(std::size_t{0}));
     EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{0}));
     EXPECT_THAT(frame.trace_text, HasSubstr("trace empty"));
+}
+
+TEST(HostDebuggerSessionTest, RecordsRealCpuExecutionTraceForInstructionPanel)
+{
+    host::HostDebuggerSession session;
+    const cpu::ExecutionTrace trace = make_real_cpu_execution_trace();
+
+    session.record_instruction_trace(trace);
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(session.instruction_trace_entry_count(), Eq(trace.size()));
+    EXPECT_THAT(frame.instruction_trace_entry_count, Eq(trace.size()));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("cycle=1"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=MOV"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=HLT"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("halted=yes"));
+    EXPECT_THAT(frame.summary_text, HasSubstr(frame.instruction_trace_text));
+}
+
+TEST(HostDebuggerSessionTest, InstructionTraceCapacityKeepsNewestEntriesAndCanClear)
+{
+    host::HostDebuggerSessionConfig config;
+    config.instruction_trace_capacity = std::size_t{1};
+    host::HostDebuggerSession session{config};
+    const cpu::ExecutionTrace trace = make_real_cpu_execution_trace();
+
+    session.record_instruction_trace(trace.entries());
+    const host::HostDebuggerFrame bounded_frame = session.frame();
+
+    EXPECT_THAT(bounded_frame.instruction_trace_entry_count, Eq(std::size_t{1}));
+    EXPECT_THAT(bounded_frame.instruction_trace_text.find("opcode=MOV"), Eq(std::string::npos));
+    EXPECT_THAT(bounded_frame.instruction_trace_text, HasSubstr("opcode=HLT"));
+
+    session.clear_instruction_trace();
+    const host::HostDebuggerFrame cleared_frame = session.frame();
+
+    EXPECT_THAT(cleared_frame.instruction_trace_entry_count, Eq(std::size_t{0}));
+    EXPECT_THAT(cleared_frame.instruction_trace_text, HasSubstr("instruction trace empty"));
+}
+
+TEST(HostDebuggerSessionTest, ZeroInstructionTraceCapacityDisablesInstructionTraceStorage)
+{
+    host::HostDebuggerSessionConfig config;
+    config.instruction_trace_capacity = std::size_t{0};
+    host::HostDebuggerSession session{config};
+
+    session.record_instruction_trace(make_real_cpu_execution_trace());
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(session.instruction_trace_entry_count(), Eq(std::size_t{0}));
+    EXPECT_THAT(frame.instruction_trace_entry_count, Eq(std::size_t{0}));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("instruction trace empty"));
 }
 
 TEST(HostDebuggerSessionTest, ExitCommandMakesFrameReadOnlyUntilReset)
