@@ -22,6 +22,14 @@ enum class TerminalRenderMode : std::uint8_t
     COUNT
 };
 
+enum class TerminalInputMode : std::uint8_t
+{
+    AUTO,
+    LINE,
+    RAW,
+    COUNT
+};
+
 enum class HostInputEventKind : std::uint8_t
 {
     TEXT,
@@ -50,9 +58,14 @@ enum class HostSpecialKey : std::uint8_t
 inline constexpr std::size_t HOST_INPUT_EVENT_KIND_COUNT =
     static_cast<std::size_t>(HostInputEventKind::COUNT);
 inline constexpr std::size_t HOST_SPECIAL_KEY_COUNT = static_cast<std::size_t>(HostSpecialKey::COUNT);
+inline constexpr std::size_t TERMINAL_INPUT_MODE_COUNT = static_cast<std::size_t>(TerminalInputMode::COUNT);
 
 [[nodiscard]] bool terminal_render_mode_is_screen(TerminalRenderMode mode) noexcept;
 [[nodiscard]] bool terminal_render_mode_uses_ansi(TerminalRenderMode mode) noexcept;
+
+[[nodiscard]] bool is_terminal_input_mode_valid(TerminalInputMode mode) noexcept;
+[[nodiscard]] std::size_t terminal_input_mode_to_index(TerminalInputMode mode) noexcept;
+[[nodiscard]] std::string_view terminal_input_mode_to_name(TerminalInputMode mode) noexcept;
 
 [[nodiscard]] bool is_host_input_event_kind_valid(HostInputEventKind kind) noexcept;
 [[nodiscard]] std::size_t host_input_event_kind_to_index(HostInputEventKind kind) noexcept;
@@ -121,15 +134,27 @@ class StreamTerminalBackend final : public HostTerminalBackend
 {
 public:
     StreamTerminalBackend(std::istream& input, std::ostream& output, TerminalRenderMode render_mode) noexcept;
+    StreamTerminalBackend(
+        std::istream& input,
+        std::ostream& output,
+        TerminalRenderMode render_mode,
+        TerminalInputMode input_mode) noexcept;
 
     [[nodiscard]] TerminalRenderMode render_mode() const noexcept;
+    [[nodiscard]] TerminalInputMode input_mode() const noexcept;
     [[nodiscard]] HostInputEvent read_input_event() override;
     [[nodiscard]] bool render_terminal(os::dev::TerminalDevice& terminal) override;
     [[nodiscard]] std::size_t render_count() const noexcept override;
 
 private:
+    [[nodiscard]] HostInputEvent read_line_input_event();
+    [[nodiscard]] HostInputEvent read_raw_input_event();
+    [[nodiscard]] HostInputEvent read_escape_sequence_event();
+    [[nodiscard]] HostInputEvent read_csi_sequence_event();
+
     std::istream* input_;
     std::ostream* output_;
+    TerminalInputMode input_mode_;
     HostTerminalRenderer renderer_;
 };
 }

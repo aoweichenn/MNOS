@@ -280,7 +280,7 @@ const TerminalRunnerConfig& TerminalRunner::config() const noexcept
 
 TerminalRunResult TerminalRunner::run(std::istream& input, std::ostream& output) const
 {
-    StreamTerminalBackend backend{input, output, this->config_.render_mode};
+    StreamTerminalBackend backend{input, output, this->config_.render_mode, this->config_.input_mode};
     return this->run(backend);
 }
 

@@ -34,6 +34,7 @@ struct TerminalRunnerConfig final
     std::size_t physical_memory_size_bytes = HOST_TERMINAL_DEFAULT_MEMORY_SIZE_BYTES;
     std::uint32_t processor_count = HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT;
     TerminalRenderMode render_mode = TerminalRenderMode::ANSI_STREAM;
+    TerminalInputMode input_mode = TerminalInputMode::AUTO;
 };
 
 class TerminalRunResult final

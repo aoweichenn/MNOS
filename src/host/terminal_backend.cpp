@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <istream>
 #include <ostream>
 #include <string>
@@ -24,8 +25,47 @@ constexpr std::string_view HOST_TERMINAL_BACKSPACE_INPUT = "\b";
 constexpr std::string_view HOST_TERMINAL_DELETE_INPUT = "\x7F";
 constexpr std::string_view HOST_TERMINAL_TAB_INPUT = "\t";
 constexpr std::string_view HOST_TERMINAL_NO_TERMINAL_INPUT = "";
+constexpr char HOST_TERMINAL_ESCAPE_CHARACTER = '\x1B';
 constexpr char HOST_TERMINAL_NEWLINE_CHARACTER = '\n';
 constexpr char HOST_TERMINAL_CARRIAGE_RETURN_CHARACTER = '\r';
+constexpr char HOST_TERMINAL_BACKSPACE_CONTROL_CHARACTER = '\b';
+constexpr char HOST_TERMINAL_DELETE_CONTROL_CHARACTER = '\x7F';
+constexpr char HOST_TERMINAL_TAB_CHARACTER = '\t';
+constexpr char HOST_TERMINAL_CTRL_C_CHARACTER = '\x03';
+constexpr char HOST_TERMINAL_CTRL_D_CHARACTER = '\x04';
+constexpr char HOST_TERMINAL_CSI_INTRODUCER = '[';
+constexpr char HOST_TERMINAL_CSI_ARROW_UP = 'A';
+constexpr char HOST_TERMINAL_CSI_ARROW_DOWN = 'B';
+constexpr char HOST_TERMINAL_CSI_ARROW_RIGHT = 'C';
+constexpr char HOST_TERMINAL_CSI_ARROW_LEFT = 'D';
+
+class TerminalInputModeCatalog
+{
+public:
+    [[nodiscard]] static bool contains(const mnos::host::TerminalInputMode mode) noexcept
+    {
+        return TERMINAL_INPUT_MODE_NAMES.contains(mode);
+    }
+
+    [[nodiscard]] static std::size_t index(const mnos::host::TerminalInputMode mode) noexcept
+    {
+        return TERMINAL_INPUT_MODE_NAMES.index(mode);
+    }
+
+    [[nodiscard]] static std::string_view name(const mnos::host::TerminalInputMode mode) noexcept
+    {
+        return TERMINAL_INPUT_MODE_NAMES.name(mode);
+    }
+
+private:
+    inline static constexpr auto TERMINAL_INPUT_MODE_NAMES =
+        mnos::core::make_enum_name_table<mnos::host::TerminalInputMode>(
+            std::array<std::string_view, mnos::host::TERMINAL_INPUT_MODE_COUNT>{
+                "AUTO",
+                "LINE",
+                "RAW"},
+            HOST_TERMINAL_ENUM_INVALID_NAME);
+};
 
 class HostInputEventKindCatalog
 {
@@ -270,6 +310,55 @@ void append_host_line_ending(std::string& line)
     }
     line.push_back(HOST_TERMINAL_NEWLINE_CHARACTER);
 }
+
+[[nodiscard]] mnos::host::TerminalInputMode effective_stream_input_mode(
+    const mnos::host::TerminalInputMode input_mode) noexcept
+{
+    if (input_mode == mnos::host::TerminalInputMode::RAW)
+    {
+        return mnos::host::TerminalInputMode::RAW;
+    }
+    return mnos::host::TerminalInputMode::LINE;
+}
+
+[[nodiscard]] mnos::host::HostInputEvent host_input_event_from_failed_read(const std::istream& input)
+{
+    if (input.bad())
+    {
+        return mnos::host::HostInputEvent::host_io_error();
+    }
+    return mnos::host::HostInputEvent::input_closed();
+}
+
+[[nodiscard]] mnos::host::HostInputEvent host_input_event_from_raw_byte(const char byte)
+{
+    if (byte == HOST_TERMINAL_NEWLINE_CHARACTER || byte == HOST_TERMINAL_CARRIAGE_RETURN_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::special_key(mnos::host::HostSpecialKey::ENTER);
+    }
+    if (byte == HOST_TERMINAL_BACKSPACE_CONTROL_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::special_key(mnos::host::HostSpecialKey::BACKSPACE);
+    }
+    if (byte == HOST_TERMINAL_DELETE_CONTROL_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::special_key(mnos::host::HostSpecialKey::DELETE_KEY);
+    }
+    if (byte == HOST_TERMINAL_TAB_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::special_key(mnos::host::HostSpecialKey::TAB);
+    }
+    if (byte == HOST_TERMINAL_CTRL_C_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::special_key(mnos::host::HostSpecialKey::CTRL_C);
+    }
+    if (byte == HOST_TERMINAL_CTRL_D_CHARACTER)
+    {
+        return mnos::host::HostInputEvent::input_closed();
+    }
+
+    return mnos::host::HostInputEvent::text(std::string{byte});
+}
 }
 
 namespace mnos::host
@@ -282,6 +371,21 @@ bool terminal_render_mode_is_screen(const TerminalRenderMode mode) noexcept
 bool terminal_render_mode_uses_ansi(const TerminalRenderMode mode) noexcept
 {
     return mode == TerminalRenderMode::ANSI_STREAM || mode == TerminalRenderMode::ANSI_SCREEN;
+}
+
+bool is_terminal_input_mode_valid(const TerminalInputMode mode) noexcept
+{
+    return TerminalInputModeCatalog::contains(mode);
+}
+
+std::size_t terminal_input_mode_to_index(const TerminalInputMode mode) noexcept
+{
+    return TerminalInputModeCatalog::index(mode);
+}
+
+std::string_view terminal_input_mode_to_name(const TerminalInputMode mode) noexcept
+{
+    return TerminalInputModeCatalog::name(mode);
 }
 
 bool is_host_input_event_kind_valid(const HostInputEventKind kind) noexcept
@@ -419,8 +523,18 @@ StreamTerminalBackend::StreamTerminalBackend(
     std::istream& input,
     std::ostream& output,
     const TerminalRenderMode render_mode) noexcept :
+    StreamTerminalBackend(input, output, render_mode, TerminalInputMode::LINE)
+{
+}
+
+StreamTerminalBackend::StreamTerminalBackend(
+    std::istream& input,
+    std::ostream& output,
+    const TerminalRenderMode render_mode,
+    const TerminalInputMode input_mode) noexcept :
     input_(&input),
     output_(&output),
+    input_mode_(effective_stream_input_mode(input_mode)),
     renderer_(render_mode)
 {
 }
@@ -430,7 +544,21 @@ TerminalRenderMode StreamTerminalBackend::render_mode() const noexcept
     return this->renderer_.mode();
 }
 
+TerminalInputMode StreamTerminalBackend::input_mode() const noexcept
+{
+    return this->input_mode_;
+}
+
 HostInputEvent StreamTerminalBackend::read_input_event()
+{
+    if (this->input_mode_ == TerminalInputMode::RAW)
+    {
+        return this->read_raw_input_event();
+    }
+    return this->read_line_input_event();
+}
+
+HostInputEvent StreamTerminalBackend::read_line_input_event()
 {
     std::string line;
     if (std::getline(*this->input_, line))
@@ -439,11 +567,66 @@ HostInputEvent StreamTerminalBackend::read_input_event()
         return HostInputEvent::text(std::move(line));
     }
 
-    if (this->input_->bad())
+    return host_input_event_from_failed_read(*this->input_);
+}
+
+HostInputEvent StreamTerminalBackend::read_raw_input_event()
+{
+    char byte{};
+    if (!this->input_->get(byte))
     {
-        return HostInputEvent::host_io_error();
+        return host_input_event_from_failed_read(*this->input_);
     }
-    return HostInputEvent::input_closed();
+    if (byte == HOST_TERMINAL_ESCAPE_CHARACTER)
+    {
+        return this->read_escape_sequence_event();
+    }
+    return host_input_event_from_raw_byte(byte);
+}
+
+HostInputEvent StreamTerminalBackend::read_escape_sequence_event()
+{
+    char byte{};
+    if (!this->input_->get(byte))
+    {
+        if (this->input_->bad())
+        {
+            return HostInputEvent::host_io_error();
+        }
+        return HostInputEvent::special_key(HostSpecialKey::ESCAPE);
+    }
+    if (byte == HOST_TERMINAL_CSI_INTRODUCER)
+    {
+        return this->read_csi_sequence_event();
+    }
+    return HostInputEvent::special_key(HostSpecialKey::ESCAPE);
+}
+
+HostInputEvent StreamTerminalBackend::read_csi_sequence_event()
+{
+    char byte{};
+    if (!this->input_->get(byte))
+    {
+        if (this->input_->bad())
+        {
+            return HostInputEvent::host_io_error();
+        }
+        return HostInputEvent::special_key(HostSpecialKey::ESCAPE);
+    }
+
+    switch (byte)
+    {
+    case HOST_TERMINAL_CSI_ARROW_UP:
+        return HostInputEvent::special_key(HostSpecialKey::ARROW_UP);
+    case HOST_TERMINAL_CSI_ARROW_DOWN:
+        return HostInputEvent::special_key(HostSpecialKey::ARROW_DOWN);
+    case HOST_TERMINAL_CSI_ARROW_RIGHT:
+        return HostInputEvent::special_key(HostSpecialKey::ARROW_RIGHT);
+    case HOST_TERMINAL_CSI_ARROW_LEFT:
+        return HostInputEvent::special_key(HostSpecialKey::ARROW_LEFT);
+    default:
+        return HostInputEvent::special_key(HostSpecialKey::ESCAPE);
+    }
 }
 
 bool StreamTerminalBackend::render_terminal(dev::TerminalDevice& terminal)

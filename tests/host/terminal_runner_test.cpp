@@ -92,6 +92,14 @@ private:
     config.render_mode = host::TerminalRenderMode::PLAIN_STREAM;
     return host::TerminalRunner{config};
 }
+
+[[nodiscard]] host::TerminalRunner make_plain_raw_runner()
+{
+    host::TerminalRunnerConfig config;
+    config.render_mode = host::TerminalRenderMode::PLAIN_STREAM;
+    config.input_mode = host::TerminalInputMode::RAW;
+    return host::TerminalRunner{config};
+}
 }
 
 TEST(HostTerminalRunnerTest, ExecutesHelpAndExitThroughSimulatedTerminal)
@@ -134,6 +142,37 @@ TEST(HostTerminalRunnerTest, BackendOverloadAcceptsTextAndSpecialKeyEvents)
     EXPECT_THAT(backend.output(), HasSubstr("mnos> echo event model"));
     EXPECT_THAT(backend.output(), HasSubstr("event model\n"));
     EXPECT_THAT(backend.output(), HasSubstr("mnos> exit"));
+}
+
+TEST(HostTerminalRunnerTest, RawInputModeExecutesCommandsCharacterByCharacter)
+{
+    const host::TerminalRunner runner = make_plain_raw_runner();
+    std::istringstream input{"echo raw mode\rexit\r"};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_TRUE(result.completed());
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> echo raw mode"));
+    EXPECT_THAT(output.str(), HasSubstr("raw mode\n"));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
+}
+
+TEST(HostTerminalRunnerTest, RawInputModeTreatsCtrlDAsInputClosed)
+{
+    const host::TerminalRunner runner = make_plain_raw_runner();
+    const std::string input_text = std::string{"echo before eof\r"} + '\x04';
+    std::istringstream input{input_text};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::INPUT_CLOSED));
+    EXPECT_FALSE(result.completed());
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{1}));
+    EXPECT_THAT(output.str(), HasSubstr("before eof\n"));
 }
 
 TEST(HostTerminalRunnerTest, FileCommandsPersistThroughShellSession)
@@ -327,6 +366,7 @@ TEST(HostTerminalRunnerTest, ResultFactoriesExposeErrorMetadataAndRunnerConfig)
 
     EXPECT_THAT(runner.config().processor_count, Eq(host::HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT));
     EXPECT_THAT(runner.config().render_mode, Eq(host::TerminalRenderMode::PLAIN_STREAM));
+    EXPECT_THAT(runner.config().input_mode, Eq(host::TerminalInputMode::AUTO));
 
     const host::TerminalRunResult shell_error = host::TerminalRunResult::shell_io_error(
         io::IoStatus::BAD_DESCRIPTOR,

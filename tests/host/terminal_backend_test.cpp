@@ -23,6 +23,19 @@ constexpr std::string_view TEST_BACKSPACE_INPUT = "\b";
 constexpr std::string_view TEST_DELETE_INPUT = "\x7F";
 constexpr std::string_view TEST_TAB_INPUT = "\t";
 constexpr std::string_view TEST_NO_TERMINAL_INPUT = "";
+
+[[nodiscard]] std::string make_raw_control_input()
+{
+    std::string input;
+    input.push_back('a');
+    input.push_back('\r');
+    input.push_back('\x7F');
+    input.push_back('\b');
+    input.push_back('\t');
+    input.push_back('\x03');
+    input.push_back('\x04');
+    return input;
+}
 }
 
 TEST(HostTerminalBackendTest, RenderModeAndInputEventCatalogsAreStable)
@@ -36,6 +49,15 @@ TEST(HostTerminalBackendTest, RenderModeAndInputEventCatalogsAreStable)
     EXPECT_FALSE(host::terminal_render_mode_uses_ansi(host::TerminalRenderMode::PLAIN_STREAM));
     EXPECT_TRUE(host::terminal_render_mode_uses_ansi(host::TerminalRenderMode::ANSI_SCREEN));
     EXPECT_FALSE(host::terminal_render_mode_uses_ansi(host::TerminalRenderMode::PLAIN_SCREEN));
+
+    EXPECT_TRUE(host::is_terminal_input_mode_valid(host::TerminalInputMode::AUTO));
+    EXPECT_TRUE(host::is_terminal_input_mode_valid(host::TerminalInputMode::LINE));
+    EXPECT_TRUE(host::is_terminal_input_mode_valid(host::TerminalInputMode::RAW));
+    EXPECT_FALSE(host::is_terminal_input_mode_valid(host::TerminalInputMode::COUNT));
+
+    EXPECT_THAT(host::terminal_input_mode_to_index(host::TerminalInputMode::RAW), Eq(std::size_t{2}));
+    EXPECT_THAT(host::terminal_input_mode_to_name(host::TerminalInputMode::AUTO), Eq(std::string_view{"AUTO"}));
+    EXPECT_THAT(host::terminal_input_mode_to_name(host::TerminalInputMode::COUNT), Eq(TEST_INVALID_ENUM_NAME));
 
     EXPECT_TRUE(host::is_host_input_event_kind_valid(host::HostInputEventKind::TEXT));
     EXPECT_TRUE(host::is_host_input_event_kind_valid(host::HostInputEventKind::SPECIAL_KEY));
@@ -120,6 +142,107 @@ TEST(HostTerminalBackendTest, StreamBackendReadsLinesAsNormalizedTextEvents)
     EXPECT_THAT(second_event.kind(), Eq(host::HostInputEventKind::TEXT));
     EXPECT_THAT(second_event.text(), Eq(std::string_view{"beta\n"}));
     EXPECT_THAT(final_event.kind(), Eq(host::HostInputEventKind::INPUT_CLOSED));
+}
+
+TEST(HostTerminalBackendTest, StreamBackendAutoAndInvalidInputModesUseLineReading)
+{
+    std::istringstream auto_input{"auto\n"};
+    std::ostringstream auto_output;
+    host::StreamTerminalBackend auto_backend{
+        auto_input,
+        auto_output,
+        host::TerminalRenderMode::PLAIN_STREAM,
+        host::TerminalInputMode::AUTO};
+
+    const host::HostInputEvent auto_event = auto_backend.read_input_event();
+
+    EXPECT_THAT(auto_backend.input_mode(), Eq(host::TerminalInputMode::LINE));
+    EXPECT_THAT(auto_event.kind(), Eq(host::HostInputEventKind::TEXT));
+    EXPECT_THAT(auto_event.text(), Eq(std::string_view{"auto\n"}));
+
+    std::istringstream invalid_input{"invalid\n"};
+    std::ostringstream invalid_output;
+    host::StreamTerminalBackend invalid_backend{
+        invalid_input,
+        invalid_output,
+        host::TerminalRenderMode::PLAIN_STREAM,
+        host::TerminalInputMode::COUNT};
+
+    const host::HostInputEvent invalid_event = invalid_backend.read_input_event();
+
+    EXPECT_THAT(invalid_backend.input_mode(), Eq(host::TerminalInputMode::LINE));
+    EXPECT_THAT(invalid_event.kind(), Eq(host::HostInputEventKind::TEXT));
+    EXPECT_THAT(invalid_event.text(), Eq(std::string_view{"invalid\n"}));
+}
+
+TEST(HostTerminalBackendTest, RawStreamBackendDecodesCharactersAndControlKeys)
+{
+    std::istringstream input{make_raw_control_input()};
+    std::ostringstream output;
+    host::StreamTerminalBackend backend{
+        input,
+        output,
+        host::TerminalRenderMode::PLAIN_STREAM,
+        host::TerminalInputMode::RAW};
+
+    const host::HostInputEvent text_event = backend.read_input_event();
+    const host::HostInputEvent enter_event = backend.read_input_event();
+    const host::HostInputEvent delete_event = backend.read_input_event();
+    const host::HostInputEvent backspace_event = backend.read_input_event();
+    const host::HostInputEvent tab_event = backend.read_input_event();
+    const host::HostInputEvent ctrl_c_event = backend.read_input_event();
+    const host::HostInputEvent ctrl_d_event = backend.read_input_event();
+
+    EXPECT_THAT(backend.input_mode(), Eq(host::TerminalInputMode::RAW));
+    EXPECT_THAT(text_event.kind(), Eq(host::HostInputEventKind::TEXT));
+    EXPECT_THAT(text_event.text(), Eq(std::string_view{"a"}));
+    EXPECT_THAT(enter_event.special_key(), Eq(host::HostSpecialKey::ENTER));
+    EXPECT_THAT(host::host_input_event_to_terminal_input(enter_event), Eq(std::string{"\n"}));
+    EXPECT_THAT(delete_event.special_key(), Eq(host::HostSpecialKey::DELETE_KEY));
+    EXPECT_THAT(backspace_event.special_key(), Eq(host::HostSpecialKey::BACKSPACE));
+    EXPECT_THAT(tab_event.special_key(), Eq(host::HostSpecialKey::TAB));
+    EXPECT_THAT(ctrl_c_event.special_key(), Eq(host::HostSpecialKey::CTRL_C));
+    EXPECT_THAT(host::host_input_event_to_terminal_input(ctrl_c_event), Eq(std::string{}));
+    EXPECT_THAT(ctrl_d_event.kind(), Eq(host::HostInputEventKind::INPUT_CLOSED));
+}
+
+TEST(HostTerminalBackendTest, RawStreamBackendDecodesAnsiCsiArrowKeys)
+{
+    std::istringstream input{"\x1B[A\x1B[B\x1B[C\x1B[D\x1B"};
+    std::ostringstream output;
+    host::StreamTerminalBackend backend{
+        input,
+        output,
+        host::TerminalRenderMode::PLAIN_STREAM,
+        host::TerminalInputMode::RAW};
+
+    const host::HostInputEvent up_event = backend.read_input_event();
+    const host::HostInputEvent down_event = backend.read_input_event();
+    const host::HostInputEvent right_event = backend.read_input_event();
+    const host::HostInputEvent left_event = backend.read_input_event();
+    const host::HostInputEvent escape_event = backend.read_input_event();
+
+    EXPECT_THAT(up_event.special_key(), Eq(host::HostSpecialKey::ARROW_UP));
+    EXPECT_THAT(down_event.special_key(), Eq(host::HostSpecialKey::ARROW_DOWN));
+    EXPECT_THAT(right_event.special_key(), Eq(host::HostSpecialKey::ARROW_RIGHT));
+    EXPECT_THAT(left_event.special_key(), Eq(host::HostSpecialKey::ARROW_LEFT));
+    EXPECT_THAT(escape_event.special_key(), Eq(host::HostSpecialKey::ESCAPE));
+}
+
+TEST(HostTerminalBackendTest, RawStreamBackendReportsInputIoFailureAsHostError)
+{
+    std::istringstream input;
+    input.setstate(std::ios::badbit);
+    std::ostringstream output;
+    host::StreamTerminalBackend backend{
+        input,
+        output,
+        host::TerminalRenderMode::PLAIN_STREAM,
+        host::TerminalInputMode::RAW};
+
+    const host::HostInputEvent event = backend.read_input_event();
+
+    EXPECT_THAT(event.kind(), Eq(host::HostInputEventKind::HOST_IO_ERROR));
 }
 
 TEST(HostTerminalBackendTest, StreamBackendReportsInputIoFailureAsHostError)
