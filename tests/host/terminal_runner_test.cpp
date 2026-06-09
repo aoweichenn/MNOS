@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -26,12 +27,16 @@ constexpr std::string_view TEST_TERMINAL_PROCESS_HEADER = "pid threads states";
 constexpr std::string_view TEST_TERMINAL_PROCESS_ROW = "1 1 RUNNING";
 constexpr std::size_t TEST_EXPECTED_TWO_LS_COMMANDS = std::size_t{2};
 constexpr std::size_t TEST_EXPECTED_SINGLE_COMMAND_OUTPUT = std::size_t{1};
+constexpr std::size_t TEST_SECOND_RENDER_CALL_INDEX = std::size_t{1};
 
 class ScriptedTerminalBackend final : public host::HostTerminalBackend
 {
 public:
-    explicit ScriptedTerminalBackend(std::vector<host::HostInputEvent> events) :
+    explicit ScriptedTerminalBackend(
+        std::vector<host::HostInputEvent> events,
+        std::optional<std::size_t> failed_render_call_index = std::nullopt) :
         events_(std::move(events)),
+        failed_render_call_index_(failed_render_call_index),
         renderer_(host::TerminalRenderMode::PLAIN_STREAM)
     {
     }
@@ -49,6 +54,13 @@ public:
 
     [[nodiscard]] bool render_terminal(mnos::os::dev::TerminalDevice& terminal) override
     {
+        if (this->failed_render_call_index_.has_value() &&
+            this->render_call_index_ == this->failed_render_call_index_.value())
+        {
+            ++this->render_call_index_;
+            return false;
+        }
+        ++this->render_call_index_;
         return this->renderer_.render_if_changed(terminal, this->output_);
     }
 
@@ -65,6 +77,8 @@ public:
 private:
     std::vector<host::HostInputEvent> events_;
     std::size_t next_event_index_ = std::size_t{0};
+    std::size_t render_call_index_ = std::size_t{0};
+    std::optional<std::size_t> failed_render_call_index_;
     std::ostringstream output_;
     host::HostTerminalRenderer renderer_;
 };
@@ -354,6 +368,25 @@ TEST(HostTerminalRunnerTest, ReportsHostIoErrorWhenInputStreamFails)
     EXPECT_FALSE(result.completed());
     EXPECT_THAT(result.command_count(), Eq(std::size_t{0}));
     EXPECT_THAT(output.str(), HasSubstr("mnos> "));
+}
+
+TEST(HostTerminalRunnerTest, ReportsHostIoErrorWhenBackendRenderFailsAfterInput)
+{
+    const host::TerminalRunner runner = make_plain_stream_runner();
+    ScriptedTerminalBackend backend{
+        std::vector<host::HostInputEvent>{host::HostInputEvent::text("echo render failed\n")},
+        TEST_SECOND_RENDER_CALL_INDEX};
+
+    const host::TerminalRunResult result = runner.run(backend);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::HOST_IO_ERROR));
+    EXPECT_FALSE(result.completed());
+    EXPECT_FALSE(result.has_shell_io_status());
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{1}));
+    EXPECT_GT(result.poll_count(), std::size_t{0});
+    EXPECT_THAT(result.render_count(), Eq(std::size_t{1}));
+    EXPECT_THAT(backend.output(), HasSubstr("mnos> "));
+    EXPECT_THAT(backend.output().find("render failed\n"), Eq(std::string::npos));
 }
 
 TEST(HostTerminalRunnerTest, ResultFactoriesExposeErrorMetadataAndRunnerConfig)

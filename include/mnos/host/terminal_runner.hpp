@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <iosfwd>
 
+#include <mnos/host/machine_session.hpp>
 #include <mnos/host/terminal_backend.hpp>
-#include <mnos/os/mm/page.hpp>
 
 namespace mnos::os::io
 {
@@ -15,10 +15,11 @@ enum class IoStatus : std::uint8_t;
 namespace mnos::host
 {
 inline constexpr mnos::os::mm::AddressValue HOST_TERMINAL_DEFAULT_MEMORY_PAGE_COUNT =
-    mnos::os::mm::AddressValue{512};
+    HOST_MACHINE_SESSION_DEFAULT_MEMORY_PAGE_COUNT;
 inline constexpr std::size_t HOST_TERMINAL_DEFAULT_MEMORY_SIZE_BYTES =
-    static_cast<std::size_t>(mnos::os::mm::MM_PAGE_SIZE_BYTES * HOST_TERMINAL_DEFAULT_MEMORY_PAGE_COUNT);
-inline constexpr std::uint32_t HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT = std::uint32_t{2};
+    HOST_MACHINE_SESSION_DEFAULT_MEMORY_SIZE_BYTES;
+inline constexpr std::uint32_t HOST_TERMINAL_DEFAULT_PROCESSOR_COUNT =
+    HOST_MACHINE_SESSION_DEFAULT_PROCESSOR_COUNT;
 
 enum class TerminalRunStatus : std::uint8_t
 {
