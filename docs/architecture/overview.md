@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 15F-B CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令，Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`，Stage 15E-A 拆出可插拔 host terminal backend、输入事件模型和 renderer 边界，Stage 15E-B 加入 raw-key console 输入模式，Stage 15F-A 拆出 GUI/CLI 共享的 host machine session，Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口。
+当前已经完成 x86-64 Stage 15F-C CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令，Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`，Stage 15E-A 拆出可插拔 host terminal backend、输入事件模型和 renderer 边界，Stage 15E-B 加入 raw-key console 输入模式，Stage 15F-A 拆出 GUI/CLI 共享的 host machine session，Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口，Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -255,12 +255,15 @@ Shell file commands       ls/cat/touch/write/stat 通过 Kernel::vfs() 操作 ro
 Benchmark smoke           Kernel VFS open/close fd
 ```
 
-Stage 15D / 15E-A / 15E-B / 15F-A / 15F-B 当前语义：
+Stage 15D / 15E-A / 15E-B / 15F-A / 15F-B / 15F-C 当前语义：
 
 ```text
 HostMachineSession        GUI/CLI 共享 facade，负责 boot/reset、ShellSession::poll、submit_input 和状态 snapshot
 Session snapshot          暴露状态、命令数、poll 数、进程数、terminal output size、内存页计数和 processor count
-HostDebuggerSession       窗口 view-model，负责 terminal screen、状态、内存、CPU、cursor summary
+HostDebuggerSession       窗口 view-model，负责 terminal screen、状态、内存、CPU、cursor、run-control 和 trace summary
+Debugger trace            bounded FIFO trace，记录 boot/reset/input/step/run/pause 的确定性 action/status/counter
+Run-control               PAUSED/RUNNING 状态、Step until waiting、Run until waiting、Pause
+CPU snapshot              shell thread id/state、core、CPL、RIP/RSP/RFLAGS、paging CR3/CR2/PCID/generation 和 16 个 GPR
 TerminalRunner            阻塞式 CLI facade，复用 HostMachineSession 并负责 HostTerminalBackend read/render/result
 HostTerminalBackend       host adapter 接口，隔离 stdio/窗口/未来 raw terminal 输入来源
 HostInputEvent            host 输入事件值对象，区分 text、special key、input closed 和 host I/O error
@@ -271,9 +274,9 @@ Shell drive loop          复用 ShellSession::poll，驱动 prompt、blocking r
 Stream renderer           消费 TerminalDevice 增量输出流，默认不重复重放历史屏幕
 Screen renderer           保留 TextDisplayBuffer 80x25 快照渲染，作为显式 screen 调试模式
 mnos_console              可直接运行的交互入口，默认 ANSI stream，--plain 便于 pipe/测试输出，--raw/--line 控制输入模式
-mnos_gui                  macOS 原生窗口入口，左侧终端屏幕，右侧状态面板，支持 Send/Reset/Pump/Exit Shell
+mnos_gui                  macOS 原生窗口入口，左侧终端屏幕，右侧状态/trace 面板，支持 raw-key focus、Send/Reset/Step/Run/Pause/Exit
 GUI smoke                 mnos_gui --smoke 无窗口验证 HostDebuggerSession 链路
-Host tests                覆盖 session boot/reset/snapshot、debugger frame、输入事件、raw key、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
+Host tests                覆盖 session boot/reset/snapshot、debugger frame、trace/run-control、输入事件、raw key、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
 ```
 
 Stage 3 当前语义：
@@ -408,7 +411,7 @@ RIP-relative addressing
 DecodeError 非法编码入口
 ```
 
-后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。Stage 15D 已经补上宿主机交互终端入口，Stage 15E-A 已经把 host terminal backend/input event 边界拆出，Stage 15E-B 已经补上 raw-key console 输入，Stage 15F-A 已经补上可事件循环驱动的 host machine session，Stage 15F-B 已经补上 Bochs-like 窗口终端/debugger 入口；下一步应增强 GUI raw-key/trace/step 视图，再沿 exec/wait、pipe/dup/redirect、page cache/mmap 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
+后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。Stage 15D 已经补上宿主机交互终端入口，Stage 15E-A 已经把 host terminal backend/input event 边界拆出，Stage 15E-B 已经补上 raw-key console 输入，Stage 15F-A 已经补上可事件循环驱动的 host machine session，Stage 15F-B 已经补上 Bochs-like 窗口终端/debugger 入口，Stage 15F-C 已经补上 GUI raw-key/trace/run-control/CPU snapshot；下一步应增强寄存器/页表 drill-down 和真实指令 trace，再沿 exec/wait、pipe/dup/redirect、page cache/mmap 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
 
 ### Stage 2: 更完整的整数 ISA 已完成当前教学范围
 
@@ -587,7 +590,8 @@ Stage 15E-A 已完成: host terminal backend + input event model + renderer boun
 Stage 15E-B 已完成: raw-key console input + --raw/--line mode selection
 Stage 15F-A 已完成: HostMachineSession event-loop foundation for GUI/debugger
 Stage 15F-B 已完成: macOS mnos_gui Bochs-like window terminal/debugger adapter
-后续扩展: GUI raw-key focus / trace panel / step-run-pause controls
+Stage 15F-C 已完成: GUI raw-key focus / trace panel / step-run-pause controls / CPU snapshot
+后续扩展: register/page-table drill-down / instruction trace
 exec/wait/process lifecycle
 pipe/dup/redirect
 page cache / mmap / demand file paging

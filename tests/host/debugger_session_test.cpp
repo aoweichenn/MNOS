@@ -61,13 +61,28 @@ TEST(HostDebuggerSessionTest, FrameBeforeBootDescribesCreatedMachine)
 
     EXPECT_FALSE(frame.booted);
     EXPECT_FALSE(frame.accepts_input);
+    EXPECT_THAT(frame.run_state, Eq(host::HostDebuggerRunState::PAUSED));
+    EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{0}));
     EXPECT_THAT(frame.title, Eq(TEST_DEBUGGER_TITLE));
     EXPECT_THAT(frame.snapshot.status, Eq(host::HostMachineSessionStatus::CREATED));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_NOT_BOOTED_TEXT));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("debugger_run_state=PAUSED"));
     EXPECT_THAT(frame.status_text, HasSubstr("state=CREATED"));
     EXPECT_THAT(frame.status_text, HasSubstr("booted=no"));
+    EXPECT_THAT(frame.cpu_text, HasSubstr("cpu unavailable"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("trace empty"));
     EXPECT_THAT(frame.summary_text, HasSubstr(TEST_DEBUGGER_TITLE));
     EXPECT_THAT(frame.processor_text, HasSubstr("processors=2"));
+}
+
+TEST(HostDebuggerSessionTest, RunStateCatalogIsStable)
+{
+    EXPECT_TRUE(host::is_host_debugger_run_state_valid(host::HostDebuggerRunState::PAUSED));
+    EXPECT_TRUE(host::is_host_debugger_run_state_valid(host::HostDebuggerRunState::RUNNING));
+    EXPECT_FALSE(host::is_host_debugger_run_state_valid(host::HostDebuggerRunState::COUNT));
+    EXPECT_THAT(host::host_debugger_run_state_to_index(host::HostDebuggerRunState::RUNNING), Eq(std::size_t{1}));
+    EXPECT_THAT(host::host_debugger_run_state_to_name(host::HostDebuggerRunState::PAUSED), Eq("PAUSED"));
+    EXPECT_THAT(host::host_debugger_run_state_to_name(host::HostDebuggerRunState::COUNT), Eq("<invalid>"));
 }
 
 TEST(HostDebuggerSessionTest, PreBootInputOperationsAreSafeNoops)
@@ -90,7 +105,10 @@ TEST(HostDebuggerSessionTest, PreBootInputOperationsAreSafeNoops)
     EXPECT_FALSE(frame.booted);
     EXPECT_FALSE(frame.accepts_input);
     EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{0}));
+    EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{4}));
     EXPECT_THAT(frame.status_text, HasSubstr("state=CREATED"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=pump"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("skipped"));
 }
 
 TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
@@ -107,10 +125,17 @@ TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
     EXPECT_THAT(frame.display_column_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_COLUMN_COUNT));
     EXPECT_THAT(frame.display_row_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_ROW_COUNT));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_PROMPT));
+    EXPECT_THAT(frame.run_control_text, HasSubstr("trace_entries=2"));
     EXPECT_THAT(frame.status_text, HasSubstr("accepts_input=yes"));
     EXPECT_THAT(frame.counters_text, HasSubstr("commands=0"));
     EXPECT_THAT(frame.memory_text, HasSubstr("memory_pages total=512"));
+    EXPECT_THAT(frame.cpu_text, HasSubstr("thread id=1"));
+    EXPECT_THAT(frame.cpu_text, HasSubstr("rip=0x"));
+    EXPECT_THAT(frame.cpu_text, HasSubstr("paging enabled="));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=boot"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("skipped"));
     EXPECT_THAT(frame.summary_text, HasSubstr(frame.cursor_text));
+    EXPECT_THAT(frame.summary_text, HasSubstr(frame.cpu_text));
 }
 
 TEST(HostDebuggerSessionTest, MoveOperationsPreserveDebuggerState)
@@ -135,6 +160,7 @@ TEST(HostDebuggerSessionTest, MoveOperationsPreserveDebuggerState)
     EXPECT_THAT(assigned_frame.title, Eq(TEST_DEBUGGER_TITLE));
     EXPECT_THAT(assigned_frame.snapshot.command_count, Eq(std::size_t{1}));
     EXPECT_THAT(assigned_frame.display_text, HasSubstr("movable"));
+    EXPECT_THAT(assigned_frame.trace_text, HasSubstr("action=input_command"));
 }
 
 TEST(HostDebuggerSessionTest, SubmitCommandLineNormalizesNewlineAndUpdatesFrame)
@@ -152,6 +178,8 @@ TEST(HostDebuggerSessionTest, SubmitCommandLineNormalizesNewlineAndUpdatesFrame)
     EXPECT_THAT(frame.display_text, HasSubstr("mnos> echo debugger ready"));
     EXPECT_THAT(frame.display_text, HasSubstr("debugger ready"));
     EXPECT_THAT(frame.counters_text, HasSubstr("commands=1"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=input_command"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("preview=\"echo debugger ready\""));
 }
 
 TEST(HostDebuggerSessionTest, SubmitCommandLineAcceptsExistingCarriageReturn)
@@ -167,6 +195,26 @@ TEST(HostDebuggerSessionTest, SubmitCommandLineAcceptsExistingCarriageReturn)
     EXPECT_TRUE(frame.accepts_input);
     EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{1}));
     EXPECT_THAT(frame.display_text, HasSubstr("carriage"));
+}
+
+TEST(HostDebuggerSessionTest, SubmitInputEventSupportsRawGuiTextAndSpecialKeys)
+{
+    host::HostDebuggerSession session;
+
+    session.boot();
+    EXPECT_THAT(
+        session.submit_input_event(host::HostInputEvent::text("echo raw gui")),
+        Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    EXPECT_THAT(session.frame().snapshot.command_count, Eq(std::size_t{0}));
+    EXPECT_THAT(
+        session.submit_input_event(host::HostInputEvent::special_key(host::HostSpecialKey::ENTER)),
+        Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{1}));
+    EXPECT_THAT(frame.display_text, HasSubstr("raw gui"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("kind=TEXT"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("kind=SPECIAL_KEY key=ENTER"));
 }
 
 TEST(HostDebuggerSessionTest, EmptyCommandLineStillSubmitsTerminalEnter)
@@ -211,6 +259,65 @@ TEST(HostDebuggerSessionTest, ResetRebootsFreshMachineFrame)
     EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{0}));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_PROMPT));
     EXPECT_THAT(frame.display_text.find("before reset"), Eq(std::string::npos));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=reset"));
+}
+
+TEST(HostDebuggerSessionTest, RunControlActionsRecordDeterministicTrace)
+{
+    host::HostDebuggerSession session;
+
+    EXPECT_THAT(session.run_state(), Eq(host::HostDebuggerRunState::PAUSED));
+    EXPECT_THAT(session.run_until_waiting(), Eq(host::HostMachineSessionStatus::CREATED));
+    EXPECT_THAT(session.frame().trace_text, HasSubstr("action=run"));
+    EXPECT_THAT(session.frame().trace_text, HasSubstr("skipped"));
+
+    session.boot();
+    session.clear_trace();
+    EXPECT_THAT(session.trace_entry_count(), Eq(std::size_t{0}));
+    session.pause();
+    EXPECT_THAT(session.step_until_waiting(), Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    EXPECT_THAT(session.run_until_waiting(), Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(frame.run_state, Eq(host::HostDebuggerRunState::PAUSED));
+    EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{3}));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=pause"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=step"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=run"));
+}
+
+TEST(HostDebuggerSessionTest, TraceCapacityKeepsNewestEntries)
+{
+    host::HostDebuggerSessionConfig config;
+    config.trace_capacity = std::size_t{3};
+    host::HostDebuggerSession session{config};
+
+    session.boot();
+    static_cast<void>(session.submit_text("echo bounded"));
+    static_cast<void>(session.submit_special_key(host::HostSpecialKey::ENTER));
+    static_cast<void>(session.submit_command_line("mem"));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{3}));
+    EXPECT_THAT(frame.trace_text.find("#1 "), Eq(std::string::npos));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=input_text"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=input_special"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=input_command"));
+}
+
+TEST(HostDebuggerSessionTest, ZeroTraceCapacityDisablesTraceStorage)
+{
+    host::HostDebuggerSessionConfig config;
+    config.trace_capacity = std::size_t{0};
+    host::HostDebuggerSession session{config};
+
+    session.boot();
+    static_cast<void>(session.submit_command_line("mem"));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(session.trace_entry_count(), Eq(std::size_t{0}));
+    EXPECT_THAT(frame.trace_entry_count, Eq(std::size_t{0}));
+    EXPECT_THAT(frame.trace_text, HasSubstr("trace empty"));
 }
 
 TEST(HostDebuggerSessionTest, ExitCommandMakesFrameReadOnlyUntilReset)
@@ -229,6 +336,7 @@ TEST(HostDebuggerSessionTest, ExitCommandMakesFrameReadOnlyUntilReset)
     EXPECT_FALSE(frame.accepts_input);
     EXPECT_THAT(frame.snapshot.status, Eq(host::HostMachineSessionStatus::EXITED));
     EXPECT_THAT(frame.status_text, HasSubstr("state=EXITED"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=input_command"));
 }
 
 TEST(HostDebuggerSessionTest, ShellIoErrorStatusAppearsInFrameSummary)

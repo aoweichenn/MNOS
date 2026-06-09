@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <string_view>
 
@@ -11,30 +12,51 @@
 namespace mnos::host
 {
 inline constexpr std::string_view HOST_DEBUGGER_DEFAULT_TITLE = "MNOS x86-64 Machine";
+inline constexpr std::size_t HOST_DEBUGGER_DEFAULT_TRACE_CAPACITY = std::size_t{64};
+
+enum class HostDebuggerRunState : std::uint8_t
+{
+    PAUSED,
+    RUNNING,
+    COUNT
+};
+
+inline constexpr std::size_t HOST_DEBUGGER_RUN_STATE_COUNT =
+    static_cast<std::size_t>(HostDebuggerRunState::COUNT);
+
+[[nodiscard]] bool is_host_debugger_run_state_valid(HostDebuggerRunState state) noexcept;
+[[nodiscard]] std::size_t host_debugger_run_state_to_index(HostDebuggerRunState state) noexcept;
+[[nodiscard]] std::string_view host_debugger_run_state_to_name(HostDebuggerRunState state) noexcept;
 
 struct HostDebuggerSessionConfig final
 {
     HostMachineSessionConfig machine;
     std::string title{HOST_DEBUGGER_DEFAULT_TITLE};
+    std::size_t trace_capacity = HOST_DEBUGGER_DEFAULT_TRACE_CAPACITY;
 };
 
 struct HostDebuggerFrame final
 {
     HostMachineSessionSnapshot snapshot;
     std::string title;
+    std::string run_control_text;
     std::string status_text;
     std::string counters_text;
     std::string memory_text;
     std::string processor_text;
+    std::string cpu_text;
     std::string cursor_text;
     std::string summary_text;
     std::string display_text;
+    std::string trace_text;
+    HostDebuggerRunState run_state = HostDebuggerRunState::PAUSED;
     bool booted = false;
     bool accepts_input = false;
     std::size_t display_column_count = std::size_t{0};
     std::size_t display_row_count = std::size_t{0};
     std::size_t cursor_column = std::size_t{0};
     std::size_t cursor_row = std::size_t{0};
+    std::size_t trace_entry_count = std::size_t{0};
     std::uint64_t scroll_count = std::uint64_t{0};
 };
 
@@ -51,18 +73,30 @@ public:
     [[nodiscard]] const HostDebuggerSessionConfig& config() const noexcept;
     [[nodiscard]] const HostMachineSession& machine_session() const noexcept;
     [[nodiscard]] HostMachineSession& machine_session() noexcept;
+    [[nodiscard]] HostDebuggerRunState run_state() const noexcept;
+    [[nodiscard]] std::size_t trace_entry_count() const noexcept;
 
     void boot();
     void reset();
+    void pause();
+    void clear_trace() noexcept;
 
     [[nodiscard]] HostMachineSessionStatus pump_until_waiting();
+    [[nodiscard]] HostMachineSessionStatus step_until_waiting();
+    [[nodiscard]] HostMachineSessionStatus run_until_waiting();
     [[nodiscard]] HostMachineSessionStatus submit_text(std::string_view text);
     [[nodiscard]] HostMachineSessionStatus submit_command_line(std::string_view command_line);
     [[nodiscard]] HostMachineSessionStatus submit_special_key(HostSpecialKey key);
+    [[nodiscard]] HostMachineSessionStatus submit_input_event(const HostInputEvent& event);
     [[nodiscard]] HostDebuggerFrame frame() const;
 
 private:
+    void append_trace(std::string_view action, HostMachineSessionStatus status, std::string_view detail = {});
+
     HostDebuggerSessionConfig config_;
     HostMachineSession machine_session_;
+    std::deque<std::string> trace_entries_;
+    HostDebuggerRunState run_state_ = HostDebuggerRunState::PAUSED;
+    std::uint64_t next_trace_sequence_ = std::uint64_t{1};
 };
 }

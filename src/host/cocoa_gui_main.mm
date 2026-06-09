@@ -27,12 +27,16 @@ constexpr CGFloat HOST_GUI_INPUT_HEIGHT = 30.0;
 constexpr CGFloat HOST_GUI_BUTTON_WIDTH = 96.0;
 constexpr CGFloat HOST_GUI_BUTTON_HEIGHT = 28.0;
 constexpr CGFloat HOST_GUI_TOOLBAR_HEIGHT = 36.0;
-constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 3.0;
+constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 5.0;
+constexpr CGFloat HOST_GUI_TRACE_PANEL_HEIGHT = 190.0;
 constexpr CGFloat HOST_GUI_CONTROL_GAP = 8.0;
 constexpr CGFloat HOST_GUI_TERMINAL_FONT_SIZE = 13.0;
 constexpr CGFloat HOST_GUI_STATUS_FONT_SIZE = 12.0;
 constexpr CGFloat HOST_GUI_MIN_WINDOW_WIDTH = 820.0;
 constexpr CGFloat HOST_GUI_MIN_WINDOW_HEIGHT = 520.0;
+constexpr NSEventModifierFlags HOST_GUI_DEVICE_INDEPENDENT_MODIFIER_MASK =
+    NSEventModifierFlagDeviceIndependentFlagsMask;
+constexpr unichar HOST_GUI_ESCAPE_CHARACTER = unichar{0x001B};
 
 [[nodiscard]] bool has_flag(const int argc, char** argv, const std::string_view flag) noexcept
 {
@@ -92,6 +96,28 @@ void print_usage(std::ostream& output)
         : HOST_GUI_RUNTIME_ERROR_EXIT_CODE;
 }
 
+[[nodiscard]] std::string make_status_panel_text(const mnos::host::HostDebuggerFrame& frame)
+{
+    std::string text;
+    text.reserve(frame.summary_text.size());
+    text.append(frame.title);
+    text.push_back('\n');
+    text.append(frame.run_control_text);
+    text.push_back('\n');
+    text.append(frame.status_text);
+    text.push_back('\n');
+    text.append(frame.counters_text);
+    text.push_back('\n');
+    text.append(frame.memory_text);
+    text.push_back('\n');
+    text.append(frame.processor_text);
+    text.push_back('\n');
+    text.append(frame.cursor_text);
+    text.push_back('\n');
+    text.append(frame.cpu_text);
+    return text;
+}
+
 [[nodiscard]] NSButton* make_button(NSString* title, id target, SEL action, const NSRect frame)
 {
     NSButton* const button = [[NSButton alloc] initWithFrame:frame];
@@ -112,9 +138,8 @@ void print_usage(std::ostream& output)
     return scroll_view;
 }
 
-[[nodiscard]] NSTextView* make_text_view(NSFont* font, NSColor* text_color, NSColor* background_color)
+void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_color, NSColor* background_color)
 {
-    NSTextView* const text_view = [[NSTextView alloc] initWithFrame:NSZeroRect];
     [text_view setEditable:NO];
     [text_view setSelectable:YES];
     [text_view setFont:font];
@@ -123,18 +148,123 @@ void print_usage(std::ostream& output)
     [text_view setAutomaticQuoteSubstitutionEnabled:NO];
     [text_view setAutomaticDashSubstitutionEnabled:NO];
     [text_view setAutomaticTextReplacementEnabled:NO];
-    return text_view;
 }
 }
 
-@interface MnosGuiController : NSObject <NSApplicationDelegate, NSTextFieldDelegate>
+@class MnosTerminalTextView;
+
+@protocol MnosTerminalInputDelegate
+- (void)terminalTextView:(MnosTerminalTextView*)terminalView submitText:(NSString*)text;
+- (void)terminalTextView:(MnosTerminalTextView*)terminalView submitSpecialKey:(mnos::host::HostSpecialKey)key;
+@end
+
+@interface MnosTerminalTextView : NSTextView
+@property(nonatomic, weak) id<MnosTerminalInputDelegate> inputDelegate;
+@end
+
+@implementation MnosTerminalTextView
+
+- (BOOL)acceptsFirstResponder
+{
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    [[self window] makeFirstResponder:self];
+    [super mouseDown:event];
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    const NSEventModifierFlags flags =
+        [event modifierFlags] & HOST_GUI_DEVICE_INDEPENDENT_MODIFIER_MASK;
+    if ((flags & NSEventModifierFlagCommand) != 0U)
+    {
+        [super keyDown:event];
+        return;
+    }
+
+    NSString* const characters_ignoring_modifiers = [event charactersIgnoringModifiers];
+    if ([characters_ignoring_modifiers length] == 0U)
+    {
+        [super keyDown:event];
+        return;
+    }
+
+    const unichar key = [characters_ignoring_modifiers characterAtIndex:0U];
+    const bool control_down = (flags & NSEventModifierFlagControl) != 0U;
+    if (control_down && (key == 'c' || key == 'C'))
+    {
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::CTRL_C];
+        return;
+    }
+    if (control_down && (key == 'd' || key == 'D'))
+    {
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::CTRL_D];
+        return;
+    }
+    if (control_down)
+    {
+        [super keyDown:event];
+        return;
+    }
+
+    switch (key)
+    {
+    case NSCarriageReturnCharacter:
+    case NSEnterCharacter:
+    case NSNewlineCharacter:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ENTER];
+        return;
+    case NSBackspaceCharacter:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::BACKSPACE];
+        return;
+    case NSDeleteCharacter:
+    case NSDeleteFunctionKey:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::DELETE_KEY];
+        return;
+    case NSTabCharacter:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::TAB];
+        return;
+    case HOST_GUI_ESCAPE_CHARACTER:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ESCAPE];
+        return;
+    case NSUpArrowFunctionKey:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ARROW_UP];
+        return;
+    case NSDownArrowFunctionKey:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ARROW_DOWN];
+        return;
+    case NSLeftArrowFunctionKey:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ARROW_LEFT];
+        return;
+    case NSRightArrowFunctionKey:
+        [self.inputDelegate terminalTextView:self submitSpecialKey:mnos::host::HostSpecialKey::ARROW_RIGHT];
+        return;
+    default:
+        break;
+    }
+
+    NSString* const characters = [event characters];
+    if ([characters length] > 0U)
+    {
+        [self.inputDelegate terminalTextView:self submitText:characters];
+        return;
+    }
+    [super keyDown:event];
+}
+@end
+
+@interface MnosGuiController : NSObject <NSApplicationDelegate, NSTextFieldDelegate, MnosTerminalInputDelegate>
 @end
 
 @implementation MnosGuiController
 {
     NSWindow* window_;
-    NSTextView* terminal_view_;
+    MnosTerminalTextView* terminal_view_;
     NSTextView* status_view_;
+    NSTextView* trace_view_;
     NSTextField* input_field_;
     std::unique_ptr<mnos::host::HostDebuggerSession> session_;
 }
@@ -146,6 +276,7 @@ void print_usage(std::ostream& output)
     [self buildWindow];
     [self bootMachine];
     [window_ makeKeyAndOrderFront:nil];
+    [window_ makeFirstResponder:terminal_view_];
     [NSApp activateIgnoringOtherApps:YES];
 }
 
@@ -186,7 +317,10 @@ void print_usage(std::ostream& output)
     const CGFloat terminal_width = right_panel_x - (HOST_GUI_PANEL_PADDING * 2.0);
     const CGFloat terminal_height =
         content_height - terminal_y - HOST_GUI_TOOLBAR_HEIGHT - (HOST_GUI_PANEL_PADDING * 2.0);
-    const CGFloat status_height = terminal_height + HOST_GUI_INPUT_HEIGHT + HOST_GUI_CONTROL_GAP;
+    const CGFloat right_panel_height = terminal_height + HOST_GUI_INPUT_HEIGHT + HOST_GUI_CONTROL_GAP;
+    const CGFloat status_height =
+        right_panel_height - HOST_GUI_TRACE_PANEL_HEIGHT - HOST_GUI_CONTROL_GAP;
+    const CGFloat status_y = terminal_y + HOST_GUI_TRACE_PANEL_HEIGHT + HOST_GUI_CONTROL_GAP;
     const CGFloat toolbar_y = content_height - HOST_GUI_PANEL_PADDING - HOST_GUI_BUTTON_HEIGHT;
     const CGFloat send_button_x = right_panel_x - HOST_GUI_CONTROL_GAP - HOST_GUI_BUTTON_WIDTH;
     const CGFloat input_width = send_button_x - HOST_GUI_PANEL_PADDING - HOST_GUI_CONTROL_GAP;
@@ -197,7 +331,10 @@ void print_usage(std::ostream& output)
 
     NSFont* const terminal_font =
         [NSFont monospacedSystemFontOfSize:HOST_GUI_TERMINAL_FONT_SIZE weight:NSFontWeightRegular];
-    terminal_view_ = make_text_view(
+    terminal_view_ = [[MnosTerminalTextView alloc] initWithFrame:NSZeroRect];
+    [terminal_view_ setInputDelegate:self];
+    configure_text_view(
+        terminal_view_,
         terminal_font,
         [NSColor colorWithCalibratedRed:0.78 green:0.96 blue:0.78 alpha:1.0],
         [NSColor blackColor]);
@@ -209,15 +346,29 @@ void print_usage(std::ostream& output)
 
     NSFont* const status_font =
         [NSFont monospacedSystemFontOfSize:HOST_GUI_STATUS_FONT_SIZE weight:NSFontWeightRegular];
-    status_view_ = make_text_view(
+    status_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    configure_text_view(
+        status_view_,
         status_font,
         [NSColor colorWithCalibratedWhite:0.88 alpha:1.0],
         [NSColor colorWithCalibratedWhite:0.12 alpha:1.0]);
     NSScrollView* const status_scroll = make_scroll_view(
         status_view_,
-        NSMakeRect(right_panel_x, terminal_y, HOST_GUI_STATUS_PANEL_WIDTH, status_height));
+        NSMakeRect(right_panel_x, status_y, HOST_GUI_STATUS_PANEL_WIDTH, status_height));
     [status_scroll setAutoresizingMask:NSViewMinXMargin | NSViewHeightSizable];
     [content_view addSubview:status_scroll];
+
+    trace_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    configure_text_view(
+        trace_view_,
+        status_font,
+        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:1.0 alpha:1.0],
+        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+    NSScrollView* const trace_scroll = make_scroll_view(
+        trace_view_,
+        NSMakeRect(right_panel_x, terminal_y, HOST_GUI_STATUS_PANEL_WIDTH, HOST_GUI_TRACE_PANEL_HEIGHT));
+    [trace_scroll setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
+    [content_view addSubview:trace_scroll];
 
     input_field_ = [[NSTextField alloc] initWithFrame:
         NSMakeRect(HOST_GUI_PANEL_PADDING, input_y, input_width, HOST_GUI_INPUT_HEIGHT)];
@@ -246,18 +397,36 @@ void print_usage(std::ostream& output)
     [reset_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
     [content_view addSubview:reset_button];
 
-    const CGFloat pump_button_x = reset_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const pump_button = make_button(
-        @"Pump",
+    const CGFloat step_button_x = reset_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    NSButton* const step_button = make_button(
+        @"Step",
         self,
-        @selector(pumpMachine:),
-        NSMakeRect(pump_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [pump_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:pump_button];
+        @selector(stepMachine:),
+        NSMakeRect(step_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
+    [step_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [content_view addSubview:step_button];
 
-    const CGFloat exit_button_x = pump_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    const CGFloat run_button_x = step_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    NSButton* const run_button = make_button(
+        @"Run",
+        self,
+        @selector(runMachine:),
+        NSMakeRect(run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
+    [run_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [content_view addSubview:run_button];
+
+    const CGFloat pause_button_x = run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    NSButton* const pause_button = make_button(
+        @"Pause",
+        self,
+        @selector(pauseMachine:),
+        NSMakeRect(pause_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
+    [pause_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [content_view addSubview:pause_button];
+
+    const CGFloat exit_button_x = pause_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
     NSButton* const exit_button = make_button(
-        @"Exit Shell",
+        @"Exit",
         self,
         @selector(sendExitCommand:),
         NSMakeRect(exit_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
@@ -283,15 +452,18 @@ void print_usage(std::ostream& output)
     const mnos::host::HostDebuggerFrame frame = session_->frame();
     [window_ setTitle:ns_string_from_std(frame.title)];
     [terminal_view_ setString:ns_string_from_std(frame.display_text)];
-    [status_view_ setString:ns_string_from_std(frame.summary_text)];
+    [status_view_ setString:ns_string_from_std(make_status_panel_text(frame))];
+    [trace_view_ setString:ns_string_from_std(frame.trace_text)];
     [input_field_ setEnabled:frame.accepts_input];
     [terminal_view_ scrollRangeToVisible:NSMakeRange([[terminal_view_ string] length], 0)];
+    [trace_view_ scrollRangeToVisible:NSMakeRange([[trace_view_ string] length], 0)];
 }
 
 - (void)renderError:(const char*)message
 {
     NSString* const error_text = message == nullptr ? @"runtime error" : [NSString stringWithUTF8String:message];
     [status_view_ setString:error_text];
+    [trace_view_ setString:error_text];
     [input_field_ setEnabled:NO];
 }
 
@@ -306,6 +478,30 @@ void print_usage(std::ostream& output)
     const std::string command = std_string_from_ns([input_field_ stringValue]);
     [input_field_ setStringValue:@""];
     static_cast<void>(session_->submit_command_line(command));
+    [self renderFrame];
+}
+
+- (void)terminalTextView:(MnosTerminalTextView*)terminalView submitText:(NSString*)text
+{
+    (void)terminalView;
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(session_->submit_text(std_string_from_ns(text)));
+    [self renderFrame];
+}
+
+- (void)terminalTextView:(MnosTerminalTextView*)terminalView submitSpecialKey:(mnos::host::HostSpecialKey)key
+{
+    (void)terminalView;
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(session_->submit_special_key(key));
     [self renderFrame];
 }
 
@@ -328,7 +524,7 @@ void print_usage(std::ostream& output)
     }
 }
 
-- (void)pumpMachine:(id)sender
+- (void)stepMachine:(id)sender
 {
     (void)sender;
     if (session_ == nullptr)
@@ -336,7 +532,31 @@ void print_usage(std::ostream& output)
         return;
     }
 
-    static_cast<void>(session_->pump_until_waiting());
+    static_cast<void>(session_->step_until_waiting());
+    [self renderFrame];
+}
+
+- (void)runMachine:(id)sender
+{
+    (void)sender;
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(session_->run_until_waiting());
+    [self renderFrame];
+}
+
+- (void)pauseMachine:(id)sender
+{
+    (void)sender;
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    session_->pause();
     [self renderFrame];
 }
 
