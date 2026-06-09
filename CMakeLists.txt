@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.20)
 
 project(MNOS VERSION 0.1.0 LANGUAGES CXX)
 
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MNOS_ENABLE_COVERAGE "Enable GCC/Clang coverage instrumentation." OFF)
@@ -194,6 +198,7 @@ mnos_apply_project_options(mnos_emulator)
 set(
     MNOS_HOST_SOURCES
         src/host/console_options.cpp
+        src/host/debugger_session.cpp
         src/host/machine_session.cpp
         src/host/terminal_backend.cpp
         src/host/terminal_runner.cpp
@@ -216,6 +221,20 @@ mnos_apply_project_options(mnos_host)
 add_executable(mnos_console src/host/console_main.cpp)
 target_link_libraries(mnos_console PRIVATE mnos_host)
 mnos_apply_project_options(mnos_console)
+
+if(APPLE)
+    add_executable(mnos_gui src/host/cocoa_gui_main.mm)
+    target_link_libraries(mnos_gui PRIVATE mnos_host "-framework Cocoa")
+    target_compile_features(mnos_gui PRIVATE cxx_std_20)
+    set_target_properties(
+        mnos_gui
+        PROPERTIES
+            OBJCXX_STANDARD 20
+            OBJCXX_STANDARD_REQUIRED YES
+    )
+    target_compile_options(mnos_gui PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    mnos_apply_project_options(mnos_gui)
+endif()
 
 set(
     MNOS_BENCHMARK_SOURCES
@@ -357,6 +376,7 @@ mnos_add_os_test(mnos_os_address_page_fuzz_tests tests/os/fuzz/address_page_fuzz
 mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physical_page_allocator_fuzz_test.cpp)
 
 mnos_add_host_test(mnos_host_console_options_tests tests/host/console_options_test.cpp)
+mnos_add_host_test(mnos_host_debugger_session_tests tests/host/debugger_session_test.cpp)
 mnos_add_host_test(mnos_host_machine_session_tests tests/host/machine_session_test.cpp)
 mnos_add_host_test(mnos_host_terminal_backend_tests tests/host/terminal_backend_test.cpp)
 mnos_add_host_test(mnos_host_terminal_runner_tests tests/host/terminal_runner_test.cpp)

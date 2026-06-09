@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`，为 Bochs-like GUI/debugger 打底。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`；Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -251,11 +251,12 @@ Shell file commands    ls/cat/touch/write/stat 通过 Kernel::vfs() 访问 root 
 Benchmark              Kernel VFS open/close fd 已进入 benchmark smoke
 ```
 
-Stage 15D / 15E-A / 15E-B / 15F-A 已经完成第一版宿主机交互终端和 GUI 前置边界：
+Stage 15D / 15E-A / 15E-B / 15F-A / 15F-B 已经完成第一版宿主机交互终端和窗口 debugger 边界：
 
 ```text
 HostMachineSession    GUI/CLI 共享 facade，持有 Machine/BootContext/Kernel/ShellSession，可 boot/reset/pump/submit_input
 Session snapshot      暴露状态、命令数、poll 数、进程数、terminal output size、内存页计数和 processor count
+HostDebuggerSession   窗口 view-model，格式化 terminal screen、状态、内存、CPU 和 cursor 信息
 TerminalRunner        阻塞式 CLI facade，复用 HostMachineSession 并负责 HostTerminalBackend read/render/result
 HostTerminalBackend   stdio/window/raw terminal 的 host adapter 接口，不让 GUI 依赖进入 kernel
 HostInputEvent        host 输入事件模型，区分 text、special key、input closed、host I/O error
@@ -266,7 +267,9 @@ Shell drive           HostMachineSession 复用 ShellSession::poll 驱动 prompt
 Stream renderer       消费 TerminalDevice 增量输出流，默认避免历史屏幕重放
 Screen renderer       保留 TextDisplayBuffer 快照输出，支持显式 ANSI screen 与 plain screen 调试模式
 mnos_console          真实可运行入口：builds/debug/mnos_console
-Test harness          覆盖 session boot/reset/snapshot、输入事件、raw key、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
+mnos_gui              macOS 原生窗口入口：builds/debug/mnos_gui，左侧终端屏幕，右侧状态面板，支持 Send/Reset/Pump/Exit Shell
+GUI smoke             builds/debug/mnos_gui --smoke 可无窗口验证 HostDebuggerSession 链路
+Test harness          覆盖 session boot/reset/snapshot、debugger frame、输入事件、raw key、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
 ```
 
 ## 下一步
@@ -274,7 +277,7 @@ Test harness          覆盖 session boot/reset/snapshot、输入事件、raw ke
 合理顺序：
 
 ```text
-1. Bochs-like 窗口终端 adapter，复用 HostMachineSession 和 host terminal 边界，不让 GUI 依赖进入 kernel
+1. GUI debugger polish：raw key focus、trace panel、step/run/pause 和寄存器/页表视图
 2. exec/wait/process lifecycle，把 user loader、syscall、VFS fd 和 shell 连成可运行用户程序闭环
 3. pipe/dup/redirect，把 shell 变成可组合的交互环境
 4. page cache / mmap / demand file paging，把文件系统和虚拟内存合流
