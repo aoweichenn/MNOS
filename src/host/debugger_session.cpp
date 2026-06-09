@@ -583,7 +583,7 @@ void fill_booted_display_frame(
     frame.cursor_column = display.cursor_column();
     frame.cursor_row = display.cursor_row();
     frame.scroll_count = display.scroll_count();
-    frame.display_text = display.render_text();
+    frame.display_text = mnos::host::render_terminal_display_text(display);
 }
 }
 

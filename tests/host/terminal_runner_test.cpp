@@ -262,7 +262,7 @@ TEST(HostTerminalRunnerTest, AnsiStreamModeEmitsClearControlForClearCommand)
 
     EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
     EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
-    EXPECT_THAT(output.str(), HasSubstr("mnos> clear\n\x1B[2J\x1B[Hmnos> exit"));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> clear\n\x1B[2J\x1B[3J\x1B[Hmnos> exit"));
 }
 
 TEST(HostTerminalRunnerTest, StreamModeTranslatesBackspaceEchoForHostTerminal)
@@ -291,7 +291,7 @@ TEST(HostTerminalRunnerTest, AnsiScreenModeEmitsFullScreenControlSequences)
     const host::TerminalRunResult result = runner.run(input, output);
 
     EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
-    EXPECT_THAT(output.str(), HasSubstr("\x1B[2J\x1B[H"));
+    EXPECT_THAT(output.str(), HasSubstr("\x1B[2J\x1B[3J\x1B[H"));
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
 }
 

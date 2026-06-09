@@ -9,6 +9,7 @@
 namespace mnos::os::dev
 {
 class TerminalDevice;
+class TextDisplayBuffer;
 }
 
 namespace mnos::host
@@ -62,6 +63,7 @@ inline constexpr std::size_t TERMINAL_INPUT_MODE_COUNT = static_cast<std::size_t
 
 [[nodiscard]] bool terminal_render_mode_is_screen(TerminalRenderMode mode) noexcept;
 [[nodiscard]] bool terminal_render_mode_uses_ansi(TerminalRenderMode mode) noexcept;
+[[nodiscard]] std::string render_terminal_display_text(const os::dev::TextDisplayBuffer& display);
 
 [[nodiscard]] bool is_terminal_input_mode_valid(TerminalInputMode mode) noexcept;
 [[nodiscard]] std::size_t terminal_input_mode_to_index(TerminalInputMode mode) noexcept;

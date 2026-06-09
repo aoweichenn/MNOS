@@ -18,6 +18,7 @@ namespace
 {
 constexpr std::string_view HOST_TERMINAL_ENUM_INVALID_NAME = "<invalid>";
 constexpr std::string_view HOST_TERMINAL_ANSI_CLEAR_SCREEN = "\x1B[2J";
+constexpr std::string_view HOST_TERMINAL_ANSI_CLEAR_SCROLLBACK = "\x1B[3J";
 constexpr std::string_view HOST_TERMINAL_ANSI_CURSOR_HOME = "\x1B[H";
 constexpr std::string_view HOST_TERMINAL_BACKSPACE_ERASE = "\b \b";
 constexpr std::string_view HOST_TERMINAL_ENTER_INPUT = "\n";
@@ -179,42 +180,6 @@ private:
     return line;
 }
 
-[[nodiscard]] std::string render_display_for_host(const dev::TextDisplayBuffer& display)
-{
-    std::vector<std::string> trimmed_lines;
-    trimmed_lines.reserve(display.row_count());
-
-    std::size_t last_visible_row = std::size_t{0};
-    bool has_visible_row = false;
-    for (std::size_t row = std::size_t{0}; row < display.row_count(); ++row)
-    {
-        const bool is_cursor_row = row == display.cursor_row();
-        std::string line = trimmed_display_line(display.line(row), display.cursor_column(), is_cursor_row);
-        if (!line.empty())
-        {
-            last_visible_row = row;
-            has_visible_row = true;
-        }
-        trimmed_lines.push_back(std::move(line));
-    }
-
-    if (!has_visible_row)
-    {
-        return {};
-    }
-
-    std::string rendered;
-    for (std::size_t row = std::size_t{0}; row <= last_visible_row; ++row)
-    {
-        if (row != std::size_t{0})
-        {
-            rendered.push_back(HOST_TERMINAL_NEWLINE_CHARACTER);
-        }
-        rendered.append(trimmed_lines[row]);
-    }
-    return rendered;
-}
-
 [[nodiscard]] std::string render_output_stream_for_host(
     const std::string_view output_stream,
     const mnos::host::TerminalRenderMode mode)
@@ -228,6 +193,7 @@ private:
             if (mnos::host::terminal_render_mode_uses_ansi(mode))
             {
                 rendered.append(HOST_TERMINAL_ANSI_CLEAR_SCREEN);
+                rendered.append(HOST_TERMINAL_ANSI_CLEAR_SCROLLBACK);
                 rendered.append(HOST_TERMINAL_ANSI_CURSOR_HOME);
             }
             continue;
@@ -276,7 +242,7 @@ private:
     std::string& last_screen_frame,
     std::size_t& render_count)
 {
-    const std::string rendered = render_display_for_host(terminal.display());
+    const std::string rendered = mnos::host::render_terminal_display_text(terminal.display());
     if (rendered == last_screen_frame)
     {
         return true;
@@ -285,7 +251,10 @@ private:
     last_screen_frame = rendered;
     if (mnos::host::terminal_render_mode_uses_ansi(mode))
     {
-        output << HOST_TERMINAL_ANSI_CLEAR_SCREEN << HOST_TERMINAL_ANSI_CURSOR_HOME << rendered;
+        output << HOST_TERMINAL_ANSI_CLEAR_SCREEN
+               << HOST_TERMINAL_ANSI_CLEAR_SCROLLBACK
+               << HOST_TERMINAL_ANSI_CURSOR_HOME
+               << rendered;
         output.flush();
     }
     else
@@ -363,6 +332,42 @@ void append_host_line_ending(std::string& line)
 
 namespace mnos::host
 {
+std::string render_terminal_display_text(const dev::TextDisplayBuffer& display)
+{
+    std::vector<std::string> trimmed_lines;
+    trimmed_lines.reserve(display.row_count());
+
+    std::size_t last_visible_row = std::size_t{0};
+    bool has_visible_row = false;
+    for (std::size_t row = std::size_t{0}; row < display.row_count(); ++row)
+    {
+        const bool is_cursor_row = row == display.cursor_row();
+        std::string line = trimmed_display_line(display.line(row), display.cursor_column(), is_cursor_row);
+        if (!line.empty())
+        {
+            last_visible_row = row;
+            has_visible_row = true;
+        }
+        trimmed_lines.push_back(std::move(line));
+    }
+
+    if (!has_visible_row)
+    {
+        return {};
+    }
+
+    std::string rendered;
+    for (std::size_t row = std::size_t{0}; row <= last_visible_row; ++row)
+    {
+        if (row != std::size_t{0})
+        {
+            rendered.push_back(HOST_TERMINAL_NEWLINE_CHARACTER);
+        }
+        rendered.append(trimmed_lines[row]);
+    }
+    return rendered;
+}
+
 bool terminal_render_mode_is_screen(const TerminalRenderMode mode) noexcept
 {
     return mode == TerminalRenderMode::ANSI_SCREEN || mode == TerminalRenderMode::PLAIN_SCREEN;

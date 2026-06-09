@@ -280,6 +280,20 @@ TEST(HostTerminalBackendTest, StreamRendererDrainsIncrementalOutputWithoutReplay
     EXPECT_THAT(backend.render_count(), Eq(std::size_t{2}));
 }
 
+TEST(HostTerminalBackendTest, DisplayTextRendererTrimsBlankScreenRows)
+{
+    dev::TextDisplayBuffer display{std::size_t{12}, std::size_t{3}};
+
+    EXPECT_THAT(host::render_terminal_display_text(display), Eq(std::string{}));
+
+    display.write_string("abc\nnext");
+    EXPECT_THAT(host::render_terminal_display_text(display), Eq(std::string{"abc\nnext"}));
+
+    display.clear();
+    display.write_string("mnos> ");
+    EXPECT_THAT(host::render_terminal_display_text(display), Eq(std::string{"mnos> "}));
+}
+
 TEST(HostTerminalBackendTest, AnsiStreamRendererTranslatesBackspaceDeleteAndClear)
 {
     std::istringstream input;
@@ -292,7 +306,7 @@ TEST(HostTerminalBackendTest, AnsiStreamRendererTranslatesBackspaceDeleteAndClea
     terminal.clear_display();
 
     EXPECT_TRUE(backend.render_terminal(terminal));
-    EXPECT_THAT(output.str(), Eq(std::string{"a\b \b\b \b\x1B[2J\x1B[H"}));
+    EXPECT_THAT(output.str(), Eq(std::string{"a\b \b\b \b\x1B[2J\x1B[3J\x1B[H"}));
     EXPECT_THAT(backend.render_count(), Eq(std::size_t{1}));
     EXPECT_THAT(terminal.output_stream_size(), Eq(std::size_t{0}));
 }

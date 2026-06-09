@@ -18,22 +18,26 @@ constexpr std::string_view HOST_GUI_USAGE_TEXT = "usage: mnos_gui [--smoke]\n";
 constexpr int HOST_GUI_SUCCESS_EXIT_CODE = 0;
 constexpr int HOST_GUI_RUNTIME_ERROR_EXIT_CODE = 1;
 constexpr int HOST_GUI_USAGE_ERROR_EXIT_CODE = 2;
+constexpr std::string_view HOST_GUI_TOOLBAR_STATUS_SEPARATOR = " | ";
 
-constexpr CGFloat HOST_GUI_WINDOW_WIDTH = 1080.0;
-constexpr CGFloat HOST_GUI_WINDOW_HEIGHT = 720.0;
-constexpr CGFloat HOST_GUI_PANEL_PADDING = 12.0;
-constexpr CGFloat HOST_GUI_STATUS_PANEL_WIDTH = 300.0;
+constexpr CGFloat HOST_GUI_WINDOW_WIDTH = 1180.0;
+constexpr CGFloat HOST_GUI_WINDOW_HEIGHT = 760.0;
+constexpr CGFloat HOST_GUI_PANEL_PADDING = 10.0;
+constexpr CGFloat HOST_GUI_INSPECTOR_MIN_WIDTH = 330.0;
+constexpr CGFloat HOST_GUI_INSPECTOR_MAX_WIDTH = 420.0;
+constexpr CGFloat HOST_GUI_TERMINAL_MIN_WIDTH = 560.0;
+constexpr CGFloat HOST_GUI_STATUS_PANEL_HEIGHT = 190.0;
 constexpr CGFloat HOST_GUI_INPUT_HEIGHT = 30.0;
-constexpr CGFloat HOST_GUI_BUTTON_WIDTH = 96.0;
+constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_WIDTH = 76.0;
+constexpr CGFloat HOST_GUI_SEND_BUTTON_WIDTH = 88.0;
 constexpr CGFloat HOST_GUI_BUTTON_HEIGHT = 28.0;
-constexpr CGFloat HOST_GUI_TOOLBAR_HEIGHT = 36.0;
-constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 6.0;
-constexpr CGFloat HOST_GUI_DETAIL_PANEL_HEIGHT = 320.0;
+constexpr CGFloat HOST_GUI_TOOLBAR_HEIGHT = 34.0;
 constexpr CGFloat HOST_GUI_CONTROL_GAP = 8.0;
+constexpr CGFloat HOST_GUI_TEXT_CONTAINER_PADDING = 4.0;
 constexpr CGFloat HOST_GUI_TERMINAL_FONT_SIZE = 13.0;
 constexpr CGFloat HOST_GUI_STATUS_FONT_SIZE = 12.0;
-constexpr CGFloat HOST_GUI_MIN_WINDOW_WIDTH = 820.0;
-constexpr CGFloat HOST_GUI_MIN_WINDOW_HEIGHT = 620.0;
+constexpr CGFloat HOST_GUI_MIN_WINDOW_WIDTH = 940.0;
+constexpr CGFloat HOST_GUI_MIN_WINDOW_HEIGHT = 640.0;
 constexpr NSEventModifierFlags HOST_GUI_DEVICE_INDEPENDENT_MODIFIER_MASK =
     NSEventModifierFlagDeviceIndependentFlagsMask;
 constexpr unichar HOST_GUI_ESCAPE_CHARACTER = unichar{0x001B};
@@ -120,24 +124,66 @@ void print_usage(std::ostream& output)
     return text;
 }
 
-[[nodiscard]] NSButton* make_button(NSString* title, id target, SEL action, const NSRect frame)
+[[nodiscard]] std::string make_toolbar_status_text(const mnos::host::HostDebuggerFrame& frame)
 {
-    NSButton* const button = [[NSButton alloc] initWithFrame:frame];
+    std::string text;
+    text.reserve(
+        frame.status_text.size() +
+        frame.counters_text.size() +
+        frame.cursor_text.size() +
+        (HOST_GUI_TOOLBAR_STATUS_SEPARATOR.size() * 2U));
+    text.append(frame.status_text);
+    text.append(HOST_GUI_TOOLBAR_STATUS_SEPARATOR);
+    text.append(frame.counters_text);
+    text.append(HOST_GUI_TOOLBAR_STATUS_SEPARATOR);
+    text.append(frame.cursor_text);
+    return text;
+}
+
+[[nodiscard]] NSButton* make_button(NSString* title, id target, SEL action, const CGFloat width)
+{
+    NSButton* const button = [[NSButton alloc] initWithFrame:NSZeroRect];
     [button setTitle:title];
     [button setTarget:target];
     [button setAction:action];
     [button setBezelStyle:NSBezelStyleTexturedRounded];
     [button setControlSize:NSControlSizeRegular];
+    [button setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [[button widthAnchor] constraintEqualToConstant:width].active = YES;
+    [[button heightAnchor] constraintEqualToConstant:HOST_GUI_BUTTON_HEIGHT].active = YES;
     return button;
 }
 
-[[nodiscard]] NSScrollView* make_scroll_view(NSView* document_view, const NSRect frame)
+[[nodiscard]] NSButton* make_send_button(id target, SEL action)
 {
-    NSScrollView* const scroll_view = [[NSScrollView alloc] initWithFrame:frame];
+    return make_button(@"Send", target, action, HOST_GUI_SEND_BUTTON_WIDTH);
+}
+
+[[nodiscard]] NSButton* make_toolbar_button(NSString* title, id target, SEL action)
+{
+    return make_button(title, target, action, HOST_GUI_TOOLBAR_BUTTON_WIDTH);
+}
+
+[[nodiscard]] NSTextField* make_status_line_field(NSFont* font)
+{
+    NSTextField* const field = [NSTextField labelWithString:@""];
+    [field setFont:font];
+    [field setTextColor:[NSColor colorWithCalibratedRed:0.84 green:0.88 blue:0.90 alpha:1.0]];
+    [field setLineBreakMode:NSLineBreakByTruncatingTail];
+    [field setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return field;
+}
+
+[[nodiscard]] NSScrollView* make_scroll_view(NSView* document_view)
+{
+    NSScrollView* const scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     [scroll_view setDocumentView:document_view];
     [scroll_view setHasVerticalScroller:YES];
     [scroll_view setHasHorizontalScroller:YES];
     [scroll_view setAutohidesScrollers:NO];
+    [scroll_view setBorderType:NSBezelBorder];
+    [scroll_view setTranslatesAutoresizingMaskIntoConstraints:NO];
     return scroll_view;
 }
 
@@ -151,11 +197,16 @@ void configure_text_view(NSTextView* text_view, NSFont* font, NSColor* text_colo
     [text_view setAutomaticQuoteSubstitutionEnabled:NO];
     [text_view setAutomaticDashSubstitutionEnabled:NO];
     [text_view setAutomaticTextReplacementEnabled:NO];
+    [text_view setHorizontallyResizable:YES];
+    [text_view setVerticallyResizable:YES];
+    [[text_view textContainer] setContainerSize:NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)];
+    [[text_view textContainer] setWidthTracksTextView:NO];
+    [[text_view textContainer] setLineFragmentPadding:HOST_GUI_TEXT_CONTAINER_PADDING];
 }
 
 void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
 {
-    NSScrollView* const scroll_view = make_scroll_view(text_view, NSZeroRect);
+    NSScrollView* const scroll_view = make_scroll_view(text_view);
     [scroll_view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 
     NSTabViewItem* const item = [[NSTabViewItem alloc] initWithIdentifier:label];
@@ -163,6 +214,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [item setView:scroll_view];
     [tab_view addTabViewItem:item];
 }
+
 }
 
 @class MnosTerminalTextView;
@@ -282,6 +334,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     NSTextView* paging_view_;
     NSTextView* trace_view_;
     NSTextView* instruction_trace_view_;
+    NSTextField* status_line_field_;
     NSTextField* input_field_;
     std::unique_ptr<mnos::host::HostDebuggerSession> session_;
 }
@@ -326,28 +379,35 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [content_view setWantsLayer:YES];
     [[content_view layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.07 alpha:1.0] CGColor]];
 
-    const CGFloat content_width = NSWidth([content_view bounds]);
-    const CGFloat content_height = NSHeight([content_view bounds]);
-    const CGFloat right_panel_x = content_width - HOST_GUI_PANEL_PADDING - HOST_GUI_STATUS_PANEL_WIDTH;
-    const CGFloat input_y = HOST_GUI_PANEL_PADDING;
-    const CGFloat terminal_y = input_y + HOST_GUI_INPUT_HEIGHT + HOST_GUI_CONTROL_GAP;
-    const CGFloat terminal_width = right_panel_x - (HOST_GUI_PANEL_PADDING * 2.0);
-    const CGFloat terminal_height =
-        content_height - terminal_y - HOST_GUI_TOOLBAR_HEIGHT - (HOST_GUI_PANEL_PADDING * 2.0);
-    const CGFloat right_panel_height = terminal_height + HOST_GUI_INPUT_HEIGHT + HOST_GUI_CONTROL_GAP;
-    const CGFloat status_height =
-        right_panel_height - HOST_GUI_DETAIL_PANEL_HEIGHT - HOST_GUI_CONTROL_GAP;
-    const CGFloat status_y = terminal_y + HOST_GUI_DETAIL_PANEL_HEIGHT + HOST_GUI_CONTROL_GAP;
-    const CGFloat toolbar_y = content_height - HOST_GUI_PANEL_PADDING - HOST_GUI_BUTTON_HEIGHT;
-    const CGFloat send_button_x = right_panel_x - HOST_GUI_CONTROL_GAP - HOST_GUI_BUTTON_WIDTH;
-    const CGFloat input_width = send_button_x - HOST_GUI_PANEL_PADDING - HOST_GUI_CONTROL_GAP;
-    const CGFloat toolbar_button_width =
-        (HOST_GUI_STATUS_PANEL_WIDTH -
-            (HOST_GUI_CONTROL_GAP * (HOST_GUI_TOOLBAR_BUTTON_COUNT - 1.0))) /
-        HOST_GUI_TOOLBAR_BUTTON_COUNT;
-
     NSFont* const terminal_font =
         [NSFont monospacedSystemFontOfSize:HOST_GUI_TERMINAL_FONT_SIZE weight:NSFontWeightRegular];
+    NSFont* const status_font =
+        [NSFont monospacedSystemFontOfSize:HOST_GUI_STATUS_FONT_SIZE weight:NSFontWeightRegular];
+
+    NSStackView* const toolbar = [[NSStackView alloc] initWithFrame:NSZeroRect];
+    [toolbar setOrientation:NSUserInterfaceLayoutOrientationHorizontal];
+    [toolbar setAlignment:NSLayoutAttributeCenterY];
+    [toolbar setDistribution:NSStackViewDistributionFill];
+    [toolbar setSpacing:HOST_GUI_CONTROL_GAP];
+    [toolbar setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [content_view addSubview:toolbar];
+
+    [toolbar addArrangedSubview:make_toolbar_button(@"Reset", self, @selector(resetMachine:))];
+    [toolbar addArrangedSubview:make_toolbar_button(@"Step", self, @selector(stepMachine:))];
+    [toolbar addArrangedSubview:make_toolbar_button(@"Exec", self, @selector(execUserProgram:))];
+    [toolbar addArrangedSubview:make_toolbar_button(@"Run", self, @selector(runMachine:))];
+    [toolbar addArrangedSubview:make_toolbar_button(@"Pause", self, @selector(pauseMachine:))];
+    [toolbar addArrangedSubview:make_toolbar_button(@"Exit", self, @selector(sendExitCommand:))];
+
+    status_line_field_ = make_status_line_field(status_font);
+    [toolbar addArrangedSubview:status_line_field_];
+
+    NSSplitView* const main_split = [[NSSplitView alloc] initWithFrame:NSZeroRect];
+    [main_split setVertical:YES];
+    [main_split setDividerStyle:NSSplitViewDividerStyleThin];
+    [main_split setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [content_view addSubview:main_split];
+
     terminal_view_ = [[MnosTerminalTextView alloc] initWithFrame:NSZeroRect];
     [terminal_view_ setInputDelegate:self];
     configure_text_view(
@@ -355,30 +415,33 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
         terminal_font,
         [NSColor colorWithCalibratedRed:0.86 green:0.90 blue:0.92 alpha:1.0],
         [NSColor colorWithCalibratedRed:0.06 green:0.07 blue:0.09 alpha:1.0]);
-    NSScrollView* const terminal_scroll = make_scroll_view(
-        terminal_view_,
-        NSMakeRect(HOST_GUI_PANEL_PADDING, terminal_y, terminal_width, terminal_height));
-    [terminal_scroll setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-    [content_view addSubview:terminal_scroll];
+    NSScrollView* const terminal_scroll = make_scroll_view(terminal_view_);
+    [[terminal_scroll widthAnchor] constraintGreaterThanOrEqualToConstant:HOST_GUI_TERMINAL_MIN_WIDTH].active = YES;
 
-    NSFont* const status_font =
-        [NSFont monospacedSystemFontOfSize:HOST_GUI_STATUS_FONT_SIZE weight:NSFontWeightRegular];
+    NSView* const inspector_panel = [[NSView alloc] initWithFrame:NSZeroRect];
+    [inspector_panel setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [inspector_panel setWantsLayer:YES];
+    [[inspector_panel layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.09 alpha:1.0] CGColor]];
+    [[inspector_panel widthAnchor] constraintGreaterThanOrEqualToConstant:HOST_GUI_INSPECTOR_MIN_WIDTH].active = YES;
+    [[inspector_panel widthAnchor] constraintLessThanOrEqualToConstant:HOST_GUI_INSPECTOR_MAX_WIDTH].active = YES;
+
+    [main_split addArrangedSubview:terminal_scroll];
+    [main_split addArrangedSubview:inspector_panel];
+    [main_split setHoldingPriority:NSLayoutPriorityDefaultLow forSubviewAtIndex:0];
+    [main_split setHoldingPriority:NSLayoutPriorityDefaultHigh forSubviewAtIndex:1];
+
     status_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
         status_view_,
         status_font,
         [NSColor colorWithCalibratedRed:0.82 green:0.86 blue:0.90 alpha:1.0],
         [NSColor colorWithCalibratedRed:0.09 green:0.11 blue:0.14 alpha:1.0]);
-    NSScrollView* const status_scroll = make_scroll_view(
-        status_view_,
-        NSMakeRect(right_panel_x, status_y, HOST_GUI_STATUS_PANEL_WIDTH, status_height));
-    [status_scroll setAutoresizingMask:NSViewMinXMargin | NSViewHeightSizable];
-    [content_view addSubview:status_scroll];
+    NSScrollView* const status_scroll = make_scroll_view(status_view_);
 
-    NSTabView* const detail_tab_view = [[NSTabView alloc] initWithFrame:
-        NSMakeRect(right_panel_x, terminal_y, HOST_GUI_STATUS_PANEL_WIDTH, HOST_GUI_DETAIL_PANEL_HEIGHT)];
-    [detail_tab_view setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
-    [content_view addSubview:detail_tab_view];
+    NSTabView* const detail_tab_view = [[NSTabView alloc] initWithFrame:NSZeroRect];
+    [detail_tab_view setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [inspector_panel addSubview:status_scroll];
+    [inspector_panel addSubview:detail_tab_view];
 
     registers_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
@@ -386,7 +449,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
         status_font,
         [NSColor colorWithCalibratedRed:0.86 green:0.92 blue:0.84 alpha:1.0],
         [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
-    add_text_tab(detail_tab_view, @"Registers", registers_view_);
+    add_text_tab(detail_tab_view, @"CPU", registers_view_);
 
     paging_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
@@ -412,77 +475,56 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
         [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
     add_text_tab(detail_tab_view, @"Instructions", instruction_trace_view_);
 
-    input_field_ = [[NSTextField alloc] initWithFrame:
-        NSMakeRect(HOST_GUI_PANEL_PADDING, input_y, input_width, HOST_GUI_INPUT_HEIGHT)];
+    NSView* const input_row = [[NSView alloc] initWithFrame:NSZeroRect];
+    [input_row setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [content_view addSubview:input_row];
+
+    input_field_ = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [input_field_ setDelegate:self];
     [input_field_ setTarget:self];
     [input_field_ setAction:@selector(submitCommand:)];
     [input_field_ setFont:terminal_font];
     [input_field_ setPlaceholderString:@"Command"];
-    [input_field_ setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
-    [content_view addSubview:input_field_];
+    [input_field_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [input_row addSubview:input_field_];
 
-    NSButton* const send_button = make_button(
-        @"Send",
-        self,
-        @selector(submitCommand:),
-        NSMakeRect(send_button_x, input_y, HOST_GUI_BUTTON_WIDTH, HOST_GUI_BUTTON_HEIGHT));
-    [send_button setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
-    [content_view addSubview:send_button];
+    NSButton* const send_button = make_send_button(self, @selector(submitCommand:));
+    [input_row addSubview:send_button];
 
-    const CGFloat reset_button_x = right_panel_x;
-    NSButton* const reset_button = make_button(
-        @"Reset",
-        self,
-        @selector(resetMachine:),
-        NSMakeRect(reset_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [reset_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:reset_button];
+    [NSLayoutConstraint activateConstraints:@[
+        [[toolbar leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor] constant:HOST_GUI_PANEL_PADDING],
+        [[toolbar trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor] constant:-HOST_GUI_PANEL_PADDING],
+        [[toolbar topAnchor] constraintEqualToAnchor:[content_view topAnchor] constant:HOST_GUI_PANEL_PADDING],
+        [[toolbar heightAnchor] constraintEqualToConstant:HOST_GUI_TOOLBAR_HEIGHT],
 
-    const CGFloat step_button_x = reset_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const step_button = make_button(
-        @"Step",
-        self,
-        @selector(stepMachine:),
-        NSMakeRect(step_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [step_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:step_button];
+        [[input_row leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor] constant:HOST_GUI_PANEL_PADDING],
+        [[input_row trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor] constant:-HOST_GUI_PANEL_PADDING],
+        [[input_row bottomAnchor] constraintEqualToAnchor:[content_view bottomAnchor] constant:-HOST_GUI_PANEL_PADDING],
+        [[input_row heightAnchor] constraintEqualToConstant:HOST_GUI_INPUT_HEIGHT],
 
-    const CGFloat run_button_x = step_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const exec_button = make_button(
-        @"Exec",
-        self,
-        @selector(execUserProgram:),
-        NSMakeRect(run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [exec_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:exec_button];
+        [[main_split leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor] constant:HOST_GUI_PANEL_PADDING],
+        [[main_split trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor] constant:-HOST_GUI_PANEL_PADDING],
+        [[main_split topAnchor] constraintEqualToAnchor:[toolbar bottomAnchor] constant:HOST_GUI_CONTROL_GAP],
+        [[main_split bottomAnchor] constraintEqualToAnchor:[input_row topAnchor] constant:-HOST_GUI_CONTROL_GAP],
 
-    const CGFloat actual_run_button_x = run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const run_button = make_button(
-        @"Run",
-        self,
-        @selector(runMachine:),
-        NSMakeRect(actual_run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [run_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:run_button];
+        [[status_scroll leadingAnchor] constraintEqualToAnchor:[inspector_panel leadingAnchor]],
+        [[status_scroll trailingAnchor] constraintEqualToAnchor:[inspector_panel trailingAnchor]],
+        [[status_scroll topAnchor] constraintEqualToAnchor:[inspector_panel topAnchor]],
+        [[status_scroll heightAnchor] constraintEqualToConstant:HOST_GUI_STATUS_PANEL_HEIGHT],
 
-    const CGFloat pause_button_x = actual_run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const pause_button = make_button(
-        @"Pause",
-        self,
-        @selector(pauseMachine:),
-        NSMakeRect(pause_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [pause_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:pause_button];
+        [[detail_tab_view leadingAnchor] constraintEqualToAnchor:[inspector_panel leadingAnchor]],
+        [[detail_tab_view trailingAnchor] constraintEqualToAnchor:[inspector_panel trailingAnchor]],
+        [[detail_tab_view topAnchor] constraintEqualToAnchor:[status_scroll bottomAnchor] constant:HOST_GUI_CONTROL_GAP],
+        [[detail_tab_view bottomAnchor] constraintEqualToAnchor:[inspector_panel bottomAnchor]],
 
-    const CGFloat exit_button_x = pause_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
-    NSButton* const exit_button = make_button(
-        @"Exit",
-        self,
-        @selector(sendExitCommand:),
-        NSMakeRect(exit_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
-    [exit_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [content_view addSubview:exit_button];
+        [[input_field_ leadingAnchor] constraintEqualToAnchor:[input_row leadingAnchor]],
+        [[input_field_ trailingAnchor] constraintEqualToAnchor:[send_button leadingAnchor] constant:-HOST_GUI_CONTROL_GAP],
+        [[input_field_ centerYAnchor] constraintEqualToAnchor:[input_row centerYAnchor]],
+        [[input_field_ heightAnchor] constraintEqualToConstant:HOST_GUI_INPUT_HEIGHT],
+
+        [[send_button trailingAnchor] constraintEqualToAnchor:[input_row trailingAnchor]],
+        [[send_button centerYAnchor] constraintEqualToAnchor:[input_row centerYAnchor]]
+    ]];
 }
 
 - (void)bootMachine
@@ -503,6 +545,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     const mnos::host::HostDebuggerFrame frame = session_->frame();
     [window_ setTitle:ns_string_from_std(frame.title)];
     [terminal_view_ setString:ns_string_from_std(frame.display_text)];
+    [status_line_field_ setStringValue:ns_string_from_std(make_toolbar_status_text(frame))];
     [status_view_ setString:ns_string_from_std(make_status_panel_text(frame))];
     [registers_view_ setString:ns_string_from_std(frame.registers_text)];
     [paging_view_ setString:ns_string_from_std(frame.paging_text)];
@@ -520,6 +563,7 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
 {
     NSString* const error_text = message == nullptr ? @"runtime error" : [NSString stringWithUTF8String:message];
     [status_view_ setString:error_text];
+    [status_line_field_ setStringValue:error_text];
     [registers_view_ setString:error_text];
     [paging_view_ setString:error_text];
     [trace_view_ setString:error_text];

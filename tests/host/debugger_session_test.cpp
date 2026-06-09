@@ -38,23 +38,6 @@ constexpr std::size_t TEST_UNBOOTABLE_MEMORY_SIZE_BYTES =
     static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES / mm::AddressValue{2});
 constexpr std::size_t TEST_TRACE_PROGRAM_MAX_STEPS = std::size_t{4};
 
-[[nodiscard]] std::size_t count_substring(const std::string_view text, const std::string_view needle) noexcept
-{
-    std::size_t count = std::size_t{0};
-    std::size_t offset = std::size_t{0};
-    while (offset < text.size())
-    {
-        const std::size_t match_offset = text.find(needle, offset);
-        if (match_offset == std::string_view::npos)
-        {
-            break;
-        }
-        ++count;
-        offset = match_offset + needle.size();
-    }
-    return count;
-}
-
 [[nodiscard]] host::HostDebuggerSession make_titled_debugger_session()
 {
     host::HostDebuggerSessionConfig config;
@@ -155,6 +138,7 @@ TEST(HostDebuggerSessionTest, BootProducesPromptAndMachineSummary)
     EXPECT_THAT(frame.display_column_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_COLUMN_COUNT));
     EXPECT_THAT(frame.display_row_count, Eq(mnos::os::dev::TERMINAL_DEFAULT_ROW_COUNT));
     EXPECT_THAT(frame.display_text, HasSubstr(TEST_PROMPT));
+    EXPECT_THAT(frame.display_text, Eq(std::string{TEST_PROMPT}));
     EXPECT_THAT(frame.run_control_text, HasSubstr("trace_entries=2"));
     EXPECT_THAT(frame.run_control_text, HasSubstr("instruction_trace_entries=0"));
     EXPECT_THAT(frame.status_text, HasSubstr("accepts_input=yes"));
@@ -221,6 +205,22 @@ TEST(HostDebuggerSessionTest, SubmitCommandLineNormalizesNewlineAndUpdatesFrame)
     EXPECT_THAT(frame.trace_text, HasSubstr("preview=\"echo debugger ready\""));
 }
 
+TEST(HostDebuggerSessionTest, ClearCommandClearsVisibleDisplayToFreshPrompt)
+{
+    host::HostDebuggerSession session;
+
+    session.boot();
+    EXPECT_THAT(session.submit_command_line("echo stale screen"), Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    EXPECT_THAT(session.frame().display_text, HasSubstr("stale screen"));
+
+    EXPECT_THAT(session.submit_command_line("clear"), Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{2}));
+    EXPECT_THAT(frame.display_text, Eq(std::string{TEST_PROMPT}));
+    EXPECT_THAT(frame.display_text.find("stale screen"), Eq(std::string::npos));
+}
+
 TEST(HostDebuggerSessionTest, SubmitCommandLineAcceptsExistingCarriageReturn)
 {
     host::HostDebuggerSession session;
@@ -266,7 +266,7 @@ TEST(HostDebuggerSessionTest, EmptyCommandLineStillSubmitsTerminalEnter)
 
     EXPECT_TRUE(frame.accepts_input);
     EXPECT_THAT(frame.snapshot.command_count, Eq(std::size_t{1}));
-    EXPECT_THAT(count_substring(frame.display_text, TEST_PROMPT), Eq(std::size_t{2}));
+    EXPECT_THAT(frame.display_text, Eq(std::string{"mnos>\nmnos> "}));
 }
 
 TEST(HostDebuggerSessionTest, SpecialKeyInputSeparatesVisibleAndControlKeys)
