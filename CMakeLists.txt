@@ -199,6 +199,7 @@ set(
     MNOS_HOST_SOURCES
         src/host/console_options.cpp
         src/host/debugger_session.cpp
+        src/host/debugger_text_layout.cpp
         src/host/machine_session.cpp
         src/host/terminal_backend.cpp
         src/host/terminal_runner.cpp
@@ -378,6 +379,7 @@ mnos_add_os_test(mnos_os_physical_page_allocator_fuzz_tests tests/os/fuzz/physic
 
 mnos_add_host_test(mnos_host_console_options_tests tests/host/console_options_test.cpp)
 mnos_add_host_test(mnos_host_debugger_session_tests tests/host/debugger_session_test.cpp)
+mnos_add_host_test(mnos_host_debugger_text_layout_tests tests/host/debugger_text_layout_test.cpp)
 mnos_add_host_test(mnos_host_machine_session_tests tests/host/machine_session_test.cpp)
 mnos_add_host_test(mnos_host_terminal_backend_tests tests/host/terminal_backend_test.cpp)
 mnos_add_host_test(mnos_host_terminal_runner_tests tests/host/terminal_runner_test.cpp)
