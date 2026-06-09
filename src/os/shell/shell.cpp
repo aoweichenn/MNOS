@@ -20,6 +20,8 @@ constexpr std::string_view SHELL_UNKNOWN_COMMAND_PREFIX = "unknown command: ";
 constexpr std::string_view SHELL_PARSE_ERROR_UNTERMINATED_QUOTE = "parse error: unterminated quote\n";
 constexpr std::string_view SHELL_ARGUMENT_SEPARATOR = " ";
 constexpr std::string_view SHELL_LINE_ENDING = "\n";
+constexpr std::string_view SHELL_NO_PARENT_TEXT = "0";
+constexpr std::string_view SHELL_NO_EXIT_CODE_TEXT = "-";
 constexpr std::string_view SHELL_ROOT_PATH = "/";
 constexpr std::string_view SHELL_DIRECTORY_SUFFIX = "/";
 constexpr std::string_view SHELL_USAGE_LS = "usage: ls [path]\n";
@@ -231,11 +233,31 @@ void shell_write_path_error(
     mnos::os::shell::ShellContext& context)
 {
     mnos::os::kernel::Kernel& os_kernel = context.os_kernel();
-    std::string output{"pid threads states\n"};
+    std::string output{"pid ppid state exit threads states\n"};
     for (std::size_t process_index = std::size_t{0}; process_index < os_kernel.process_count(); ++process_index)
     {
         const mnos::os::proc::Process& process = os_kernel.process_at(process_index);
         output.append(std::to_string(process.id().value()));
+        output.append(SHELL_ARGUMENT_SEPARATOR);
+        if (process.has_parent())
+        {
+            output.append(std::to_string(process.parent_id().value()));
+        }
+        else
+        {
+            output.append(SHELL_NO_PARENT_TEXT);
+        }
+        output.append(SHELL_ARGUMENT_SEPARATOR);
+        output.append(mnos::os::proc::process_state_to_name(process.state()));
+        output.append(SHELL_ARGUMENT_SEPARATOR);
+        if (process.is_exited() || process.is_reaped())
+        {
+            output.append(std::to_string(process.exit_code()));
+        }
+        else
+        {
+            output.append(SHELL_NO_EXIT_CODE_TEXT);
+        }
         output.append(SHELL_ARGUMENT_SEPARATOR);
         output.append(std::to_string(process.thread_count()));
         output.append(SHELL_ARGUMENT_SEPARATOR);

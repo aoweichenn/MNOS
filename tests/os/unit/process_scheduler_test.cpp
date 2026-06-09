@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <mnos/cpu/register/id.hpp>
+#include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/kernel/syscall.hpp>
 #include <mnos/os/mm/address_space.hpp>
 #include <mnos/os/mm/page.hpp>
@@ -46,6 +47,9 @@ TEST(ProcessTest, OwnsAddressSpaceAndThreadContexts)
     const proc::Process& const_process = process;
 
     EXPECT_THAT(process.id(), Eq(proc::ProcessId::first_user_process()));
+    EXPECT_FALSE(process.has_parent());
+    EXPECT_TRUE(process.is_running());
+    EXPECT_THAT(process.state(), Eq(proc::ProcessState::RUNNING));
     EXPECT_TRUE(process.empty());
     EXPECT_TRUE(const_process.file_descriptors().readable(io::FileDescriptor::stdin()));
     EXPECT_TRUE(const_process.file_descriptors().writable(io::FileDescriptor::stdout()));
@@ -63,6 +67,40 @@ TEST(ProcessTest, OwnsAddressSpaceAndThreadContexts)
         std::invalid_argument);
 }
 
+TEST(ProcessTest, TracksParentExitAndReapLifecycle)
+{
+    platform::Machine machine(TEST_MEMORY_SIZE_BYTES);
+    proc::Process process{
+        proc::ProcessId{2},
+        make_address_space(machine),
+        proc::ProcessId::first_user_process()};
+
+    EXPECT_TRUE(proc::is_process_state_valid(proc::ProcessState::RUNNING));
+    EXPECT_TRUE(proc::is_process_state_valid(proc::ProcessState::EXITED));
+    EXPECT_TRUE(proc::is_process_state_valid(proc::ProcessState::REAPED));
+    EXPECT_FALSE(proc::is_process_state_valid(proc::ProcessState::COUNT));
+    EXPECT_THAT(proc::process_state_to_index(proc::ProcessState::EXITED), Eq(std::size_t{1}));
+    EXPECT_THAT(proc::process_state_to_name(proc::ProcessState::REAPED), Eq(std::string_view{"REAPED"}));
+    EXPECT_THAT(proc::process_state_to_name(proc::ProcessState::COUNT), Eq(std::string_view{"<invalid>"}));
+    EXPECT_TRUE(process.has_parent());
+    EXPECT_THAT(process.parent_id(), Eq(proc::ProcessId::first_user_process()));
+
+    process.mark_exited(cpu::SignedQword{9});
+    EXPECT_TRUE(process.is_exited());
+    EXPECT_FALSE(process.is_running());
+    EXPECT_THAT(process.exit_code(), Eq(cpu::SignedQword{9}));
+    EXPECT_THROW(process.mark_exited(cpu::SignedQword{10}), std::logic_error);
+    EXPECT_THROW(
+        static_cast<void>(process.create_thread(sched::ThreadId::first_kernel_thread(), TEST_STACK_BOTTOM)),
+        std::logic_error);
+    EXPECT_THAT(process.exit_code(), Eq(cpu::SignedQword{9}));
+
+    process.mark_reaped();
+    EXPECT_TRUE(process.is_reaped());
+    EXPECT_THROW(process.mark_reaped(), std::logic_error);
+    EXPECT_THROW(process.mark_exited(cpu::SignedQword{11}), std::logic_error);
+}
+
 TEST(SyscallTest, MapsNumbersAndNames)
 {
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::YIELD));
@@ -71,6 +109,7 @@ TEST(SyscallTest, MapsNumbersAndNames)
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::WRITE));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::OPEN));
     EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::READDIR));
+    EXPECT_TRUE(kernel::is_syscall_number_valid(kernel::SyscallNumber::WAIT));
     EXPECT_FALSE(kernel::is_syscall_number_valid(kernel::SyscallNumber::COUNT));
     EXPECT_THAT(kernel::syscall_number_to_index(kernel::SyscallNumber::EXIT), Eq(std::size_t{1}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::YIELD), Eq(std::string_view{"YIELD"}));
@@ -78,12 +117,39 @@ TEST(SyscallTest, MapsNumbersAndNames)
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::WRITE), Eq(std::string_view{"WRITE"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::OPEN), Eq(std::string_view{"OPEN"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::READDIR), Eq(std::string_view{"READDIR"}));
+    EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::WAIT), Eq(std::string_view{"WAIT"}));
     EXPECT_THAT(kernel::syscall_number_to_name(kernel::SyscallNumber::COUNT), Eq(std::string_view{"<invalid>"}));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{0}), Eq(kernel::SyscallNumber::YIELD));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{9}), Eq(kernel::SyscallNumber::WRITE));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{10}), Eq(kernel::SyscallNumber::OPEN));
     EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{13}), Eq(kernel::SyscallNumber::READDIR));
-    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{14}), Eq(kernel::SyscallNumber::COUNT));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{14}), Eq(kernel::SyscallNumber::WAIT));
+    EXPECT_THAT(kernel::syscall_number_from_raw(cpu::Qword{15}), Eq(kernel::SyscallNumber::COUNT));
+}
+
+TEST(KernelStage16StatusTest, MapsExecAndWaitStatusCatalogs)
+{
+    EXPECT_TRUE(kernel::is_process_wait_status_valid(kernel::ProcessWaitStatus::EXITED));
+    EXPECT_TRUE(kernel::is_process_wait_status_valid(kernel::ProcessWaitStatus::BLOCKED));
+    EXPECT_TRUE(kernel::is_process_wait_status_valid(kernel::ProcessWaitStatus::NO_CHILD));
+    EXPECT_FALSE(kernel::is_process_wait_status_valid(kernel::ProcessWaitStatus::COUNT));
+    EXPECT_THAT(kernel::process_wait_status_to_index(kernel::ProcessWaitStatus::BLOCKED), Eq(std::size_t{1}));
+    EXPECT_THAT(kernel::process_wait_status_to_name(kernel::ProcessWaitStatus::NO_CHILD), Eq(std::string_view{"NO_CHILD"}));
+    EXPECT_THAT(kernel::process_wait_status_to_name(kernel::ProcessWaitStatus::COUNT), Eq(std::string_view{"<invalid>"}));
+
+    EXPECT_TRUE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::EXITED));
+    EXPECT_TRUE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::BLOCKED));
+    EXPECT_TRUE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::KILLED));
+    EXPECT_TRUE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::OUT_OF_MEMORY));
+    EXPECT_TRUE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::MAX_STEPS));
+    EXPECT_FALSE(kernel::is_user_process_run_status_valid(kernel::UserProcessRunStatus::COUNT));
+    EXPECT_THAT(kernel::user_process_run_status_to_index(kernel::UserProcessRunStatus::KILLED), Eq(std::size_t{2}));
+    EXPECT_THAT(
+        kernel::user_process_run_status_to_name(kernel::UserProcessRunStatus::OUT_OF_MEMORY),
+        Eq(std::string_view{"OUT_OF_MEMORY"}));
+    EXPECT_THAT(
+        kernel::user_process_run_status_to_name(kernel::UserProcessRunStatus::COUNT),
+        Eq(std::string_view{"<invalid>"}));
 }
 
 TEST(RoundRobinSchedulerTest, SchedulesBlocksWakesAndExitsThreads)

@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include <mnos/cpu/decode/executable_image.hpp>
+#include <mnos/cpu/execution/trace.hpp>
 #include <mnos/cpu/memory/mmu.hpp>
 #include <mnos/cpu/memory/tlb_shootdown.hpp>
 #include <mnos/cpu/system/apic.hpp>
@@ -27,6 +29,7 @@
 #include <mnos/os/sched/round_robin_scheduler.hpp>
 #include <mnos/os/sched/sleep_queue.hpp>
 #include <mnos/os/sched/smp_scheduler.hpp>
+#include <mnos/os/sched/wait_queue.hpp>
 #include <mnos/os/tty/console.hpp>
 
 namespace mnos::cpu::system
@@ -46,6 +49,8 @@ inline constexpr std::uint64_t KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE = std::ui
 inline constexpr std::uint64_t KERNEL_STAGE15_ROOT_BLOCK_COUNT = std::uint64_t{4096};
 inline constexpr std::size_t KERNEL_STAGE15_BUFFER_CACHE_BLOCKS = std::size_t{64};
 inline constexpr std::uint32_t KERNEL_STAGE15_ROOT_INODE_COUNT = std::uint32_t{128};
+inline constexpr std::size_t KERNEL_USER_EXEC_DEFAULT_MAX_STEPS = std::size_t{256};
+inline constexpr std::int64_t KERNEL_USER_TRAP_KILLED_EXIT_CODE = std::int64_t{-1};
 
 enum class UserTrapResult : std::uint8_t
 {
@@ -63,6 +68,88 @@ enum class UserMapResult : std::uint8_t
     ALREADY_MAPPED,
     OUT_OF_MEMORY,
     COUNT
+};
+
+enum class ProcessWaitStatus : std::uint8_t
+{
+    EXITED,
+    BLOCKED,
+    NO_CHILD,
+    COUNT
+};
+
+enum class UserProcessRunStatus : std::uint8_t
+{
+    EXITED,
+    BLOCKED,
+    KILLED,
+    OUT_OF_MEMORY,
+    MAX_STEPS,
+    COUNT
+};
+
+inline constexpr std::size_t PROCESS_WAIT_STATUS_COUNT =
+    static_cast<std::size_t>(ProcessWaitStatus::COUNT);
+inline constexpr std::size_t USER_PROCESS_RUN_STATUS_COUNT =
+    static_cast<std::size_t>(UserProcessRunStatus::COUNT);
+
+[[nodiscard]] bool is_process_wait_status_valid(ProcessWaitStatus status) noexcept;
+[[nodiscard]] std::size_t process_wait_status_to_index(ProcessWaitStatus status) noexcept;
+[[nodiscard]] std::string_view process_wait_status_to_name(ProcessWaitStatus status) noexcept;
+[[nodiscard]] bool is_user_process_run_status_valid(UserProcessRunStatus status) noexcept;
+[[nodiscard]] std::size_t user_process_run_status_to_index(UserProcessRunStatus status) noexcept;
+[[nodiscard]] std::string_view user_process_run_status_to_name(UserProcessRunStatus status) noexcept;
+
+class ProcessWaitResult final
+{
+public:
+    [[nodiscard]] static ProcessWaitResult exited(proc::ProcessId child_id, std::int64_t exit_code) noexcept;
+    [[nodiscard]] static ProcessWaitResult blocked(proc::ProcessId child_id) noexcept;
+    [[nodiscard]] static ProcessWaitResult no_child(proc::ProcessId child_id) noexcept;
+
+    [[nodiscard]] ProcessWaitStatus status() const noexcept;
+    [[nodiscard]] proc::ProcessId child_id() const noexcept;
+    [[nodiscard]] std::int64_t exit_code() const noexcept;
+    [[nodiscard]] bool has_exit_code() const noexcept;
+
+private:
+    ProcessWaitResult(
+        ProcessWaitStatus status,
+        proc::ProcessId child_id,
+        std::int64_t exit_code,
+        bool has_exit_code) noexcept;
+
+    ProcessWaitStatus status_;
+    proc::ProcessId child_id_;
+    std::int64_t exit_code_;
+    bool has_exit_code_;
+};
+
+class UserProcessRunResult final
+{
+public:
+    UserProcessRunResult(
+        proc::ProcessId process_id,
+        UserProcessRunStatus status,
+        std::size_t executed_step_count,
+        std::int64_t exit_code,
+        bool has_exit_code,
+        cpu::ExecutionTrace trace) noexcept;
+
+    [[nodiscard]] proc::ProcessId process_id() const noexcept;
+    [[nodiscard]] UserProcessRunStatus status() const noexcept;
+    [[nodiscard]] std::size_t executed_step_count() const noexcept;
+    [[nodiscard]] std::int64_t exit_code() const noexcept;
+    [[nodiscard]] bool has_exit_code() const noexcept;
+    [[nodiscard]] const cpu::ExecutionTrace& trace() const noexcept;
+
+private:
+    proc::ProcessId process_id_;
+    UserProcessRunStatus status_;
+    std::size_t executed_step_count_;
+    std::int64_t exit_code_;
+    bool has_exit_code_;
+    cpu::ExecutionTrace trace_;
 };
 
 class SchedulerHandoff final
@@ -150,6 +237,21 @@ public:
         proc::Process& process,
         const proc::UserProcessImage& image);
     [[nodiscard]] proc::Process& create_user_process(const proc::UserProgram& program);
+    [[nodiscard]] proc::Process& create_user_process(
+        const proc::UserProgram& program,
+        proc::ProcessId parent_id);
+    [[nodiscard]] UserProcessRunResult exec_user_program(
+        proc::ProcessId parent_id,
+        const proc::UserProgram& program,
+        const cpu::ExecutableImage& image,
+        std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
+    void exit_process(proc::Process& process, std::int64_t exit_code);
+    [[nodiscard]] ProcessWaitResult wait_process(
+        proc::Process& parent_process,
+        sched::ThreadContext& waiter,
+        proc::ProcessId child_id);
+    [[nodiscard]] bool has_last_user_execution_trace() const noexcept;
+    [[nodiscard]] cpu::ExecutionTrace take_last_user_execution_trace();
     [[nodiscard]] proc::Process& fork_process_cow(
         proc::Process& parent_process,
         std::span<const mm::VirtualAddress> cow_pages);
@@ -240,6 +342,14 @@ public:
     [[nodiscard]] const SchedulerHandoff& scheduler_handoff_at(std::size_t index) const;
 
 private:
+    struct ProcessWaitEntry final
+    {
+        proc::ProcessId parent_id;
+        proc::ProcessId child_id;
+        sched::WaitQueue wait_queue;
+    };
+
+    [[nodiscard]] proc::Process& create_process_with_parent(proc::ProcessId parent_id);
     [[nodiscard]] mm::AddressSpace create_address_space(std::uint64_t table_arena_page_count);
     [[nodiscard]] mm::VirtualAddress next_kernel_stack_bottom() noexcept;
     void require_booted() const;
@@ -290,7 +400,16 @@ private:
         proc::Process* process,
         sched::ThreadContext& thread,
         SyscallFrame& frame);
-    [[nodiscard]] UserTrapResult kill_user_trap_thread(sched::ThreadContext& thread);
+    [[nodiscard]] SyscallResult dispatch_wait(
+        proc::Process* process,
+        sched::ThreadContext& thread,
+        SyscallFrame& frame);
+    [[nodiscard]] UserTrapResult kill_user_trap_thread(proc::Process& process, sched::ThreadContext& thread);
+    [[nodiscard]] proc::Process* find_process_by_id(proc::ProcessId process_id) noexcept;
+    [[nodiscard]] const proc::Process* find_process_by_id(proc::ProcessId process_id) const noexcept;
+    [[nodiscard]] ProcessWaitEntry& process_wait_entry(proc::ProcessId parent_id, proc::ProcessId child_id);
+    void wake_process_waiters(proc::Process& process);
+    void remove_process_wait_entries_for_child(proc::ProcessId child_id);
     void zero_physical_page(mm::PhysicalAddress physical_address);
     void validate_ipi_route(cpu::system::CoreId source_core, cpu::system::CoreId target_core) const;
     [[nodiscard]] const SchedulerHandoff& record_scheduler_handoff(
@@ -316,7 +435,9 @@ private:
     std::optional<fs::SimpleFileSystem> root_file_system_;
     std::optional<fs::Vfs> vfs_;
     std::deque<proc::Process> processes_;
+    std::deque<ProcessWaitEntry> process_wait_entries_;
     std::deque<SchedulerHandoff> scheduler_handoffs_;
+    std::optional<cpu::ExecutionTrace> last_user_execution_trace_;
     proc::ProcessId::value_type next_process_id_value_ = proc::PROCESS_ID_FIRST_USER_VALUE;
     sched::ThreadId::value_type next_thread_id_value_ = sched::THREAD_ID_FIRST_KERNEL_VALUE;
     std::uint64_t next_scheduler_handoff_sequence_ = KERNEL_SCHEDULER_HANDOFF_FIRST_SEQUENCE;

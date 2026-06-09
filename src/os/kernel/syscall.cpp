@@ -44,7 +44,8 @@ private:
             "OPEN",
             "CLOSE",
             "STAT",
-            "READDIR"},
+            "READDIR",
+            "WAIT"},
         SYSCALL_NUMBER_INVALID_NAME);
 };
 

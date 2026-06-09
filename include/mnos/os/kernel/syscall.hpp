@@ -26,6 +26,7 @@ enum class SyscallNumber : std::uint64_t
     CLOSE = 11,
     STAT = 12,
     READDIR = 13,
+    WAIT = 14,
     COUNT
 };
 

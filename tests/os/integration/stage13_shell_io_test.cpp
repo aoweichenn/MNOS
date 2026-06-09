@@ -391,7 +391,7 @@ TEST(Stage13ShellIoIntegrationTest, ShellExecutesBuiltinsThroughKernelConsole)
     EXPECT_TRUE(machine.terminal_device().display().empty());
 
     EXPECT_THAT(session.execute_line("ps").status(), Eq(shell::ShellCommandStatus::HANDLED));
-    EXPECT_THAT(display_text(machine), HasSubstr("pid threads states"));
+    EXPECT_THAT(display_text(machine), HasSubstr("pid ppid state exit threads states"));
 
     EXPECT_THAT(session.execute_line("mem").status(), Eq(shell::ShellCommandStatus::HANDLED));
     EXPECT_THAT(display_text(machine), HasSubstr("memory_pages total="));

@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`；Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口；Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照；Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`；Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口；Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照；Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口；Stage 16A 加入进程父子关系、RUNNING/EXITED/REAPED 生命周期、用户程序 exec runner、EXIT/WAIT 闭环和 GUI Exec 指令 trace。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -262,7 +262,7 @@ Run-control           PAUSED/RUNNING 状态、Step until waiting、Run until wai
 CPU snapshot          shell thread id/state、core、CPL、RIP/RSP/RFLAGS 和 paging CR3/CR2/PCID/generation
 Register drill-down   独立 GPR 面板，显示 RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
 Paging drill-down     独立页表面板，显示 address-space root/arena、active paging state、RIP/RSP 的 PML4/PDPT/PD/PT index 和只读 entry walk
-Instruction trace     HostDebuggerSession 可消费 CPU ExecutionTrace，bounded FIFO 格式化 cycle/rip/opcode/halt/trap；当前 shell loop 仍是服务驱动，后续 exec/wait 接用户程序时复用该入口
+Instruction trace     HostDebuggerSession 可消费 CPU ExecutionTrace，bounded FIFO 格式化 cycle/rip/opcode/halt/trap；Stage 16A 后 GUI Exec 可直接把用户程序 retired instruction trace 接入该面板
 TerminalRunner        阻塞式 CLI facade，复用 HostMachineSession 并负责 HostTerminalBackend read/render/result
 HostTerminalBackend   stdio/window/raw terminal 的 host adapter 接口，不让 GUI 依赖进入 kernel
 HostInputEvent        host 输入事件模型，区分 text、special key、input closed、host I/O error
@@ -273,9 +273,21 @@ Shell drive           HostMachineSession 复用 ShellSession::poll 驱动 prompt
 Stream renderer       消费 TerminalDevice 增量输出流，默认避免历史屏幕重放
 Screen renderer       保留 TextDisplayBuffer 快照输出，支持显式 ANSI screen 与 plain screen 调试模式
 mnos_console          真实可运行入口：builds/debug/mnos_console
-mnos_gui              macOS 原生窗口入口：builds/debug/mnos_gui，左侧终端屏幕，右侧状态 + Registers/Paging/Actions/Instructions tabs，支持 raw-key focus、Send/Reset/Step/Run/Pause/Exit
-GUI smoke             builds/debug/mnos_gui --smoke 可无窗口验证 HostDebuggerSession 链路
+mnos_gui              macOS 原生窗口入口：builds/debug/mnos_gui，左侧终端屏幕，右侧状态 + Registers/Paging/Actions/Instructions tabs，支持 raw-key focus、Send/Reset/Step/Exec/Run/Pause/Exit
+GUI smoke             builds/debug/mnos_gui --smoke 可无窗口验证 HostDebuggerSession、shell 命令和 Exec instruction trace 链路
 Test harness          覆盖 session boot/reset/snapshot、debugger frame、trace/run-control、register/paging drill-down、CPU ExecutionTrace 接入、输入事件、raw key、渲染 drain、clear/backspace、EOF、I/O error 和 replay 回归
+```
+
+Stage 16A 已经完成第一版 exec/wait/process lifecycle：
+
+```text
+Process lifecycle      Process 显式记录 parent_id、RUNNING/EXITED/REAPED 和 exit_code
+EXIT syscall           有进程上下文时进入 Kernel::exit_process，关闭该进程全部 alive 线程并唤醒 waiters；旧无进程教学路径仍只结束当前线程
+WAIT syscall           父进程按 child pid 等待：已退出则返回 exit_code 并 REAP，运行中则阻塞 waiter，无子进程返回 -ENOENT
+exec_user_program      Kernel 使用 UserLoader 加载 UserProgram，按 byte ExecutableImage 逐条执行，处理 SYSCALL/#PF，并返回 UserProcessRunResult
+ExecutionTrace bridge  exec runner 收集真实 MOV/MOV/SYSCALL retired trace，HostDebuggerSession 的 Exec 动作把 trace 放入 Instructions 面板
+ps lifecycle view      shell ps 显示 pid/ppid/process state/exit code/thread states，让 EXITED/REAPED 可见
+Stage16 tests          覆盖 x86-64 syscall exit byte image、wait reaping、wait blocking/wakeup、WAIT syscall errno、GUI Exec trace 和 mnos_gui --smoke
 ```
 
 ## 下一步
@@ -283,13 +295,12 @@ Test harness          覆盖 session boot/reset/snapshot、debugger frame、trac
 合理顺序：
 
 ```text
-1. exec/wait/process lifecycle，把 user loader、syscall、VFS fd 和 shell 连成可运行用户程序闭环
-2. pipe/dup/redirect，把 shell 变成可组合的交互环境
-3. page cache / mmap / demand file paging，把文件系统和虚拟内存合流
-4. GUI debugger 继续接入用户程序 retired-instruction trace、TLB/cache/perf drill-down
-5. network device + packet ring + high-performance network path
-6. cache coherence / branch predictor / uop cache / SIMD
-7. HPC/SIMD/AI 推理训练路线
+1. pipe/dup/redirect，把 shell 变成可组合的交互环境
+2. page cache / mmap / demand file paging，把文件系统和虚拟内存合流
+3. GUI debugger 继续接入 TLB/cache/perf drill-down
+4. network device + packet ring + high-performance network path
+5. cache coherence / branch predictor / uop cache / SIMD
+6. HPC/SIMD/AI 推理训练路线
 ```
 
 这样学习者能从真实 x86-64 的 CPU 状态走到现代 OS，而不是只看抽象 API。

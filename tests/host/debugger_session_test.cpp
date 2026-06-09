@@ -380,6 +380,30 @@ TEST(HostDebuggerSessionTest, RecordsRealCpuExecutionTraceForInstructionPanel)
     EXPECT_THAT(frame.summary_text, HasSubstr(frame.instruction_trace_text));
 }
 
+TEST(HostDebuggerSessionTest, RunsSampleUserProgramIntoInstructionTrace)
+{
+    host::HostDebuggerSession session;
+
+    EXPECT_THAT(session.run_sample_user_program(), Eq(host::HostMachineSessionStatus::CREATED));
+    EXPECT_THAT(session.frame().trace_text, HasSubstr("exec_user_sample"));
+    EXPECT_THAT(session.frame().trace_text, HasSubstr("skipped"));
+
+    session.boot();
+    session.clear_trace();
+    EXPECT_THAT(session.run_sample_user_program(), Eq(host::HostMachineSessionStatus::WAITING_FOR_INPUT));
+    const host::HostDebuggerFrame frame = session.frame();
+
+    EXPECT_THAT(frame.run_state, Eq(host::HostDebuggerRunState::PAUSED));
+    EXPECT_THAT(frame.instruction_trace_entry_count, Eq(std::size_t{3}));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=MOV"));
+    EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=SYSCALL"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("action=exec_user_sample"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("user_status=EXITED"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("wait_status=EXITED"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("exit=42"));
+    EXPECT_THAT(frame.summary_text, HasSubstr(frame.instruction_trace_text));
+}
+
 TEST(HostDebuggerSessionTest, InstructionTraceCapacityKeepsNewestEntriesAndCanClear)
 {
     host::HostDebuggerSessionConfig config;

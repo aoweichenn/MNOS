@@ -96,6 +96,7 @@ public:
     [[nodiscard]] HostMachineSessionStatus pump_until_waiting();
     [[nodiscard]] HostMachineSessionStatus step_until_waiting();
     [[nodiscard]] HostMachineSessionStatus run_until_waiting();
+    [[nodiscard]] HostMachineSessionStatus run_sample_user_program();
     [[nodiscard]] HostMachineSessionStatus submit_text(std::string_view text);
     [[nodiscard]] HostMachineSessionStatus submit_command_line(std::string_view command_line);
     [[nodiscard]] HostMachineSessionStatus submit_special_key(HostSpecialKey key);

@@ -1,10 +1,15 @@
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include <mnos/core/enum_map.hpp>
+#include <mnos/cpu/execution/executor.hpp>
+#include <mnos/cpu/system/trap_controller.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 
 namespace
@@ -20,6 +25,9 @@ constexpr const char* KERNEL_STAGE12_NOT_READY_MESSAGE = "kernel stage12 service
 constexpr const char* KERNEL_STAGE13_NOT_READY_MESSAGE = "kernel stage13 services are not initialized";
 constexpr const char* KERNEL_STAGE15_NOT_READY_MESSAGE = "kernel stage15 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
+constexpr const char* KERNEL_USER_EXEC_ENTRY_MISMATCH_MESSAGE =
+    "kernel user executable image base must match program entry point";
+constexpr const char* KERNEL_USER_EXEC_EMPTY_IMAGE_MESSAGE = "kernel user executable image must not be empty";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_DEAD_THREAD_MESSAGE =
@@ -28,6 +36,69 @@ constexpr const char* KERNEL_SMP_MIGRATION_SOURCE_MISMATCH_MESSAGE =
     "kernel smp migration source core does not own the ready thread";
 constexpr const char* KERNEL_SLEEP_TICK_OVERFLOW_MESSAGE = "kernel sleep duration overflows scheduler tick";
 constexpr const char* KERNEL_INVALID_FILE_OPEN_MODE_MESSAGE = "kernel file open mode is invalid";
+constexpr std::string_view PROCESS_WAIT_STATUS_INVALID_NAME = "<invalid>";
+constexpr std::string_view USER_PROCESS_RUN_STATUS_INVALID_NAME = "<invalid>";
+constexpr mnos::cpu::Address64 KERNEL_USER_SYSCALL_ENTRY_RIP = mnos::cpu::Address64{0xFFFF8000'00001000ULL};
+constexpr mnos::cpu::Address64 KERNEL_USER_PAGE_FAULT_ENTRY_RIP = mnos::cpu::Address64{0xFFFF8000'00002000ULL};
+constexpr mnos::cpu::Qword KERNEL_USER_SYSCALL_STACK_TOP = mnos::cpu::Qword{0xFFFF8000'00010000ULL};
+
+class ProcessWaitStatusCatalog
+{
+public:
+    [[nodiscard]] static bool contains(const mnos::os::kernel::ProcessWaitStatus status) noexcept
+    {
+        return PROCESS_WAIT_STATUS_NAMES.contains(status);
+    }
+
+    [[nodiscard]] static std::size_t index(const mnos::os::kernel::ProcessWaitStatus status) noexcept
+    {
+        return PROCESS_WAIT_STATUS_NAMES.index(status);
+    }
+
+    [[nodiscard]] static std::string_view name(const mnos::os::kernel::ProcessWaitStatus status) noexcept
+    {
+        return PROCESS_WAIT_STATUS_NAMES.name(status);
+    }
+
+private:
+    inline static constexpr auto PROCESS_WAIT_STATUS_NAMES =
+        mnos::core::make_enum_name_table<mnos::os::kernel::ProcessWaitStatus>(
+            std::array<std::string_view, mnos::os::kernel::PROCESS_WAIT_STATUS_COUNT>{
+                "EXITED",
+                "BLOCKED",
+                "NO_CHILD"},
+            PROCESS_WAIT_STATUS_INVALID_NAME);
+};
+
+class UserProcessRunStatusCatalog
+{
+public:
+    [[nodiscard]] static bool contains(const mnos::os::kernel::UserProcessRunStatus status) noexcept
+    {
+        return USER_PROCESS_RUN_STATUS_NAMES.contains(status);
+    }
+
+    [[nodiscard]] static std::size_t index(const mnos::os::kernel::UserProcessRunStatus status) noexcept
+    {
+        return USER_PROCESS_RUN_STATUS_NAMES.index(status);
+    }
+
+    [[nodiscard]] static std::string_view name(const mnos::os::kernel::UserProcessRunStatus status) noexcept
+    {
+        return USER_PROCESS_RUN_STATUS_NAMES.name(status);
+    }
+
+private:
+    inline static constexpr auto USER_PROCESS_RUN_STATUS_NAMES =
+        mnos::core::make_enum_name_table<mnos::os::kernel::UserProcessRunStatus>(
+            std::array<std::string_view, mnos::os::kernel::USER_PROCESS_RUN_STATUS_COUNT>{
+                "EXITED",
+                "BLOCKED",
+                "KILLED",
+                "OUT_OF_MEMORY",
+                "MAX_STEPS"},
+            USER_PROCESS_RUN_STATUS_INVALID_NAME);
+};
 
 [[nodiscard]] mnos::os::fs::VfsOpenMode kernel_vfs_mode_from_access_mode(
     const mnos::os::io::FileAccessMode access_mode) noexcept
@@ -45,10 +116,148 @@ constexpr const char* KERNEL_INVALID_FILE_OPEN_MODE_MESSAGE = "kernel file open 
     }
     return mnos::os::fs::VfsOpenMode::COUNT;
 }
+
+[[nodiscard]] mnos::cpu::system::TrapController make_user_trap_controller()
+{
+    mnos::cpu::system::TrapController controller;
+    controller.configure_syscall(mnos::cpu::system::SyscallDescriptor::enabled(KERNEL_USER_SYSCALL_ENTRY_RIP));
+    controller.idt().set_gate(
+        mnos::cpu::system::InterruptVector::page_fault(),
+        mnos::cpu::system::InterruptGate::interrupt_gate(KERNEL_USER_PAGE_FAULT_ENTRY_RIP));
+    controller.tss().set_privilege_stack(
+        mnos::cpu::system::PrivilegeLevel::RING0,
+        KERNEL_USER_SYSCALL_STACK_TOP);
+    return controller;
+}
 }
 
 namespace mnos::os::kernel
 {
+bool is_process_wait_status_valid(const ProcessWaitStatus status) noexcept
+{
+    return ProcessWaitStatusCatalog::contains(status);
+}
+
+std::size_t process_wait_status_to_index(const ProcessWaitStatus status) noexcept
+{
+    return ProcessWaitStatusCatalog::index(status);
+}
+
+std::string_view process_wait_status_to_name(const ProcessWaitStatus status) noexcept
+{
+    return ProcessWaitStatusCatalog::name(status);
+}
+
+bool is_user_process_run_status_valid(const UserProcessRunStatus status) noexcept
+{
+    return UserProcessRunStatusCatalog::contains(status);
+}
+
+std::size_t user_process_run_status_to_index(const UserProcessRunStatus status) noexcept
+{
+    return UserProcessRunStatusCatalog::index(status);
+}
+
+std::string_view user_process_run_status_to_name(const UserProcessRunStatus status) noexcept
+{
+    return UserProcessRunStatusCatalog::name(status);
+}
+
+ProcessWaitResult ProcessWaitResult::exited(
+    const proc::ProcessId child_id,
+    const std::int64_t exit_code) noexcept
+{
+    return ProcessWaitResult{ProcessWaitStatus::EXITED, child_id, exit_code, true};
+}
+
+ProcessWaitResult ProcessWaitResult::blocked(const proc::ProcessId child_id) noexcept
+{
+    return ProcessWaitResult{ProcessWaitStatus::BLOCKED, child_id, std::int64_t{0}, false};
+}
+
+ProcessWaitResult ProcessWaitResult::no_child(const proc::ProcessId child_id) noexcept
+{
+    return ProcessWaitResult{ProcessWaitStatus::NO_CHILD, child_id, std::int64_t{0}, false};
+}
+
+ProcessWaitResult::ProcessWaitResult(
+    const ProcessWaitStatus status,
+    const proc::ProcessId child_id,
+    const std::int64_t exit_code,
+    const bool has_exit_code) noexcept :
+    status_(status),
+    child_id_(child_id),
+    exit_code_(exit_code),
+    has_exit_code_(has_exit_code)
+{
+}
+
+ProcessWaitStatus ProcessWaitResult::status() const noexcept
+{
+    return this->status_;
+}
+
+proc::ProcessId ProcessWaitResult::child_id() const noexcept
+{
+    return this->child_id_;
+}
+
+std::int64_t ProcessWaitResult::exit_code() const noexcept
+{
+    return this->exit_code_;
+}
+
+bool ProcessWaitResult::has_exit_code() const noexcept
+{
+    return this->has_exit_code_;
+}
+
+UserProcessRunResult::UserProcessRunResult(
+    const proc::ProcessId process_id,
+    const UserProcessRunStatus status,
+    const std::size_t executed_step_count,
+    const std::int64_t exit_code,
+    const bool has_exit_code,
+    cpu::ExecutionTrace trace) noexcept :
+    process_id_(process_id),
+    status_(status),
+    executed_step_count_(executed_step_count),
+    exit_code_(exit_code),
+    has_exit_code_(has_exit_code),
+    trace_(std::move(trace))
+{
+}
+
+proc::ProcessId UserProcessRunResult::process_id() const noexcept
+{
+    return this->process_id_;
+}
+
+UserProcessRunStatus UserProcessRunResult::status() const noexcept
+{
+    return this->status_;
+}
+
+std::size_t UserProcessRunResult::executed_step_count() const noexcept
+{
+    return this->executed_step_count_;
+}
+
+std::int64_t UserProcessRunResult::exit_code() const noexcept
+{
+    return this->exit_code_;
+}
+
+bool UserProcessRunResult::has_exit_code() const noexcept
+{
+    return this->has_exit_code_;
+}
+
+const cpu::ExecutionTrace& UserProcessRunResult::trace() const noexcept
+{
+    return this->trace_;
+}
+
 SchedulerHandoff::SchedulerHandoff(
     const std::uint64_t sequence,
     const cpu::system::CoreId source_core,
@@ -308,6 +517,18 @@ proc::Process& Kernel::create_process()
     return this->processes_.back();
 }
 
+proc::Process& Kernel::create_process_with_parent(const proc::ProcessId parent_id)
+{
+    this->require_stage5_services();
+    const proc::ProcessId process_id{this->next_process_id_value_};
+    ++this->next_process_id_value_;
+    this->processes_.emplace_back(
+        process_id,
+        this->create_address_space(KERNEL_DEFAULT_TABLE_ARENA_PAGE_COUNT),
+        parent_id);
+    return this->processes_.back();
+}
+
 sched::ThreadContext& Kernel::create_thread(proc::Process& process)
 {
     return this->create_thread(
@@ -389,12 +610,199 @@ proc::Process& Kernel::create_user_process(const proc::UserProgram& program)
     return process;
 }
 
+proc::Process& Kernel::create_user_process(
+    const proc::UserProgram& program,
+    const proc::ProcessId parent_id)
+{
+    proc::Process& process = this->create_process_with_parent(parent_id);
+    const proc::UserProcessImage image = this->load_user_program(process, program);
+    static_cast<void>(this->create_user_thread(process, image));
+    return process;
+}
+
+UserProcessRunResult Kernel::exec_user_program(
+    const proc::ProcessId parent_id,
+    const proc::UserProgram& program,
+    const cpu::ExecutableImage& image,
+    const std::size_t max_steps)
+{
+    this->require_stage11_services();
+    if (image.empty())
+    {
+        throw std::invalid_argument{KERNEL_USER_EXEC_EMPTY_IMAGE_MESSAGE};
+    }
+    if (image.base_rip() != static_cast<cpu::InstructionPointer>(program.entry_point().value()))
+    {
+        throw std::invalid_argument{KERNEL_USER_EXEC_ENTRY_MISMATCH_MESSAGE};
+    }
+
+    proc::Process& process = this->create_user_process(program, parent_id);
+    sched::ThreadContext& thread = process.thread_at(std::size_t{0});
+    cpu::Executor executor;
+    cpu::system::TrapController trap_controller = make_user_trap_controller();
+    executor.attach_trap_controller(trap_controller);
+
+    cpu::ExecutionTrace trace;
+    trace.reserve(max_steps);
+    std::size_t executed_step_count = std::size_t{0};
+    while (thread.is_alive() && executed_step_count < max_steps)
+    {
+        static_cast<void>(executor.step(thread.cpu_state(), image, this->boot_context_->memory_bus(), &trace));
+        ++executed_step_count;
+
+        if (thread.cpu_state().has_pending_trap())
+        {
+            const cpu::system::TrapFrame pending_trap = thread.cpu_state().pending_trap();
+            if (pending_trap.kind() == cpu::system::TrapKind::SYSCALL)
+            {
+                const SyscallResult syscall_result = this->handle_user_syscall(process, thread, trap_controller);
+                if (syscall_result == SyscallResult::BLOCKED)
+                {
+                    this->last_user_execution_trace_ = trace;
+                    return UserProcessRunResult{
+                        process.id(),
+                        UserProcessRunStatus::BLOCKED,
+                        executed_step_count,
+                        std::int64_t{0},
+                        false,
+                        std::move(trace)};
+                }
+            }
+            else if (pending_trap.vector() == cpu::system::InterruptVector::page_fault())
+            {
+                const UserTrapResult trap_result = this->handle_user_page_fault(process, thread, trap_controller);
+                if (trap_result == UserTrapResult::OUT_OF_MEMORY)
+                {
+                    this->last_user_execution_trace_ = trace;
+                    return UserProcessRunResult{
+                        process.id(),
+                        UserProcessRunStatus::OUT_OF_MEMORY,
+                        executed_step_count,
+                        std::int64_t{0},
+                        false,
+                        std::move(trace)};
+                }
+                if (trap_result == UserTrapResult::KILLED)
+                {
+                    this->last_user_execution_trace_ = trace;
+                    return UserProcessRunResult{
+                        process.id(),
+                        UserProcessRunStatus::KILLED,
+                        executed_step_count,
+                        process.exit_code(),
+                        true,
+                        std::move(trace)};
+                }
+            }
+        }
+
+        if (thread.cpu_state().is_halted() && process.is_running())
+        {
+            this->exit_process(process, std::int64_t{0});
+        }
+    }
+
+    this->last_user_execution_trace_ = trace;
+    if (process.is_exited() || process.is_reaped())
+    {
+        return UserProcessRunResult{
+            process.id(),
+            UserProcessRunStatus::EXITED,
+            executed_step_count,
+            process.exit_code(),
+            true,
+            std::move(trace)};
+    }
+    return UserProcessRunResult{
+        process.id(),
+        UserProcessRunStatus::MAX_STEPS,
+        executed_step_count,
+        std::int64_t{0},
+        false,
+        std::move(trace)};
+}
+
+void Kernel::exit_process(proc::Process& process, const std::int64_t exit_code)
+{
+    this->require_stage10_services();
+    if (!process.is_running())
+    {
+        return;
+    }
+
+    process.mark_exited(exit_code);
+    for (std::size_t thread_index = std::size_t{0}; thread_index < process.thread_count(); ++thread_index)
+    {
+        sched::ThreadContext& thread = process.thread_at(thread_index);
+        if (!thread.is_alive())
+        {
+            continue;
+        }
+        if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
+        {
+            static_cast<void>(this->scheduler_.exit_current());
+        }
+        else
+        {
+            thread.set_state(sched::ThreadState::DEAD);
+        }
+    }
+    this->wake_process_waiters(process);
+}
+
+ProcessWaitResult Kernel::wait_process(
+    proc::Process& parent_process,
+    sched::ThreadContext& waiter,
+    const proc::ProcessId child_id)
+{
+    this->require_stage10_services();
+    proc::Process* const child_process = this->find_process_by_id(child_id);
+    if (child_process == nullptr ||
+        child_process->parent_id() != parent_process.id() ||
+        child_process->is_reaped())
+    {
+        return ProcessWaitResult::no_child(child_id);
+    }
+
+    if (child_process->is_exited())
+    {
+        const std::int64_t exit_code = child_process->exit_code();
+        child_process->mark_reaped();
+        this->remove_process_wait_entries_for_child(child_id);
+        return ProcessWaitResult::exited(child_id, exit_code);
+    }
+
+    this->process_wait_entry(parent_process.id(), child_id).wait_queue.wait(waiter);
+    if (this->scheduler_.has_current() && &this->scheduler_.current() == &waiter)
+    {
+        static_cast<void>(this->scheduler_.block_current());
+    }
+    return ProcessWaitResult::blocked(child_id);
+}
+
+bool Kernel::has_last_user_execution_trace() const noexcept
+{
+    return this->last_user_execution_trace_.has_value();
+}
+
+cpu::ExecutionTrace Kernel::take_last_user_execution_trace()
+{
+    if (!this->last_user_execution_trace_.has_value())
+    {
+        return cpu::ExecutionTrace{};
+    }
+
+    cpu::ExecutionTrace trace = std::move(this->last_user_execution_trace_.value());
+    this->last_user_execution_trace_.reset();
+    return trace;
+}
+
 proc::Process& Kernel::fork_process_cow(
     proc::Process& parent_process,
     std::span<const mm::VirtualAddress> cow_pages)
 {
     this->require_stage10_services();
-    proc::Process& child_process = this->create_process();
+    proc::Process& child_process = this->create_process_with_parent(parent_process.id());
     child_process.file_descriptors() = parent_process.file_descriptors();
     static_cast<void>(this->copy_on_write_manager_.share_pages(parent_process, child_process, cow_pages));
     return child_process;
@@ -872,6 +1280,79 @@ const SchedulerHandoff& Kernel::scheduler_handoff_at(const std::size_t index) co
         throw std::out_of_range{KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE};
     }
     return this->scheduler_handoffs_[index];
+}
+
+proc::Process* Kernel::find_process_by_id(const proc::ProcessId process_id) noexcept
+{
+    for (proc::Process& process : this->processes_)
+    {
+        if (process.id() == process_id)
+        {
+            return &process;
+        }
+    }
+    return nullptr;
+}
+
+const proc::Process* Kernel::find_process_by_id(const proc::ProcessId process_id) const noexcept
+{
+    for (const proc::Process& process : this->processes_)
+    {
+        if (process.id() == process_id)
+        {
+            return &process;
+        }
+    }
+    return nullptr;
+}
+
+Kernel::ProcessWaitEntry& Kernel::process_wait_entry(
+    const proc::ProcessId parent_id,
+    const proc::ProcessId child_id)
+{
+    for (ProcessWaitEntry& entry : this->process_wait_entries_)
+    {
+        if (entry.parent_id == parent_id && entry.child_id == child_id)
+        {
+            return entry;
+        }
+    }
+
+    this->process_wait_entries_.push_back(ProcessWaitEntry{
+        parent_id,
+        child_id,
+        sched::WaitQueue{}});
+    return this->process_wait_entries_.back();
+}
+
+void Kernel::wake_process_waiters(proc::Process& process)
+{
+    for (ProcessWaitEntry& entry : this->process_wait_entries_)
+    {
+        if (entry.child_id != process.id())
+        {
+            continue;
+        }
+
+        const std::vector<sched::ThreadContext*> waiters = entry.wait_queue.wake_all();
+        for (sched::ThreadContext* const waiter : waiters)
+        {
+            this->scheduler_.wake(*waiter);
+        }
+    }
+    this->remove_process_wait_entries_for_child(process.id());
+}
+
+void Kernel::remove_process_wait_entries_for_child(const proc::ProcessId child_id)
+{
+    this->process_wait_entries_.erase(
+        std::remove_if(
+            this->process_wait_entries_.begin(),
+            this->process_wait_entries_.end(),
+            [child_id](const ProcessWaitEntry& entry) {
+                return entry.child_id == child_id;
+            }),
+        this->process_wait_entries_.end());
 }
 
 mm::AddressSpace Kernel::create_address_space(const std::uint64_t table_arena_page_count)

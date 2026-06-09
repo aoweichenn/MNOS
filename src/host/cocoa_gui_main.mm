@@ -27,7 +27,7 @@ constexpr CGFloat HOST_GUI_INPUT_HEIGHT = 30.0;
 constexpr CGFloat HOST_GUI_BUTTON_WIDTH = 96.0;
 constexpr CGFloat HOST_GUI_BUTTON_HEIGHT = 28.0;
 constexpr CGFloat HOST_GUI_TOOLBAR_HEIGHT = 36.0;
-constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 5.0;
+constexpr CGFloat HOST_GUI_TOOLBAR_BUTTON_COUNT = 6.0;
 constexpr CGFloat HOST_GUI_DETAIL_PANEL_HEIGHT = 320.0;
 constexpr CGFloat HOST_GUI_CONTROL_GAP = 8.0;
 constexpr CGFloat HOST_GUI_TERMINAL_FONT_SIZE = 13.0;
@@ -88,10 +88,12 @@ void print_usage(std::ostream& output)
     mnos::host::HostDebuggerSession session;
     session.boot();
     static_cast<void>(session.submit_command_line("mem"));
+    static_cast<void>(session.run_sample_user_program());
     const mnos::host::HostDebuggerFrame frame = session.frame();
     output << frame.summary_text << '\n';
     return frame.snapshot.command_count == std::size_t{1} &&
-            frame.display_text.find("memory_pages total=") != std::string::npos
+            frame.display_text.find("memory_pages total=") != std::string::npos &&
+            frame.instruction_trace_text.find("opcode=SYSCALL") != std::string::npos
         ? HOST_GUI_SUCCESS_EXIT_CODE
         : HOST_GUI_RUNTIME_ERROR_EXIT_CODE;
 }
@@ -124,7 +126,8 @@ void print_usage(std::ostream& output)
     [button setTitle:title];
     [button setTarget:target];
     [button setAction:action];
-    [button setBezelStyle:NSBezelStyleRounded];
+    [button setBezelStyle:NSBezelStyleTexturedRounded];
+    [button setControlSize:NSControlSizeRegular];
     return button;
 }
 
@@ -315,13 +318,13 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
                              NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    [window_ setTitle:@"MNOS Debugger"];
+    [window_ setTitle:@"MNOS Workbench"];
     [window_ setMinSize:NSMakeSize(HOST_GUI_MIN_WINDOW_WIDTH, HOST_GUI_MIN_WINDOW_HEIGHT)];
     [window_ center];
 
     NSView* const content_view = [window_ contentView];
     [content_view setWantsLayer:YES];
-    [[content_view layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.08 alpha:1.0] CGColor]];
+    [[content_view layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.07 alpha:1.0] CGColor]];
 
     const CGFloat content_width = NSWidth([content_view bounds]);
     const CGFloat content_height = NSHeight([content_view bounds]);
@@ -350,8 +353,8 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     configure_text_view(
         terminal_view_,
         terminal_font,
-        [NSColor colorWithCalibratedRed:0.78 green:0.96 blue:0.78 alpha:1.0],
-        [NSColor blackColor]);
+        [NSColor colorWithCalibratedRed:0.86 green:0.90 blue:0.92 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.06 green:0.07 blue:0.09 alpha:1.0]);
     NSScrollView* const terminal_scroll = make_scroll_view(
         terminal_view_,
         NSMakeRect(HOST_GUI_PANEL_PADDING, terminal_y, terminal_width, terminal_height));
@@ -364,8 +367,8 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     configure_text_view(
         status_view_,
         status_font,
-        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0],
-        [NSColor colorWithCalibratedWhite:0.12 alpha:1.0]);
+        [NSColor colorWithCalibratedRed:0.82 green:0.86 blue:0.90 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.09 green:0.11 blue:0.14 alpha:1.0]);
     NSScrollView* const status_scroll = make_scroll_view(
         status_view_,
         NSMakeRect(right_panel_x, status_y, HOST_GUI_STATUS_PANEL_WIDTH, status_height));
@@ -381,32 +384,32 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     configure_text_view(
         registers_view_,
         status_font,
-        [NSColor colorWithCalibratedRed:0.90 green:0.93 blue:0.86 alpha:1.0],
-        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+        [NSColor colorWithCalibratedRed:0.86 green:0.92 blue:0.84 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
     add_text_tab(detail_tab_view, @"Registers", registers_view_);
 
     paging_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
         paging_view_,
         status_font,
-        [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.78 alpha:1.0],
-        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+        [NSColor colorWithCalibratedRed:0.95 green:0.84 blue:0.70 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
     add_text_tab(detail_tab_view, @"Paging", paging_view_);
 
     trace_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
         trace_view_,
         status_font,
-        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:1.0 alpha:1.0],
-        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+        [NSColor colorWithCalibratedRed:0.80 green:0.88 blue:1.0 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
     add_text_tab(detail_tab_view, @"Actions", trace_view_);
 
     instruction_trace_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
     configure_text_view(
         instruction_trace_view_,
         status_font,
-        [NSColor colorWithCalibratedRed:0.82 green:0.96 blue:0.92 alpha:1.0],
-        [NSColor colorWithCalibratedWhite:0.10 alpha:1.0]);
+        [NSColor colorWithCalibratedRed:0.78 green:0.94 blue:0.91 alpha:1.0],
+        [NSColor colorWithCalibratedRed:0.08 green:0.10 blue:0.12 alpha:1.0]);
     add_text_tab(detail_tab_view, @"Instructions", instruction_trace_view_);
 
     input_field_ = [[NSTextField alloc] initWithFrame:
@@ -446,15 +449,24 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
     [content_view addSubview:step_button];
 
     const CGFloat run_button_x = step_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    NSButton* const exec_button = make_button(
+        @"Exec",
+        self,
+        @selector(execUserProgram:),
+        NSMakeRect(run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
+    [exec_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [content_view addSubview:exec_button];
+
+    const CGFloat actual_run_button_x = run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
     NSButton* const run_button = make_button(
         @"Run",
         self,
         @selector(runMachine:),
-        NSMakeRect(run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
+        NSMakeRect(actual_run_button_x, toolbar_y, toolbar_button_width, HOST_GUI_BUTTON_HEIGHT));
     [run_button setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
     [content_view addSubview:run_button];
 
-    const CGFloat pause_button_x = run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
+    const CGFloat pause_button_x = actual_run_button_x + toolbar_button_width + HOST_GUI_CONTROL_GAP;
     NSButton* const pause_button = make_button(
         @"Pause",
         self,
@@ -582,6 +594,25 @@ void add_text_tab(NSTabView* tab_view, NSString* label, NSTextView* text_view)
 
     static_cast<void>(session_->step_until_waiting());
     [self renderFrame];
+}
+
+- (void)execUserProgram:(id)sender
+{
+    (void)sender;
+    if (session_ == nullptr)
+    {
+        return;
+    }
+
+    try
+    {
+        static_cast<void>(session_->run_sample_user_program());
+        [self renderFrame];
+    }
+    catch (const std::exception& error)
+    {
+        [self renderError:error.what()];
+    }
 }
 
 - (void)runMachine:(id)sender

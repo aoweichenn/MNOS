@@ -500,7 +500,7 @@ UserTrapResult Kernel::handle_user_page_fault(
         static_cast<mm::AddressValue>(thread.cpu_state().paging().page_fault_linear_address())};
     if (!mm::is_user_address(fault_address))
     {
-        return this->kill_user_trap_thread(thread);
+        return this->kill_user_trap_thread(process, thread);
     }
 
     const proc::CowFaultResult cow_result = this->handle_cow_write_fault(process, thread);
@@ -530,7 +530,7 @@ UserTrapResult Kernel::handle_user_page_fault(
     }
     if (page_fault_result == mm::PageFaultResult::PROTECTION_FAULT)
     {
-        return this->kill_user_trap_thread(thread);
+        return this->kill_user_trap_thread(process, thread);
     }
     return UserTrapResult::NOT_USER_TRAP;
 }
@@ -600,7 +600,11 @@ SyscallResult Kernel::dispatch_syscall_for_process(proc::Process* process, sched
         return SyscallResult::HANDLED;
     case SyscallNumber::EXIT:
         finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
-        if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
+        if (process != nullptr)
+        {
+            this->exit_process(*process, static_cast<std::int64_t>(frame.argument(SyscallArgument::ARG0)));
+        }
+        else if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
         {
             static_cast<void>(this->scheduler_.exit_current());
         }
@@ -633,6 +637,8 @@ SyscallResult Kernel::dispatch_syscall_for_process(proc::Process* process, sched
         return this->dispatch_stat(process, thread, frame);
     case SyscallNumber::READDIR:
         return this->dispatch_readdir(process, thread, frame);
+    case SyscallNumber::WAIT:
+        return this->dispatch_wait(process, thread, frame);
     case SyscallNumber::COUNT:
         return finish_syscall_error(frame, SyscallError::NO_SYS, SyscallResult::UNSUPPORTED);
     }
@@ -1186,6 +1192,40 @@ SyscallResult Kernel::dispatch_readdir(
     }
 }
 
+SyscallResult Kernel::dispatch_wait(
+    proc::Process* process,
+    sched::ThreadContext& thread,
+    SyscallFrame& frame)
+{
+    if (process == nullptr)
+    {
+        return finish_syscall_error(frame, SyscallError::OPERATION_NOT_SUPPORTED, SyscallResult::INVALID_CONTEXT);
+    }
+
+    const proc::ProcessId child_id{
+        static_cast<proc::ProcessId::value_type>(frame.argument(SyscallArgument::ARG0))};
+    if (!child_id.is_valid())
+    {
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+
+    const ProcessWaitResult wait_result = this->wait_process(*process, thread, child_id);
+    switch (wait_result.status())
+    {
+    case ProcessWaitStatus::EXITED:
+        finish_syscall_success(frame, static_cast<cpu::Qword>(wait_result.exit_code()));
+        return SyscallResult::HANDLED;
+    case ProcessWaitStatus::BLOCKED:
+        finish_syscall_success(frame, SYSCALL_SUCCESS_RESULT);
+        return SyscallResult::BLOCKED;
+    case ProcessWaitStatus::NO_CHILD:
+        return finish_syscall_error(frame, SyscallError::NO_ENTRY, SyscallResult::NOT_FOUND);
+    case ProcessWaitStatus::COUNT:
+        return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+    }
+    return finish_syscall_error(frame, SyscallError::INVALID_ARGUMENT, SyscallResult::INVALID_ARGUMENT);
+}
+
 void Kernel::require_stage11_services() const
 {
     this->require_booted();
@@ -1195,20 +1235,13 @@ void Kernel::require_stage11_services() const
     }
 }
 
-UserTrapResult Kernel::kill_user_trap_thread(sched::ThreadContext& thread)
+UserTrapResult Kernel::kill_user_trap_thread(proc::Process& process, sched::ThreadContext& thread)
 {
     if (thread.cpu_state().has_pending_trap())
     {
         thread.cpu_state().clear_pending_trap();
     }
-    if (this->scheduler_.has_current() && &this->scheduler_.current() == &thread)
-    {
-        static_cast<void>(this->scheduler_.exit_current());
-    }
-    else
-    {
-        thread.set_state(sched::ThreadState::DEAD);
-    }
+    this->exit_process(process, KERNEL_USER_TRAP_KILLED_EXIT_CODE);
     return UserTrapResult::KILLED;
 }
 

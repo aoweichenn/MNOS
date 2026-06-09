@@ -430,8 +430,9 @@ TEST(Stage11SyscallTrapIntegrationTest, UserPageFaultResolvesCowAndKillsInvalidU
     EXPECT_THAT(parent_thread.state(), Eq(sched::ThreadState::DEAD));
     EXPECT_FALSE(parent_thread.cpu_state().has_pending_trap());
 
-    sched::ThreadContext& invalid_fault_thread = os_kernel.create_thread(parent);
-    initialize_user_like_thread(parent, invalid_fault_thread);
+    proc::Process& invalid_fault_process = os_kernel.create_user_process(program);
+    sched::ThreadContext& invalid_fault_thread = invalid_fault_process.thread_at(std::size_t{0});
+    initialize_user_like_thread(invalid_fault_process, invalid_fault_thread);
     invalid_fault_thread.cpu_state().paging().set_page_fault_linear_address(mm::to_cpu_address(mm::ADDRESS_LAYOUT_KERNEL_HIGH_BASE));
     invalid_fault_thread.cpu_state().set_pending_trap(cpu_system::TrapFrame{
         cpu_system::TrapKind::EXCEPTION,
@@ -442,8 +443,11 @@ TEST(Stage11SyscallTrapIntegrationTest, UserPageFaultResolvesCowAndKillsInvalidU
         mm::ADDRESS_LAYOUT_USER_STACK_TOP.value(),
         cpu_system::PrivilegeLevel::RING3,
         cpu_memory::PAGE_FAULT_ERROR_WRITE_BIT | cpu_memory::PAGE_FAULT_ERROR_USER_BIT});
-    EXPECT_THAT(os_kernel.handle_user_page_fault(parent, invalid_fault_thread, controller), Eq(kernel::UserTrapResult::KILLED));
+    EXPECT_THAT(
+        os_kernel.handle_user_page_fault(invalid_fault_process, invalid_fault_thread, controller),
+        Eq(kernel::UserTrapResult::KILLED));
     EXPECT_THAT(invalid_fault_thread.state(), Eq(sched::ThreadState::DEAD));
+    EXPECT_TRUE(invalid_fault_process.is_exited());
     EXPECT_FALSE(invalid_fault_thread.cpu_state().has_pending_trap());
     EXPECT_TRUE(invalid_fault_thread.has_last_trap_frame());
 }

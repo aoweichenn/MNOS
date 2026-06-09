@@ -11,13 +11,18 @@
 
 #include <mnos/core/enum_map.hpp>
 #include <mnos/cpu/common/data_size.hpp>
+#include <mnos/cpu/decode/executable_image.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
+#include <mnos/os/kernel/kernel.hpp>
+#include <mnos/os/kernel/syscall.hpp>
 #include <mnos/os/dev/terminal.hpp>
 #include <mnos/os/mm/address.hpp>
+#include <mnos/os/mm/address_layout.hpp>
 #include <mnos/os/mm/address_space.hpp>
+#include <mnos/os/proc/user_loader.hpp>
 #include <mnos/os/proc/process.hpp>
 #include <mnos/os/sched/thread_context.hpp>
 #include <mnos/os/sched/thread_state.hpp>
@@ -52,14 +57,26 @@ constexpr std::string_view HOST_DEBUGGER_TEXT_INPUT_ACTION = "input_text";
 constexpr std::string_view HOST_DEBUGGER_COMMAND_INPUT_ACTION = "input_command";
 constexpr std::string_view HOST_DEBUGGER_SPECIAL_INPUT_ACTION = "input_special";
 constexpr std::string_view HOST_DEBUGGER_EVENT_INPUT_ACTION = "input_event";
+constexpr std::string_view HOST_DEBUGGER_SAMPLE_USER_EXEC_ACTION = "exec_user_sample";
 constexpr std::string_view HOST_DEBUGGER_SKIPPED_DETAIL = "skipped";
 constexpr std::size_t HOST_DEBUGGER_TRACE_PREVIEW_LIMIT = std::size_t{48};
+constexpr std::size_t HOST_DEBUGGER_SAMPLE_USER_EXEC_MAX_STEPS = std::size_t{16};
 constexpr int HOST_DEBUGGER_HEX_QWORD_WIDTH = 16;
 constexpr int HOST_DEBUGGER_HEX_PAGE_OFFSET_WIDTH = 3;
 constexpr std::size_t HOST_DEBUGGER_REGISTERS_PER_LINE = std::size_t{4};
 constexpr char HOST_DEBUGGER_LINE_FEED_CHARACTER = '\n';
 constexpr char HOST_DEBUGGER_CARRIAGE_RETURN_CHARACTER = '\r';
 constexpr char HOST_DEBUGGER_TRACE_CONTROL_PLACEHOLDER = ' ';
+constexpr mm::VirtualAddress HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE = mm::ADDRESS_LAYOUT_USER_TEXT_BASE;
+constexpr mm::AddressValue HOST_DEBUGGER_SAMPLE_USER_STACK_SIZE_BYTES =
+    mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{2};
+constexpr std::int64_t HOST_DEBUGGER_SAMPLE_USER_EXIT_CODE = std::int64_t{42};
+constexpr cpu::Byte HOST_DEBUGGER_X86_REX_W = cpu::Byte{0x48};
+constexpr cpu::Byte HOST_DEBUGGER_X86_MOV_RAX_IMM64 = cpu::Byte{0xB8};
+constexpr cpu::Byte HOST_DEBUGGER_X86_MOV_RDI_IMM64 = cpu::Byte{0xBF};
+constexpr cpu::Byte HOST_DEBUGGER_X86_SYSCALL_ESCAPE = cpu::Byte{0x0F};
+constexpr cpu::Byte HOST_DEBUGGER_X86_SYSCALL = cpu::Byte{0x05};
+constexpr cpu::Byte HOST_DEBUGGER_X86_HLT = cpu::Byte{0xF4};
 
 inline constexpr std::array<memory::PageTableLevel, memory::PAGE_TABLE_LEVEL_COUNT> HOST_DEBUGGER_PAGE_WALK_ORDER{
     memory::PageTableLevel::PML4,
@@ -115,6 +132,63 @@ inline constexpr std::array<cpu::RegisterId, cpu::REGISTER_ID_COUNT> HOST_DEBUGG
 [[nodiscard]] std::string bool_text(const bool value)
 {
     return std::string{value ? HOST_DEBUGGER_TRUE_TEXT : HOST_DEBUGGER_FALSE_TEXT};
+}
+
+void append_u64_le(std::vector<cpu::Byte>& bytes, const std::uint64_t value)
+{
+    for (std::size_t byte_index = std::size_t{0}; byte_index < sizeof(std::uint64_t); ++byte_index)
+    {
+        bytes.push_back(static_cast<cpu::Byte>(
+            (value >> static_cast<unsigned>(byte_index * cpu::DATA_SIZE_BYTE_BITS)) & std::uint64_t{0xFF}));
+    }
+}
+
+[[nodiscard]] std::vector<cpu::Byte> make_sample_user_program_bytes()
+{
+    std::vector<cpu::Byte> bytes;
+    bytes.reserve(std::size_t{24});
+    bytes.push_back(HOST_DEBUGGER_X86_REX_W);
+    bytes.push_back(HOST_DEBUGGER_X86_MOV_RAX_IMM64);
+    append_u64_le(bytes, static_cast<std::uint64_t>(mnos::os::kernel::SyscallNumber::EXIT));
+    bytes.push_back(HOST_DEBUGGER_X86_REX_W);
+    bytes.push_back(HOST_DEBUGGER_X86_MOV_RDI_IMM64);
+    append_u64_le(bytes, static_cast<std::uint64_t>(HOST_DEBUGGER_SAMPLE_USER_EXIT_CODE));
+    bytes.push_back(HOST_DEBUGGER_X86_SYSCALL_ESCAPE);
+    bytes.push_back(HOST_DEBUGGER_X86_SYSCALL);
+    bytes.push_back(HOST_DEBUGGER_X86_HLT);
+    return bytes;
+}
+
+[[nodiscard]] proc::UserProgram make_sample_user_program(std::vector<cpu::Byte> text)
+{
+    proc::UserProgram program{HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE};
+    program.set_initial_stack_size_bytes(HOST_DEBUGGER_SAMPLE_USER_STACK_SIZE_BYTES);
+    program.add_segment(proc::UserSegment::text(HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE, std::move(text)));
+    return program;
+}
+
+[[nodiscard]] cpu::ExecutableImage make_sample_user_executable_image(const std::vector<cpu::Byte>& bytes)
+{
+    return cpu::ExecutableImage{
+        cpu::ExecutableImage::container_type{bytes.begin(), bytes.end()},
+        static_cast<cpu::InstructionPointer>(HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE.value())};
+}
+
+[[nodiscard]] std::string make_sample_user_exec_detail(
+    const mnos::os::kernel::UserProcessRunResult& run_result,
+    const mnos::os::kernel::ProcessWaitResult& wait_result)
+{
+    std::ostringstream output;
+    output << "pid=" << run_result.process_id().value()
+           << " user_status=" << mnos::os::kernel::user_process_run_status_to_name(run_result.status())
+           << " wait_status=" << mnos::os::kernel::process_wait_status_to_name(wait_result.status())
+           << " steps=" << run_result.executed_step_count()
+           << " trace=" << run_result.trace().size();
+    if (run_result.has_exit_code())
+    {
+        output << " exit=" << run_result.exit_code();
+    }
+    return output.str();
 }
 
 [[nodiscard]] std::string hex_qword(const cpu::Qword value)
@@ -677,6 +751,54 @@ HostMachineSessionStatus HostDebuggerSession::run_until_waiting()
     this->run_state_ = HostDebuggerRunState::PAUSED;
     this->append_trace(HOST_DEBUGGER_RUN_ACTION, status);
     return status;
+}
+
+HostMachineSessionStatus HostDebuggerSession::run_sample_user_program()
+{
+    if (!this->machine_session_.booted())
+    {
+        this->append_trace(
+            HOST_DEBUGGER_SAMPLE_USER_EXEC_ACTION,
+            this->machine_session_.status(),
+            HOST_DEBUGGER_SKIPPED_DETAIL);
+        return this->machine_session_.status();
+    }
+
+    this->run_state_ = HostDebuggerRunState::RUNNING;
+    try
+    {
+        std::vector<cpu::Byte> bytes = make_sample_user_program_bytes();
+        proc::UserProgram program = make_sample_user_program(bytes);
+        const cpu::ExecutableImage image = make_sample_user_executable_image(bytes);
+
+        mnos::os::kernel::Kernel& os_kernel = this->machine_session_.kernel();
+        const mnos::os::kernel::UserProcessRunResult run_result = os_kernel.exec_user_program(
+            this->machine_session_.shell_process().id(),
+            program,
+            image,
+            HOST_DEBUGGER_SAMPLE_USER_EXEC_MAX_STEPS);
+        this->record_instruction_trace(run_result.trace());
+
+        const mnos::os::kernel::ProcessWaitResult wait_result = os_kernel.wait_process(
+            this->machine_session_.shell_process(),
+            this->machine_session_.shell_thread(),
+            run_result.process_id());
+        this->run_state_ = HostDebuggerRunState::PAUSED;
+        this->append_trace(
+            HOST_DEBUGGER_SAMPLE_USER_EXEC_ACTION,
+            this->machine_session_.status(),
+            make_sample_user_exec_detail(run_result, wait_result));
+        return this->machine_session_.status();
+    }
+    catch (...)
+    {
+        this->run_state_ = HostDebuggerRunState::PAUSED;
+        this->append_trace(
+            HOST_DEBUGGER_SAMPLE_USER_EXEC_ACTION,
+            this->machine_session_.status(),
+            "failed");
+        throw;
+    }
 }
 
 HostMachineSessionStatus HostDebuggerSession::submit_text(const std::string_view text)
