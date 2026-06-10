@@ -4,6 +4,7 @@
 #include <new>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -151,6 +152,12 @@ private:
         throw std::runtime_error{KERNEL_USER_EXEC_SHORT_READ_MESSAGE};
     }
     return bytes;
+}
+
+[[nodiscard]] mnos::os::proc::UserProgramArguments make_default_user_file_arguments(
+    const std::string_view path)
+{
+    return mnos::os::proc::UserProgramArguments{std::vector<std::string>{std::string{path}}};
 }
 }
 
@@ -603,9 +610,17 @@ proc::UserProcessImage Kernel::load_user_program(
     proc::Process& process,
     const proc::UserProgram& program)
 {
+    return this->load_user_program(process, program, proc::UserProgramArguments{});
+}
+
+proc::UserProcessImage Kernel::load_user_program(
+    proc::Process& process,
+    const proc::UserProgram& program,
+    const proc::UserProgramArguments& arguments)
+{
     this->require_stage10_services();
     proc::UserLoader loader{this->physical_page_allocator_.value(), this->boot_context_->memory_bus()};
-    return loader.load(program, process);
+    return loader.load(program, process, arguments);
 }
 
 sched::ThreadContext& Kernel::create_user_thread(
@@ -627,8 +642,15 @@ sched::ThreadContext& Kernel::create_user_thread(
 
 proc::Process& Kernel::create_user_process(const proc::UserProgram& program)
 {
+    return this->create_user_process(program, proc::UserProgramArguments{});
+}
+
+proc::Process& Kernel::create_user_process(
+    const proc::UserProgram& program,
+    const proc::UserProgramArguments& arguments)
+{
     proc::Process& process = this->create_process();
-    const proc::UserProcessImage image = this->load_user_program(process, program);
+    const proc::UserProcessImage image = this->load_user_program(process, program, arguments);
     static_cast<void>(this->create_user_thread(process, image));
     return process;
 }
@@ -637,8 +659,16 @@ proc::Process& Kernel::create_user_process(
     const proc::UserProgram& program,
     const proc::ProcessId parent_id)
 {
+    return this->create_user_process(program, parent_id, proc::UserProgramArguments{});
+}
+
+proc::Process& Kernel::create_user_process(
+    const proc::UserProgram& program,
+    const proc::ProcessId parent_id,
+    const proc::UserProgramArguments& arguments)
+{
     proc::Process& process = this->create_process_with_parent(parent_id);
-    const proc::UserProcessImage image = this->load_user_program(process, program);
+    const proc::UserProcessImage image = this->load_user_program(process, program, arguments);
     static_cast<void>(this->create_user_thread(process, image));
     return process;
 }
@@ -647,6 +677,16 @@ UserProcessRunResult Kernel::exec_user_program(
     const proc::ProcessId parent_id,
     const proc::UserProgram& program,
     const cpu::ExecutableImage& image,
+    const std::size_t max_steps)
+{
+    return this->exec_user_program(parent_id, program, image, proc::UserProgramArguments{}, max_steps);
+}
+
+UserProcessRunResult Kernel::exec_user_program(
+    const proc::ProcessId parent_id,
+    const proc::UserProgram& program,
+    const cpu::ExecutableImage& image,
+    const proc::UserProgramArguments& arguments,
     const std::size_t max_steps)
 {
     this->require_stage11_services();
@@ -659,7 +699,7 @@ UserProcessRunResult Kernel::exec_user_program(
         throw std::invalid_argument{KERNEL_USER_EXEC_ENTRY_OUT_OF_RANGE_MESSAGE};
     }
 
-    proc::Process& process = this->create_user_process(program, parent_id);
+    proc::Process& process = this->create_user_process(program, parent_id, arguments);
     sched::ThreadContext& thread = process.thread_at(std::size_t{0});
     cpu::Executor executor;
     cpu::system::TrapController trap_controller = make_user_trap_controller();
@@ -750,6 +790,15 @@ UserProcessRunResult Kernel::exec_user_file(
     const std::string_view path,
     const std::size_t max_steps)
 {
+    return this->exec_user_file(parent_id, path, make_default_user_file_arguments(path), max_steps);
+}
+
+UserProcessRunResult Kernel::exec_user_file(
+    const proc::ProcessId parent_id,
+    const std::string_view path,
+    const proc::UserProgramArguments& arguments,
+    const std::size_t max_steps)
+{
     this->require_stage15_services();
     const std::vector<cpu::Byte> file_bytes = read_all_vfs_file_bytes(this->vfs_.value(), path);
     const proc::LoadedUserExecutable executable = proc::Elf64Loader{}.load(std::span<const cpu::Byte>{file_bytes});
@@ -757,6 +806,7 @@ UserProcessRunResult Kernel::exec_user_file(
         parent_id,
         executable.program(),
         executable.executable_image(),
+        arguments,
         max_steps);
 }
 

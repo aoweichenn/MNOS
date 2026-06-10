@@ -1,6 +1,6 @@
 # OS Stage 0 学习说明
 
-OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`；Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口；Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照；Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口；Stage 16A 加入进程父子关系、RUNNING/EXITED/REAPED 生命周期、用户程序 exec runner、EXIT/WAIT 闭环和 GUI Exec 指令 trace。
+OS Stage 0 的目标是建立现代 x86-64 OS 必须依赖的硬件边界，而不是马上写完整进程和调度器。Stage 5 已在这个边界上补齐了第一版进程、地址空间、缺页处理、scheduler 和最小 syscall ABI；Stage 6 进一步补入 core topology、`LOCK` 原子指令和 x86 TSO 教学内存模型；Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和 scheduler handoff 入口；Stage 8 加入 cache、pipeline 和 perf counter 第一版性能硬件底座；Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration 和 TLB shootdown 本地 apply 闭环；Stage 10 加入用户态地址布局、user program loader、COW fork、futex 和 event 等第一版用户进程运行语义；Stage 11 将这些能力接入 x86-64 syscall/trap 用户内核边界；Stage 12 加入文本终端硬件模型、kernel console 和 TTY 行规程，让系统开始具备交互入口；Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 和 shell builtin，让终端从显示设备变成可执行命令入口；Stage 14 把 prompt、stdin blocking read、pending line buffer、scheduler wake 和 shell builtin 执行贯穿成可轮询交互 loop；Stage 15A 加入内存块设备和 buffer cache；Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object；Stage 15C 把 root VFS 接入 fd table、open/read/write/close/stat/readdir syscall 和 shell 文件命令；Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`；Stage 15E-A 拆出可插拔 host terminal backend、host 输入事件模型和 renderer 边界；Stage 15E-B 加入 raw-key console 输入模式，让交互终端不再依赖宿主行缓冲；Stage 15F-A 拆出可事件循环驱动的 `HostMachineSession`；Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口；Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照；Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口；Stage 16A 加入进程父子关系、RUNNING/EXITED/REAPED 生命周期、用户程序 exec runner、EXIT/WAIT 闭环和 GUI Exec 指令 trace；Stage 17 加入 ELF64 文件加载到 VFS `run`/kernel exec 通道；Stage 18 加入用户程序初始栈 ABI，让用户程序能从 `argc/argv/envp` 起步。
 
 ```text
 Machine       模拟机器入口，持有物理内存、MemoryBus、core topology、TerminalDevice
@@ -288,6 +288,16 @@ exec_user_program      Kernel 使用 UserLoader 加载 UserProgram，按 byte Ex
 ExecutionTrace bridge  exec runner 收集真实 MOV/MOV/SYSCALL retired trace，HostDebuggerSession 的 Exec 动作把 trace 放入 Instructions 面板
 ps lifecycle view      shell ps 显示 pid/ppid/process state/exit code/thread states，让 EXITED/REAPED 可见
 Stage16 tests          覆盖 x86-64 syscall exit byte image、wait reaping、wait blocking/wakeup、WAIT syscall errno、GUI Exec trace 和 mnos_gui --smoke
+```
+
+Stage 17/18 已经完成第一版文件执行和用户程序 ABI：
+
+```text
+ELF64 file exec       Kernel::exec_user_file 从 VFS 读取 ELF64，复用 Elf64Loader 和 exec_user_program
+run shell command     shell run 可执行 /bin 下的 ELF64 文件，并保留 run path 1 的 max_steps 兼容行为
+UserProgramArguments  明确 argv/envp 所有权和值语义，拒绝内部 NUL，避免 shell/parser 与 loader 耦合
+Initial user stack    UserLoader 写入 argc、argv[]、NULL、envp[]、NULL、字符串区，RSP 保持 16-byte aligned
+ABI tests             用真实 x86-64 byte program 从 [RSP] 读取 argc，经 EXIT syscall 返回，覆盖 kernel 和 shell 路径
 ```
 
 ## 下一步

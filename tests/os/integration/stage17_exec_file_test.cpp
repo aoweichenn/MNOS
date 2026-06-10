@@ -146,7 +146,7 @@ TEST(Stage17ExecFileIntegrationTest, ShellRunReportsPathAndArgumentErrors)
     EXPECT_THAT(session.poll().status(), Eq(shell::ShellSessionStepStatus::COMMAND));
 
     const std::string output = terminal_output_text(machine);
-    EXPECT_THAT(output, HasSubstr("usage: run path [max_steps]"));
+    EXPECT_THAT(output, HasSubstr("usage: run path [args...] [--max-steps=N|--max-steps N]"));
     EXPECT_THAT(output, HasSubstr("invalid path: relative"));
     EXPECT_THAT(output, HasSubstr("is a directory: /"));
     EXPECT_THAT(output, HasSubstr("not found: /missing"));

@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <mnos/cpu/common/types.hpp>
@@ -69,6 +71,27 @@ private:
     std::vector<UserSegment> segments_;
 };
 
+class UserProgramArguments final
+{
+public:
+    UserProgramArguments() = default;
+    explicit UserProgramArguments(
+        std::vector<std::string> arguments,
+        std::vector<std::string> environment = {});
+
+    [[nodiscard]] std::span<const std::string> arguments() const noexcept;
+    [[nodiscard]] std::span<const std::string> environment() const noexcept;
+    [[nodiscard]] std::size_t argument_count() const noexcept;
+    [[nodiscard]] std::size_t environment_count() const noexcept;
+    [[nodiscard]] bool empty() const noexcept;
+
+private:
+    static void validate_entries(std::span<const std::string> entries, std::string_view message);
+
+    std::vector<std::string> arguments_;
+    std::vector<std::string> environment_;
+};
+
 class UserProcessImage final
 {
 public:
@@ -96,6 +119,10 @@ public:
     UserLoader(mm::PhysicalPageAllocator& allocator, cpu::MemoryBus& memory_bus) noexcept;
 
     [[nodiscard]] UserProcessImage load(const UserProgram& program, Process& process);
+    [[nodiscard]] UserProcessImage load(
+        const UserProgram& program,
+        Process& process,
+        const UserProgramArguments& arguments);
     void initialize_user_thread(
         const UserProcessImage& image,
         Process& process,

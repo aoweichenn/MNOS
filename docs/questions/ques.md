@@ -249,5 +249,6 @@ cache/pipeline/perf counter
 per-core run queue / SMP scheduler
 user loader / kernel-user address layout
 COW fork / futex / event
+ELF64 exec file path / argc argv envp user ABI
 SSE/AVX performance path
 ```

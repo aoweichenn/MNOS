@@ -45,7 +45,7 @@ constexpr std::string_view SHELL_SYNTAX_CAT = "cat path";
 constexpr std::string_view SHELL_SYNTAX_TOUCH = "touch path";
 constexpr std::string_view SHELL_SYNTAX_WRITE = "write path text...";
 constexpr std::string_view SHELL_SYNTAX_STAT = "stat path";
-constexpr std::string_view SHELL_SYNTAX_RUN = "run path [max_steps]";
+constexpr std::string_view SHELL_SYNTAX_RUN = "run path [args...] [--max-steps=N|--max-steps N]";
 constexpr std::string_view SHELL_SYNTAX_EXIT = "exit";
 constexpr std::string_view SHELL_DESCRIPTION_HELP = "show all commands or details for one command";
 constexpr std::string_view SHELL_DESCRIPTION_CLEAR = "clear the terminal display";
@@ -79,6 +79,9 @@ constexpr std::string_view SHELL_RUN_WAIT_FIELD = " wait=";
 constexpr std::string_view SHELL_RUN_EXIT_FIELD = " exit=";
 constexpr std::string_view SHELL_RUN_STEPS_FIELD = " steps=";
 constexpr std::string_view SHELL_RUN_TRACE_FIELD = " trace=";
+constexpr std::string_view SHELL_RUN_MAX_STEPS_OPTION = "--max-steps";
+constexpr std::string_view SHELL_RUN_OPTION_TERMINATOR = "--";
+constexpr char SHELL_RUN_OPTION_VALUE_SEPARATOR = '=';
 constexpr const char* SHELL_COMMAND_MISSING_MESSAGE = "shell parse result does not contain a command";
 constexpr const char* SHELL_ARGUMENT_INDEX_OUT_OF_RANGE_MESSAGE = "shell command argument index is out of range";
 constexpr const char* SHELL_BUILTIN_INDEX_OUT_OF_RANGE_MESSAGE = "shell builtin index is out of range";
@@ -93,6 +96,20 @@ struct ShellBuiltinSpec final
 {
     mnos::os::shell::ShellBuiltinInfo info;
     BuiltinHandler handler;
+};
+
+enum class ShellRunParseStatus : std::uint8_t
+{
+    READY,
+    USAGE,
+    INVALID_MAX_STEPS,
+};
+
+struct ShellRunRequest final
+{
+    std::string path;
+    std::vector<std::string> arguments;
+    std::size_t max_steps = mnos::os::kernel::KERNEL_USER_EXEC_DEFAULT_MAX_STEPS;
 };
 
 [[nodiscard]] bool shell_character_is_whitespace(const char character) noexcept
@@ -221,6 +238,112 @@ void shell_write_run_error(
     }
     max_steps = parsed_value;
     return true;
+}
+
+[[nodiscard]] bool shell_text_is_unsigned_decimal(const std::string_view text) noexcept
+{
+    if (text.empty())
+    {
+        return false;
+    }
+
+    return std::ranges::all_of(
+        text,
+        [](const char character) noexcept
+        {
+            return character >= '0' && character <= '9';
+        });
+}
+
+[[nodiscard]] bool shell_token_is_max_steps_option(const std::string_view token) noexcept
+{
+    return token == SHELL_RUN_MAX_STEPS_OPTION ||
+           (token.starts_with(SHELL_RUN_MAX_STEPS_OPTION) &&
+            token.size() > SHELL_RUN_MAX_STEPS_OPTION.size() &&
+            token[SHELL_RUN_MAX_STEPS_OPTION.size()] == SHELL_RUN_OPTION_VALUE_SEPARATOR);
+}
+
+[[nodiscard]] bool shell_parse_max_steps_option(
+    const mnos::os::shell::ShellCommand& command,
+    std::size_t& argument_index,
+    std::size_t& max_steps)
+{
+    const std::string_view token = command.argument_at(argument_index);
+    if (token == SHELL_RUN_MAX_STEPS_OPTION)
+    {
+        const std::size_t value_index = argument_index + std::size_t{1};
+        if (value_index >= command.argument_count() ||
+            !shell_parse_max_steps(command.argument_at(value_index), max_steps))
+        {
+            return false;
+        }
+        argument_index += std::size_t{2};
+        return true;
+    }
+
+    const std::size_t assignment_prefix_size = SHELL_RUN_MAX_STEPS_OPTION.size() + std::size_t{1};
+    if (token.size() >= assignment_prefix_size &&
+        token.starts_with(SHELL_RUN_MAX_STEPS_OPTION) &&
+        token[SHELL_RUN_MAX_STEPS_OPTION.size()] == SHELL_RUN_OPTION_VALUE_SEPARATOR)
+    {
+        const std::string_view value = token.substr(assignment_prefix_size);
+        if (!shell_parse_max_steps(value, max_steps))
+        {
+            return false;
+        }
+        ++argument_index;
+        return true;
+    }
+
+    return false;
+}
+
+[[nodiscard]] ShellRunParseStatus shell_parse_run_request(
+    const mnos::os::shell::ShellCommand& command,
+    ShellRunRequest& request)
+{
+    if (command.argument_count() < std::size_t{1})
+    {
+        return ShellRunParseStatus::USAGE;
+    }
+
+    request.path = std::string{command.argument_at(std::size_t{0})};
+    request.arguments.clear();
+    request.arguments.push_back(request.path);
+
+    if (command.argument_count() == std::size_t{2} &&
+        shell_text_is_unsigned_decimal(command.argument_at(std::size_t{1})))
+    {
+        return shell_parse_max_steps(command.argument_at(std::size_t{1}), request.max_steps)
+            ? ShellRunParseStatus::READY
+            : ShellRunParseStatus::INVALID_MAX_STEPS;
+    }
+
+    bool parse_options = true;
+    for (std::size_t argument_index = std::size_t{1}; argument_index < command.argument_count();)
+    {
+        const std::string_view token = command.argument_at(argument_index);
+        if (parse_options && token == SHELL_RUN_OPTION_TERMINATOR)
+        {
+            parse_options = false;
+            ++argument_index;
+            continue;
+        }
+
+        if (parse_options && shell_token_is_max_steps_option(token))
+        {
+            if (!shell_parse_max_steps_option(command, argument_index, request.max_steps))
+            {
+                return ShellRunParseStatus::INVALID_MAX_STEPS;
+            }
+            continue;
+        }
+
+        request.arguments.emplace_back(token);
+        ++argument_index;
+    }
+
+    return ShellRunParseStatus::READY;
 }
 
 [[nodiscard]] bool shell_run_status_should_wait(const mnos::os::kernel::UserProcessRunStatus status) noexcept
@@ -741,9 +864,16 @@ void append_shell_usage_line(std::string& output, const std::string_view syntax)
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context)
 {
-    if (command.argument_count() < std::size_t{1} || command.argument_count() > std::size_t{2})
+    ShellRunRequest request;
+    const ShellRunParseStatus parse_status = shell_parse_run_request(command, request);
+    if (parse_status == ShellRunParseStatus::USAGE)
     {
         shell_write_usage(context, SHELL_SYNTAX_RUN);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    if (parse_status == ShellRunParseStatus::INVALID_MAX_STEPS)
+    {
+        shell_write(context, SHELL_RUN_INVALID_STEPS_TEXT);
         return mnos::os::shell::ShellCommandResult::handled();
     }
     if (!context.has_process_context())
@@ -752,39 +882,35 @@ void append_shell_usage_line(std::string& output, const std::string_view syntax)
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
-    const std::string_view path = command.argument_at(std::size_t{0});
-    std::size_t max_steps = mnos::os::kernel::KERNEL_USER_EXEC_DEFAULT_MAX_STEPS;
-    if (command.argument_count() == std::size_t{2} &&
-        !shell_parse_max_steps(command.argument_at(std::size_t{1}), max_steps))
-    {
-        shell_write(context, SHELL_RUN_INVALID_STEPS_TEXT);
-        return mnos::os::shell::ShellCommandResult::handled();
-    }
-
     try
     {
-        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(request.path);
         if (!node.has_value())
         {
-            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, request.path);
             return mnos::os::shell::ShellCommandResult::handled();
         }
         if (node->is_directory())
         {
-            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, path);
+            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, request.path);
             return mnos::os::shell::ShellCommandResult::handled();
         }
     }
     catch (const std::invalid_argument&)
     {
-        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, request.path);
         return mnos::os::shell::ShellCommandResult::handled();
     }
 
     try
     {
+        const mnos::os::proc::UserProgramArguments program_arguments{std::move(request.arguments)};
         const mnos::os::kernel::UserProcessRunResult run_result =
-            context.os_kernel().exec_user_file(context.process().id(), path, max_steps);
+            context.os_kernel().exec_user_file(
+                context.process().id(),
+                request.path,
+                program_arguments,
+                request.max_steps);
         std::optional<mnos::os::kernel::ProcessWaitResult> wait_result;
         if (shell_run_status_should_wait(run_result.status()))
         {
@@ -793,7 +919,7 @@ void append_shell_usage_line(std::string& output, const std::string_view syntax)
                 context.thread(),
                 run_result.process_id());
         }
-        shell_write(context, shell_run_result_text(path, run_result, wait_result));
+        shell_write(context, shell_run_result_text(request.path, run_result, wait_result));
         return mnos::os::shell::ShellCommandResult::handled();
     }
     catch (const std::invalid_argument& error)

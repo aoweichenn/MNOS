@@ -233,21 +233,43 @@ public:
         mm::VirtualAddress kernel_stack_bottom,
         std::uint64_t kernel_stack_size_bytes = sched::THREAD_CONTEXT_DEFAULT_KERNEL_STACK_SIZE_BYTES);
     [[nodiscard]] proc::UserProcessImage load_user_program(proc::Process& process, const proc::UserProgram& program);
+    [[nodiscard]] proc::UserProcessImage load_user_program(
+        proc::Process& process,
+        const proc::UserProgram& program,
+        const proc::UserProgramArguments& arguments);
     [[nodiscard]] sched::ThreadContext& create_user_thread(
         proc::Process& process,
         const proc::UserProcessImage& image);
     [[nodiscard]] proc::Process& create_user_process(const proc::UserProgram& program);
     [[nodiscard]] proc::Process& create_user_process(
         const proc::UserProgram& program,
+        const proc::UserProgramArguments& arguments);
+    [[nodiscard]] proc::Process& create_user_process(
+        const proc::UserProgram& program,
         proc::ProcessId parent_id);
+    [[nodiscard]] proc::Process& create_user_process(
+        const proc::UserProgram& program,
+        proc::ProcessId parent_id,
+        const proc::UserProgramArguments& arguments);
     [[nodiscard]] UserProcessRunResult exec_user_program(
         proc::ProcessId parent_id,
         const proc::UserProgram& program,
         const cpu::ExecutableImage& image,
         std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
+    [[nodiscard]] UserProcessRunResult exec_user_program(
+        proc::ProcessId parent_id,
+        const proc::UserProgram& program,
+        const cpu::ExecutableImage& image,
+        const proc::UserProgramArguments& arguments,
+        std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
     [[nodiscard]] UserProcessRunResult exec_user_file(
         proc::ProcessId parent_id,
         std::string_view path,
+        std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
+    [[nodiscard]] UserProcessRunResult exec_user_file(
+        proc::ProcessId parent_id,
+        std::string_view path,
+        const proc::UserProgramArguments& arguments,
         std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
     void exit_process(proc::Process& process, std::int64_t exit_code);
     [[nodiscard]] ProcessWaitResult wait_process(

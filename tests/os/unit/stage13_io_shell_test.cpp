@@ -221,7 +221,7 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
     EXPECT_THAT(ls_info->description, Eq(std::string_view{"list directory entries"}));
     const std::optional<shell::ShellBuiltinInfo> run_info = registry.find("run");
     ASSERT_TRUE(run_info.has_value());
-    EXPECT_THAT(run_info->syntax, Eq(std::string_view{"run path [max_steps]"}));
+    EXPECT_THAT(run_info->syntax, Eq(std::string_view{"run path [args...] [--max-steps=N|--max-steps N]"}));
     EXPECT_THAT(run_info->description, Eq(std::string_view{"load and execute an ELF64 user program"}));
     EXPECT_FALSE(registry.find("missing").has_value());
 

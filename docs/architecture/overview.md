@@ -2,7 +2,7 @@
 
 MNOS 的目标是做一个现代 x86-64 CPU 与计算机硬件模拟器，再在这个硬件底座上逐步实现现代 OS。项目后期会面向高性能计算、分布式网络、高性能网络、AI 推理/训练等方向，所以主线 ISA 采用 x86-64：复杂度更高，但更贴近当前服务器、工作站和高性能软件优化的现实。
 
-当前已经完成 x86-64 Stage 16A CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令，Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`，Stage 15E-A 拆出可插拔 host terminal backend、输入事件模型和 renderer 边界，Stage 15E-B 加入 raw-key console 输入模式，Stage 15F-A 拆出 GUI/CLI 共享的 host machine session，Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口，Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照，Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口，Stage 16A 加入进程父子关系、RUNNING/EXITED/REAPED 生命周期、用户程序 exec runner、EXIT/WAIT 闭环和 GUI Exec 指令 trace。
+当前已经完成 x86-64 Stage 18 CPU/OS 底座：Stage 0 对象级 `Program` 路径继续保留用于教学和语义测试，Stage 1 新增真实 byte image fetch/decode，Stage 2 在同一套执行语义上加入栈、条件码、逻辑指令和扩展 load，Stage 3 加入 IDT/GDT/TSS 教学模型、trapframe、软件中断和 syscall/sysret 控制流，Stage 4 加入 paging/MMU/TLB 与 page fault 接入，Stage 5 加入物理页分配、进程地址空间、缺页处理、进程/线程编排、round-robin scheduler 和最小 syscall ABI，Stage 6 加入 `LOCK` 原子指令、core topology 和 x86 TSO 教学内存模型，Stage 7 加入 local APIC/IOAPIC、timer interrupt、抢占 tick、sleep/wait queue、IPI、PCID/INVLPG/TLB shootdown 和多核心 scheduler handoff 入口，Stage 8 加入 L1I/L1D cache、in-order pipeline 和性能计数模型，Stage 9 加入 per-core run queue、SMP scheduler、跨核心 wake/reschedule、ready-thread migration、load rebalance 和 TLB shootdown 本地 apply 闭环，Stage 10 加入用户态地址布局、user loader、COW fork、futex 和 event 等用户进程运行语义，Stage 11 加入 x86-64 syscall ABI、用户 syscall/trap 完成、匿名页映射、COW/futex syscall 和用户 page fault 分流，Stage 12 加入文本终端设备、kernel console 和 TTY line discipline，Stage 13 加入进程 stdio fd 表、READ/WRITE syscall 到 TTY 的桥接，以及 shell parser/builtin/session，Stage 14 把 TTY 行输入、fd read blocking、prompt、pending line buffer 和 shell builtin 执行贯穿成可轮询的交互式 shell loop，Stage 15A 加入内存块设备、块几何校验和 write-back buffer cache，Stage 15B 在块缓存上加入 SimpleFS、inode/dirent 和 VFS file object，Stage 15C 把 root VFS 接入 fd table、文件 syscall 和 shell 文件命令，Stage 15D 加入 host 侧交互终端 adapter 和 `mnos_console`，Stage 15E-A 拆出可插拔 host terminal backend、输入事件模型和 renderer 边界，Stage 15E-B 加入 raw-key console 输入模式，Stage 15F-A 拆出 GUI/CLI 共享的 host machine session，Stage 15F-B 加入 macOS 原生 `mnos_gui` Bochs-like 窗口终端/debugger 入口，Stage 15F-C 加入 GUI raw-key focus、trace panel、Step/Run/Pause run-control 和 CPU/thread/paging 快照，Stage 15F-D 加入 Registers/Paging/Actions/Instructions tabbed drill-down、只读页表 walk 和 CPU `ExecutionTrace` 接入口，Stage 16A 加入进程父子关系、RUNNING/EXITED/REAPED 生命周期、用户程序 exec runner、EXIT/WAIT 闭环和 GUI Exec 指令 trace，Stage 17 加入 ELF64 文件加载到 VFS `run`/kernel exec 通道，Stage 18 加入用户程序初始栈 ABI：`argc`、`argv`、`envp`、字符串区和 16-byte aligned `RSP`。
 
 ```text
 寄存器    RAX/RBX/RCX/RDX/RSI/RDI/RBP/RSP/R8..R15
@@ -40,7 +40,7 @@ include/mnos/
     platform/           Machine facade，持有内存、core topology 和 terminal device
     kernel/             BootContext、Kernel、syscall ABI
     mm/                 PhysicalAddress、VirtualAddress、4KiB page 工具、AddressLayout、PhysicalPageAllocator、AddressSpace、PageFaultHandler
-    proc/               ProcessId、Process、process_context、UserProgram/UserLoader、CopyOnWriteManager、FutexTable
+    proc/               ProcessId、Process、process_context、UserProgram/UserLoader/UserProgramArguments、Elf64Loader、CopyOnWriteManager、FutexTable
     sched/              ThreadId、ThreadState、ThreadContext、RoundRobinScheduler、SmpScheduler、SleepQueue、WaitQueue、Event
     shell/              ShellParser、ShellBuiltinRegistry、Shell、ShellSession 交互 loop、文件命令
     tty/                Console、TTY canonical line input、console read/write result
@@ -426,7 +426,7 @@ RIP-relative addressing
 DecodeError 非法编码入口
 ```
 
-后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。Stage 15D 已经补上宿主机交互终端入口，Stage 15E-A 已经把 host terminal backend/input event 边界拆出，Stage 15E-B 已经补上 raw-key console 输入，Stage 15F-A 已经补上可事件循环驱动的 host machine session，Stage 15F-B 已经补上 Bochs-like 窗口终端/debugger 入口，Stage 15F-C 已经补上 GUI raw-key/trace/run-control/CPU snapshot，Stage 15F-D 已经补上 register/page-table drill-down 和 CPU ExecutionTrace 面板入口，Stage 16A 已经补上 exec/wait/process lifecycle 和 GUI Exec trace；下一步应做 pipe/dup/redirect，把 shell 变成可组合的交互环境，再沿 page cache/mmap、demand file paging 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
+后续仍不应把整个 x86-64 ISA 一次性塞进 decoder。Stage 6 已经把原子操作、core topology 和 x86 TSO 教学模型接入主线；Stage 7 已经把 APIC/timer、抢占式调度、IPI、PCID/INVLPG 和 TLB shootdown 接入主线；Stage 8 已经把 cache、pipeline 和 perf counter 第一版接入主线；Stage 9 已经把 per-core run queue、SMP scheduler 和负载迁移接入主线。Stage 15D 已经补上宿主机交互终端入口，Stage 15E-A 已经把 host terminal backend/input event 边界拆出，Stage 15E-B 已经补上 raw-key console 输入，Stage 15F-A 已经补上可事件循环驱动的 host machine session，Stage 15F-B 已经补上 Bochs-like 窗口终端/debugger 入口，Stage 15F-C 已经补上 GUI raw-key/trace/run-control/CPU snapshot，Stage 15F-D 已经补上 register/page-table drill-down 和 CPU ExecutionTrace 面板入口，Stage 16A 已经补上 exec/wait/process lifecycle 和 GUI Exec trace，Stage 17 已经补上 VFS ELF64 exec 文件路径，Stage 18 已经补上用户程序参数 ABI；下一步应做 pipe/dup/redirect，把 shell 变成可组合的交互环境，再沿 page cache/mmap、demand file paging 和高性能网络等 OS 语义推进，每个新增硬件/OS 行为都要有 unit/integration/benchmark/docs 支撑。
 
 ### Stage 2: 更完整的整数 ISA 已完成当前教学范围
 
@@ -505,7 +505,7 @@ INVLPG/PCID/TLB shootdown
 多核心 scheduler handoff
 ```
 
-Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，Stage 9 已经补齐 per-core scheduler 当前底座，Stage 10-16A 已经把用户进程、终端交互、文件系统、宿主机交互入口、GUI/CLI 共享 session、窗口 debugger、register/paging drill-down、CPU ExecutionTrace 面板入口和 exec/wait/process lifecycle 接入主线，下一步再逐步扩成 pipe/redirect、page cache/mmap 和更复杂的设备模型。
+Stage 7 仍保持教学范围：当前是确定性 APIC/timer/IPI/shootdown 和 scheduler handoff 入口，不是假装已经有完整 SMP kernel。Stage 8 已经把 cache/pipeline/perf counter 接上，Stage 9 已经补齐 per-core scheduler 当前底座，Stage 10-18 已经把用户进程、终端交互、文件系统、宿主机交互入口、GUI/CLI 共享 session、窗口 debugger、register/paging drill-down、CPU ExecutionTrace 面板入口、exec/wait/process lifecycle、VFS ELF64 exec 和用户程序初始栈 ABI 接入主线，下一步再逐步扩成 pipe/redirect、page cache/mmap 和更复杂的设备模型。
 
 ### Stage 8: cache、pipeline、性能计数 已完成当前底座
 
@@ -608,12 +608,13 @@ Stage 15F-B 已完成: macOS mnos_gui Bochs-like window terminal/debugger adapte
 Stage 15F-C 已完成: GUI raw-key focus / trace panel / step-run-pause controls / CPU snapshot
 Stage 15F-D 已完成: register/page-table drill-down / CPU ExecutionTrace instruction panel
 Stage 16A 已完成: exec/wait/process lifecycle + GUI Exec instruction trace
-pipe/dup/redirect
-page cache / mmap / demand file paging
-block DMA / async I/O
+Stage 17 已完成: ELF64 文件加载 + VFS run/exec 通道
+Stage 18 已完成: 用户程序 argc/argv/envp 初始栈 ABI + shell run args
+Stage 19 下一步: pipe/dup/redirect
+Stage 20 后续: page cache / mmap / demand file paging / block DMA / async I/O
 ```
 
-### Stage 16B: shell 组合能力
+### Stage 19: shell 组合能力
 
 ```text
 pipe syscall / pipe fd
@@ -622,7 +623,17 @@ shell redirect
 shell pipeline
 ```
 
-### Stage 17: 高性能网络
+### Stage 20: page cache、mmap、demand file paging
+
+```text
+page cache
+mmap/munmap
+file-backed demand page
+writeback policy
+block DMA / async I/O
+```
+
+### Stage 21: 高性能网络
 
 ```text
 NIC descriptor ring
@@ -631,7 +642,7 @@ zero-copy
 高性能网络 benchmark
 ```
 
-### Stage 18: HPC、SIMD、AI 推理/训练
+### Stage 22: HPC、SIMD、AI 推理/训练
 
 ```text
 SSE/AVX/AVX2/AVX-512 教学模拟路线

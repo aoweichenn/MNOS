@@ -163,14 +163,12 @@ inline void test_elf64_write_program_header(
     test_elf64_write_u64_le(bytes, offset + std::size_t{48}, static_cast<std::uint64_t>(os::mm::MM_PAGE_SIZE_BYTES));
 }
 
-[[nodiscard]] inline std::vector<cpu::Byte> make_test_exit_elf64(
-    const std::int64_t exit_code = TEST_ELF64_DEFAULT_EXIT_CODE)
+[[nodiscard]] inline std::vector<cpu::Byte> make_test_code_elf64(std::vector<cpu::Byte> code)
 {
     constexpr std::size_t TEST_PROGRAM_HEADER_COUNT = std::size_t{1};
     constexpr std::size_t TEST_CODE_OFFSET =
         TEST_ELF64_HEADER_SIZE_BYTES + (TEST_PROGRAM_HEADER_COUNT * TEST_ELF64_PROGRAM_HEADER_SIZE_BYTES);
 
-    std::vector<cpu::Byte> code = test_elf64_exit_program_code(exit_code);
     std::vector<cpu::Byte> bytes(TEST_CODE_OFFSET, cpu::Byte{0});
     bytes.insert(bytes.end(), code.begin(), code.end());
     const os::mm::VirtualAddress entry_point{
@@ -185,6 +183,12 @@ inline void test_elf64_write_program_header(
         static_cast<std::uint64_t>(bytes.size()),
         static_cast<std::uint64_t>(bytes.size()));
     return bytes;
+}
+
+[[nodiscard]] inline std::vector<cpu::Byte> make_test_exit_elf64(
+    const std::int64_t exit_code = TEST_ELF64_DEFAULT_EXIT_CODE)
+{
+    return make_test_code_elf64(test_elf64_exit_program_code(exit_code));
 }
 
 [[nodiscard]] inline std::vector<cpu::Byte> make_test_exit_elf64_with_data_bss(
