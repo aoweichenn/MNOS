@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <mnos/core/enum_map.hpp>
+#include <mnos/host/demo_user_program.hpp>
 #include <mnos/os/dev/terminal.hpp>
 #include <mnos/os/kernel/boot_context.hpp>
 #include <mnos/os/kernel/kernel.hpp>
@@ -116,6 +117,7 @@ void HostMachineSession::boot()
 {
     std::unique_ptr<SessionState> next_state = std::make_unique<SessionState>(this->config_);
     next_state->os_kernel.boot();
+    install_host_demo_user_programs(next_state->os_kernel);
     next_state->shell_process = &next_state->os_kernel.create_process();
     next_state->shell_thread = &next_state->os_kernel.create_thread(*next_state->shell_process);
     next_state->shell_session.emplace(

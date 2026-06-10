@@ -162,6 +162,7 @@ set(
         src/os/mm/physical_page_allocator.cpp
         src/os/platform/machine.cpp
         src/os/proc/copy_on_write.cpp
+        src/os/proc/elf_loader.cpp
         src/os/proc/futex.cpp
         src/os/proc/process.cpp
         src/os/proc/user_loader.cpp
@@ -198,6 +199,7 @@ mnos_apply_project_options(mnos_emulator)
 set(
     MNOS_HOST_SOURCES
         src/host/console_options.cpp
+        src/host/demo_user_program.cpp
         src/host/debugger_session.cpp
         src/host/debugger_text_layout.cpp
         src/host/machine_session.cpp
@@ -356,6 +358,7 @@ mnos_add_os_test(mnos_os_stage13_io_shell_unit_tests tests/os/unit/stage13_io_sh
 mnos_add_os_test(mnos_os_stage14_shell_session_unit_tests tests/os/unit/stage14_shell_session_test.cpp)
 mnos_add_os_test(mnos_os_stage15_block_cache_unit_tests tests/os/unit/stage15_block_cache_test.cpp)
 mnos_add_os_test(mnos_os_stage15_simple_fs_unit_tests tests/os/unit/stage15_simple_fs_test.cpp)
+mnos_add_os_test(mnos_os_stage17_elf_loader_unit_tests tests/os/unit/stage17_elf_loader_test.cpp)
 mnos_add_os_test(mnos_os_kernel_boot_integration_tests tests/os/integration/kernel_boot_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage5_integration_tests tests/os/integration/stage5_integration_test.cpp)
 mnos_add_os_test(mnos_os_stage7_integration_tests tests/os/integration/stage7_integration_test.cpp)
@@ -369,6 +372,7 @@ mnos_add_os_test(mnos_os_stage15_integration_tests tests/os/integration/stage15_
 mnos_add_os_test(mnos_os_stage15_vfs_integration_tests tests/os/integration/stage15_vfs_test.cpp)
 mnos_add_os_test(mnos_os_stage15_file_syscall_shell_integration_tests tests/os/integration/stage15_file_syscall_shell_test.cpp)
 mnos_add_os_test(mnos_os_stage16_exec_wait_integration_tests tests/os/integration/stage16_exec_wait_test.cpp)
+mnos_add_os_test(mnos_os_stage17_exec_file_integration_tests tests/os/integration/stage17_exec_file_test.cpp)
 mnos_add_os_test(mnos_os_thread_context_chaos_tests tests/os/chaos/thread_context_chaos_test.cpp)
 mnos_add_os_test(mnos_os_scheduler_chaos_tests tests/os/chaos/scheduler_chaos_test.cpp)
 mnos_add_os_test(mnos_os_stage7_chaos_tests tests/os/chaos/stage7_scheduler_chaos_test.cpp)

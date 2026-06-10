@@ -245,6 +245,10 @@ public:
         const proc::UserProgram& program,
         const cpu::ExecutableImage& image,
         std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
+    [[nodiscard]] UserProcessRunResult exec_user_file(
+        proc::ProcessId parent_id,
+        std::string_view path,
+        std::size_t max_steps = KERNEL_USER_EXEC_DEFAULT_MAX_STEPS);
     void exit_process(proc::Process& process, std::int64_t exit_code);
     [[nodiscard]] ProcessWaitResult wait_process(
         proc::Process& parent_process,

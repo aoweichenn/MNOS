@@ -1,21 +1,25 @@
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 #include <mnos/cpu/common/types.hpp>
 #include <mnos/os/fs/vfs.hpp>
 #include <mnos/os/kernel/kernel.hpp>
+#include <mnos/os/proc/process.hpp>
+#include <mnos/os/sched/thread_context.hpp>
 #include <mnos/os/sched/thread_state.hpp>
 #include <mnos/os/shell/shell.hpp>
 
 namespace
 {
-constexpr std::size_t SHELL_BUILTIN_COUNT = std::size_t{13};
+constexpr std::size_t SHELL_BUILTIN_COUNT = std::size_t{14};
 constexpr std::string_view SHELL_UNKNOWN_COMMAND_PREFIX = "unknown command: ";
 constexpr std::string_view SHELL_PARSE_ERROR_UNTERMINATED_QUOTE = "parse error: unterminated quote\n";
 constexpr std::string_view SHELL_ARGUMENT_SEPARATOR = " ";
@@ -41,6 +45,7 @@ constexpr std::string_view SHELL_SYNTAX_CAT = "cat path";
 constexpr std::string_view SHELL_SYNTAX_TOUCH = "touch path";
 constexpr std::string_view SHELL_SYNTAX_WRITE = "write path text...";
 constexpr std::string_view SHELL_SYNTAX_STAT = "stat path";
+constexpr std::string_view SHELL_SYNTAX_RUN = "run path [max_steps]";
 constexpr std::string_view SHELL_SYNTAX_EXIT = "exit";
 constexpr std::string_view SHELL_DESCRIPTION_HELP = "show all commands or details for one command";
 constexpr std::string_view SHELL_DESCRIPTION_CLEAR = "clear the terminal display";
@@ -54,6 +59,7 @@ constexpr std::string_view SHELL_DESCRIPTION_CAT = "print file contents";
 constexpr std::string_view SHELL_DESCRIPTION_TOUCH = "create an empty file";
 constexpr std::string_view SHELL_DESCRIPTION_WRITE = "replace file contents with text";
 constexpr std::string_view SHELL_DESCRIPTION_STAT = "show file kind and size";
+constexpr std::string_view SHELL_DESCRIPTION_RUN = "load and execute an ELF64 user program";
 constexpr std::string_view SHELL_DESCRIPTION_EXIT = "stop the interactive shell session";
 constexpr std::string_view SHELL_FS_NOT_FOUND_PREFIX = "not found: ";
 constexpr std::string_view SHELL_FS_INVALID_PATH_PREFIX = "invalid path: ";
@@ -63,9 +69,21 @@ constexpr std::string_view SHELL_FS_NO_SPACE_PREFIX = "no space: ";
 constexpr std::string_view SHELL_KIND_FILE = "file";
 constexpr std::string_view SHELL_KIND_DIRECTORY = "directory";
 constexpr std::string_view SHELL_KIND_UNKNOWN = "unknown";
+constexpr std::string_view SHELL_RUN_UNAVAILABLE_TEXT = "run unavailable: shell has no process context\n";
+constexpr std::string_view SHELL_RUN_ERROR_PREFIX = "run error: ";
+constexpr std::string_view SHELL_RUN_INVALID_STEPS_TEXT = "run error: invalid max_steps\n";
+constexpr std::string_view SHELL_RUN_INVALID_EXECUTABLE_PREFIX = "invalid executable: ";
+constexpr std::string_view SHELL_RUN_PID_FIELD = " pid=";
+constexpr std::string_view SHELL_RUN_STATUS_FIELD = " status=";
+constexpr std::string_view SHELL_RUN_WAIT_FIELD = " wait=";
+constexpr std::string_view SHELL_RUN_EXIT_FIELD = " exit=";
+constexpr std::string_view SHELL_RUN_STEPS_FIELD = " steps=";
+constexpr std::string_view SHELL_RUN_TRACE_FIELD = " trace=";
 constexpr const char* SHELL_COMMAND_MISSING_MESSAGE = "shell parse result does not contain a command";
 constexpr const char* SHELL_ARGUMENT_INDEX_OUT_OF_RANGE_MESSAGE = "shell command argument index is out of range";
 constexpr const char* SHELL_BUILTIN_INDEX_OUT_OF_RANGE_MESSAGE = "shell builtin index is out of range";
+constexpr const char* SHELL_PROCESS_CONTEXT_MISSING_MESSAGE = "shell context does not contain a process";
+constexpr const char* SHELL_THREAD_CONTEXT_MISSING_MESSAGE = "shell context does not contain a thread";
 
 using BuiltinHandler = mnos::os::shell::ShellCommandResult (*)(
     const mnos::os::shell::ShellCommand&,
@@ -150,6 +168,18 @@ void shell_write_path_error(
     shell_write(context, output);
 }
 
+void shell_write_run_error(
+    mnos::os::shell::ShellContext& context,
+    const std::string_view prefix,
+    const std::string_view detail)
+{
+    std::string output{SHELL_RUN_ERROR_PREFIX};
+    output.append(prefix);
+    output.append(detail);
+    output.append(SHELL_LINE_ENDING);
+    shell_write(context, output);
+}
+
 [[nodiscard]] std::string_view shell_node_kind_name(const mnos::os::fs::SimpleFsNodeKind kind) noexcept
 {
     switch (kind)
@@ -173,6 +203,69 @@ void shell_write_path_error(
         bytes.push_back(static_cast<mnos::cpu::Byte>(static_cast<unsigned char>(character)));
     }
     return bytes;
+}
+
+[[nodiscard]] bool shell_parse_max_steps(const std::string_view text, std::size_t& max_steps) noexcept
+{
+    if (text.empty())
+    {
+        return false;
+    }
+    std::size_t parsed_value = std::size_t{0};
+    const char* const first = text.data();
+    const char* const last = first + text.size();
+    const std::from_chars_result result = std::from_chars(first, last, parsed_value);
+    if (result.ec != std::errc{} || result.ptr != last || parsed_value == std::size_t{0})
+    {
+        return false;
+    }
+    max_steps = parsed_value;
+    return true;
+}
+
+[[nodiscard]] bool shell_run_status_should_wait(const mnos::os::kernel::UserProcessRunStatus status) noexcept
+{
+    switch (status)
+    {
+    case mnos::os::kernel::UserProcessRunStatus::EXITED:
+    case mnos::os::kernel::UserProcessRunStatus::KILLED:
+        return true;
+    case mnos::os::kernel::UserProcessRunStatus::BLOCKED:
+    case mnos::os::kernel::UserProcessRunStatus::OUT_OF_MEMORY:
+    case mnos::os::kernel::UserProcessRunStatus::MAX_STEPS:
+    case mnos::os::kernel::UserProcessRunStatus::COUNT:
+        break;
+    }
+    return false;
+}
+
+[[nodiscard]] std::string shell_run_result_text(
+    const std::string_view path,
+    const mnos::os::kernel::UserProcessRunResult& run_result,
+    const std::optional<mnos::os::kernel::ProcessWaitResult>& wait_result)
+{
+    std::string output{"run "};
+    output.append(path);
+    output.append(SHELL_RUN_PID_FIELD);
+    output.append(std::to_string(run_result.process_id().value()));
+    output.append(SHELL_RUN_STATUS_FIELD);
+    output.append(mnos::os::kernel::user_process_run_status_to_name(run_result.status()));
+    if (wait_result.has_value())
+    {
+        output.append(SHELL_RUN_WAIT_FIELD);
+        output.append(mnos::os::kernel::process_wait_status_to_name(wait_result->status()));
+    }
+    if (run_result.has_exit_code())
+    {
+        output.append(SHELL_RUN_EXIT_FIELD);
+        output.append(std::to_string(run_result.exit_code()));
+    }
+    output.append(SHELL_RUN_STEPS_FIELD);
+    output.append(std::to_string(run_result.executed_step_count()));
+    output.append(SHELL_RUN_TRACE_FIELD);
+    output.append(std::to_string(run_result.trace().size()));
+    output.append(SHELL_LINE_ENDING);
+    return output;
 }
 
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_help(
@@ -211,6 +304,9 @@ void shell_write_path_error(
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_stat(
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context);
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_run(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context);
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_exit(
     const mnos::os::shell::ShellCommand& command,
     mnos::os::shell::ShellContext& context);
@@ -230,6 +326,7 @@ void shell_write_path_error(
         ShellBuiltinSpec{{"touch", SHELL_SYNTAX_TOUCH, SHELL_DESCRIPTION_TOUCH}, handle_touch},
         ShellBuiltinSpec{{"write", SHELL_SYNTAX_WRITE, SHELL_DESCRIPTION_WRITE}, handle_write},
         ShellBuiltinSpec{{"stat", SHELL_SYNTAX_STAT, SHELL_DESCRIPTION_STAT}, handle_stat},
+        ShellBuiltinSpec{{"run", SHELL_SYNTAX_RUN, SHELL_DESCRIPTION_RUN}, handle_run},
         ShellBuiltinSpec{{"exit", SHELL_SYNTAX_EXIT, SHELL_DESCRIPTION_EXIT}, handle_exit}};
     return CATALOG;
 }
@@ -640,6 +737,92 @@ void append_shell_usage_line(std::string& output, const std::string_view syntax)
     }
 }
 
+[[nodiscard]] mnos::os::shell::ShellCommandResult handle_run(
+    const mnos::os::shell::ShellCommand& command,
+    mnos::os::shell::ShellContext& context)
+{
+    if (command.argument_count() < std::size_t{1} || command.argument_count() > std::size_t{2})
+    {
+        shell_write_usage(context, SHELL_SYNTAX_RUN);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    if (!context.has_process_context())
+    {
+        shell_write(context, SHELL_RUN_UNAVAILABLE_TEXT);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    const std::string_view path = command.argument_at(std::size_t{0});
+    std::size_t max_steps = mnos::os::kernel::KERNEL_USER_EXEC_DEFAULT_MAX_STEPS;
+    if (command.argument_count() == std::size_t{2} &&
+        !shell_parse_max_steps(command.argument_at(std::size_t{1}), max_steps))
+    {
+        shell_write(context, SHELL_RUN_INVALID_STEPS_TEXT);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    try
+    {
+        const std::optional<mnos::os::fs::VfsNode> node = context.os_kernel().vfs().lookup(path);
+        if (!node.has_value())
+        {
+            shell_write_path_error(context, SHELL_FS_NOT_FOUND_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+        if (node->is_directory())
+        {
+            shell_write_path_error(context, SHELL_FS_IS_DIRECTORY_PREFIX, path);
+            return mnos::os::shell::ShellCommandResult::handled();
+        }
+    }
+    catch (const std::invalid_argument&)
+    {
+        shell_write_path_error(context, SHELL_FS_INVALID_PATH_PREFIX, path);
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+
+    try
+    {
+        const mnos::os::kernel::UserProcessRunResult run_result =
+            context.os_kernel().exec_user_file(context.process().id(), path, max_steps);
+        std::optional<mnos::os::kernel::ProcessWaitResult> wait_result;
+        if (shell_run_status_should_wait(run_result.status()))
+        {
+            wait_result = context.os_kernel().wait_process(
+                context.process(),
+                context.thread(),
+                run_result.process_id());
+        }
+        shell_write(context, shell_run_result_text(path, run_result, wait_result));
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::invalid_argument& error)
+    {
+        shell_write_run_error(context, SHELL_RUN_INVALID_EXECUTABLE_PREFIX, error.what());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::out_of_range& error)
+    {
+        shell_write_run_error(context, SHELL_RUN_INVALID_EXECUTABLE_PREFIX, error.what());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::overflow_error& error)
+    {
+        shell_write_run_error(context, SHELL_RUN_INVALID_EXECUTABLE_PREFIX, error.what());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::length_error& error)
+    {
+        shell_write_run_error(context, SHELL_RUN_INVALID_EXECUTABLE_PREFIX, error.what());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+    catch (const std::runtime_error& error)
+    {
+        shell_write_run_error(context, SHELL_RUN_INVALID_EXECUTABLE_PREFIX, error.what());
+        return mnos::os::shell::ShellCommandResult::handled();
+    }
+}
+
 [[nodiscard]] mnos::os::shell::ShellCommandResult handle_exit(
     const mnos::os::shell::ShellCommand&,
     mnos::os::shell::ShellContext&)
@@ -853,6 +1036,16 @@ ShellContext::ShellContext(kernel::Kernel& os_kernel) noexcept : os_kernel_(&os_
 {
 }
 
+ShellContext::ShellContext(
+    kernel::Kernel& os_kernel,
+    proc::Process& process,
+    sched::ThreadContext& thread) noexcept :
+    os_kernel_(&os_kernel),
+    process_(&process),
+    thread_(&thread)
+{
+}
+
 kernel::Kernel& ShellContext::os_kernel() noexcept
 {
     return *this->os_kernel_;
@@ -861,6 +1054,47 @@ kernel::Kernel& ShellContext::os_kernel() noexcept
 const kernel::Kernel& ShellContext::os_kernel() const noexcept
 {
     return *this->os_kernel_;
+}
+
+bool ShellContext::has_process_context() const noexcept
+{
+    return this->process_ != nullptr && this->thread_ != nullptr;
+}
+
+proc::Process& ShellContext::process()
+{
+    if (this->process_ == nullptr)
+    {
+        throw std::logic_error{SHELL_PROCESS_CONTEXT_MISSING_MESSAGE};
+    }
+    return *this->process_;
+}
+
+const proc::Process& ShellContext::process() const
+{
+    if (this->process_ == nullptr)
+    {
+        throw std::logic_error{SHELL_PROCESS_CONTEXT_MISSING_MESSAGE};
+    }
+    return *this->process_;
+}
+
+sched::ThreadContext& ShellContext::thread()
+{
+    if (this->thread_ == nullptr)
+    {
+        throw std::logic_error{SHELL_THREAD_CONTEXT_MISSING_MESSAGE};
+    }
+    return *this->thread_;
+}
+
+const sched::ThreadContext& ShellContext::thread() const
+{
+    if (this->thread_ == nullptr)
+    {
+        throw std::logic_error{SHELL_THREAD_CONTEXT_MISSING_MESSAGE};
+    }
+    return *this->thread_;
 }
 
 bool ShellBuiltinRegistry::contains(const std::string_view name) const noexcept
@@ -926,6 +1160,11 @@ ShellCommandResult ShellBuiltinRegistry::execute(const ShellCommand& command, Sh
 }
 
 Shell::Shell(kernel::Kernel& os_kernel) noexcept : context_(os_kernel)
+{
+}
+
+Shell::Shell(kernel::Kernel& os_kernel, proc::Process& process, sched::ThreadContext& thread) noexcept :
+    context_(os_kernel, process, thread)
 {
 }
 

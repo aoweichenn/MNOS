@@ -385,7 +385,9 @@ TEST(Stage13ShellIoIntegrationTest, ShellExecutesBuiltinsThroughKernelConsole)
     EXPECT_THAT(machine.terminal_device().display().line(std::size_t{0}), HasSubstr("alpha two words"));
 
     EXPECT_THAT(session.execute_line("help").status(), Eq(shell::ShellCommandStatus::HANDLED));
-    EXPECT_THAT(display_text(machine), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
+    EXPECT_THAT(
+        display_text(machine),
+        HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat run exit"));
     EXPECT_THAT(display_text(machine), HasSubstr("commands:"));
     EXPECT_THAT(display_text(machine), HasSubstr("usage: help [command]"));
 
@@ -410,6 +412,9 @@ TEST(Stage13ShellIoIntegrationTest, ShellExecutesBuiltinsThroughKernelConsole)
 
     EXPECT_THAT(session.execute_line("ticks").status(), Eq(shell::ShellCommandStatus::HANDLED));
     EXPECT_THAT(display_text(machine), HasSubstr("ticks="));
+
+    EXPECT_THAT(session.execute_line("run /bin/exit42").status(), Eq(shell::ShellCommandStatus::HANDLED));
+    EXPECT_THAT(display_text(machine), HasSubstr("run unavailable: shell has no process context"));
 
     EXPECT_THAT(session.execute_line("missing").status(), Eq(shell::ShellCommandStatus::UNKNOWN_COMMAND));
     EXPECT_THAT(display_text(machine), HasSubstr("unknown command: missing"));

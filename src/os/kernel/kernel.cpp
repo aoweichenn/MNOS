@@ -2,6 +2,7 @@
 #include <array>
 #include <limits>
 #include <new>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -11,6 +12,7 @@
 #include <mnos/cpu/execution/executor.hpp>
 #include <mnos/cpu/system/trap_controller.hpp>
 #include <mnos/os/kernel/kernel.hpp>
+#include <mnos/os/proc/elf_loader.hpp>
 
 namespace
 {
@@ -25,9 +27,11 @@ constexpr const char* KERNEL_STAGE12_NOT_READY_MESSAGE = "kernel stage12 service
 constexpr const char* KERNEL_STAGE13_NOT_READY_MESSAGE = "kernel stage13 services are not initialized";
 constexpr const char* KERNEL_STAGE15_NOT_READY_MESSAGE = "kernel stage15 services are not initialized";
 constexpr const char* KERNEL_PROCESS_INDEX_OUT_OF_RANGE_MESSAGE = "kernel process index is out of range";
-constexpr const char* KERNEL_USER_EXEC_ENTRY_MISMATCH_MESSAGE =
-    "kernel user executable image base must match program entry point";
+constexpr const char* KERNEL_USER_EXEC_ENTRY_OUT_OF_RANGE_MESSAGE =
+    "kernel user executable image must contain program entry point";
 constexpr const char* KERNEL_USER_EXEC_EMPTY_IMAGE_MESSAGE = "kernel user executable image must not be empty";
+constexpr const char* KERNEL_USER_EXEC_FILE_TOO_LARGE_MESSAGE = "kernel user executable file is too large to load";
+constexpr const char* KERNEL_USER_EXEC_SHORT_READ_MESSAGE = "kernel user executable file changed while reading";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_INDEX_OUT_OF_RANGE_MESSAGE =
     "kernel scheduler handoff index is out of range";
 constexpr const char* KERNEL_SCHEDULER_HANDOFF_DEAD_THREAD_MESSAGE =
@@ -128,6 +132,25 @@ private:
         mnos::cpu::system::PrivilegeLevel::RING0,
         KERNEL_USER_SYSCALL_STACK_TOP);
     return controller;
+}
+
+[[nodiscard]] std::vector<mnos::cpu::Byte> read_all_vfs_file_bytes(
+    mnos::os::fs::Vfs& vfs,
+    const std::string_view path)
+{
+    mnos::os::fs::VfsFile file = vfs.open_file(path, mnos::os::fs::VfsOpenMode::READ_ONLY);
+    if (file.size_bytes() > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+    {
+        throw std::length_error{KERNEL_USER_EXEC_FILE_TOO_LARGE_MESSAGE};
+    }
+
+    std::vector<mnos::cpu::Byte> bytes(static_cast<std::size_t>(file.size_bytes()));
+    const std::size_t read_byte_count = file.read(bytes);
+    if (read_byte_count != bytes.size())
+    {
+        throw std::runtime_error{KERNEL_USER_EXEC_SHORT_READ_MESSAGE};
+    }
+    return bytes;
 }
 }
 
@@ -631,9 +654,9 @@ UserProcessRunResult Kernel::exec_user_program(
     {
         throw std::invalid_argument{KERNEL_USER_EXEC_EMPTY_IMAGE_MESSAGE};
     }
-    if (image.base_rip() != static_cast<cpu::InstructionPointer>(program.entry_point().value()))
+    if (!image.contains_rip(static_cast<cpu::InstructionPointer>(program.entry_point().value())))
     {
-        throw std::invalid_argument{KERNEL_USER_EXEC_ENTRY_MISMATCH_MESSAGE};
+        throw std::invalid_argument{KERNEL_USER_EXEC_ENTRY_OUT_OF_RANGE_MESSAGE};
     }
 
     proc::Process& process = this->create_user_process(program, parent_id);
@@ -720,6 +743,21 @@ UserProcessRunResult Kernel::exec_user_program(
         std::int64_t{0},
         false,
         std::move(trace)};
+}
+
+UserProcessRunResult Kernel::exec_user_file(
+    const proc::ProcessId parent_id,
+    const std::string_view path,
+    const std::size_t max_steps)
+{
+    this->require_stage15_services();
+    const std::vector<cpu::Byte> file_bytes = read_all_vfs_file_bytes(this->vfs_.value(), path);
+    const proc::LoadedUserExecutable executable = proc::Elf64Loader{}.load(std::span<const cpu::Byte>{file_bytes});
+    return this->exec_user_program(
+        parent_id,
+        executable.program(),
+        executable.executable_image(),
+        max_steps);
 }
 
 void Kernel::exit_process(proc::Process& process, const std::int64_t exit_code)

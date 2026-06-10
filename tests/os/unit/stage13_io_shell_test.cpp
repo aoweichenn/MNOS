@@ -198,7 +198,7 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
 {
     const shell::ShellBuiltinRegistry registry;
 
-    EXPECT_THAT(registry.size(), Eq(std::size_t{13}));
+    EXPECT_THAT(registry.size(), Eq(std::size_t{14}));
     EXPECT_TRUE(registry.contains("help"));
     EXPECT_TRUE(registry.contains("clear"));
     EXPECT_TRUE(registry.contains("echo"));
@@ -211,6 +211,7 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
     EXPECT_TRUE(registry.contains("touch"));
     EXPECT_TRUE(registry.contains("write"));
     EXPECT_TRUE(registry.contains("stat"));
+    EXPECT_TRUE(registry.contains("run"));
     EXPECT_TRUE(registry.contains("exit"));
     EXPECT_FALSE(registry.contains("missing"));
     const std::optional<shell::ShellBuiltinInfo> ls_info = registry.find("ls");
@@ -218,6 +219,10 @@ TEST(Stage13IoShellTest, ShellBuiltinRegistryKeepsBuiltinCatalogDiscoverable)
     EXPECT_THAT(ls_info->name, Eq(std::string_view{"ls"}));
     EXPECT_THAT(ls_info->syntax, Eq(std::string_view{"ls [path]"}));
     EXPECT_THAT(ls_info->description, Eq(std::string_view{"list directory entries"}));
+    const std::optional<shell::ShellBuiltinInfo> run_info = registry.find("run");
+    ASSERT_TRUE(run_info.has_value());
+    EXPECT_THAT(run_info->syntax, Eq(std::string_view{"run path [max_steps]"}));
+    EXPECT_THAT(run_info->description, Eq(std::string_view{"load and execute an ELF64 user program"}));
     EXPECT_FALSE(registry.find("missing").has_value());
 
     const shell::ShellBuiltinInfo help_info = registry.info_at(std::size_t{0});

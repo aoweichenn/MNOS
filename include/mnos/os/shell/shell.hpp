@@ -12,6 +12,16 @@ namespace mnos::os::kernel
 class Kernel;
 }
 
+namespace mnos::os::proc
+{
+class Process;
+}
+
+namespace mnos::os::sched
+{
+class ThreadContext;
+}
+
 namespace mnos::os::shell
 {
 struct ShellBuiltinInfo final
@@ -100,12 +110,20 @@ class ShellContext final
 {
 public:
     explicit ShellContext(kernel::Kernel& os_kernel) noexcept;
+    ShellContext(kernel::Kernel& os_kernel, proc::Process& process, sched::ThreadContext& thread) noexcept;
 
     [[nodiscard]] kernel::Kernel& os_kernel() noexcept;
     [[nodiscard]] const kernel::Kernel& os_kernel() const noexcept;
+    [[nodiscard]] bool has_process_context() const noexcept;
+    [[nodiscard]] proc::Process& process();
+    [[nodiscard]] const proc::Process& process() const;
+    [[nodiscard]] sched::ThreadContext& thread();
+    [[nodiscard]] const sched::ThreadContext& thread() const;
 
 private:
     kernel::Kernel* os_kernel_;
+    proc::Process* process_ = nullptr;
+    sched::ThreadContext* thread_ = nullptr;
 };
 
 class ShellBuiltinRegistry final
@@ -125,6 +143,7 @@ class Shell final
 {
 public:
     explicit Shell(kernel::Kernel& os_kernel) noexcept;
+    Shell(kernel::Kernel& os_kernel, proc::Process& process, sched::ThreadContext& thread) noexcept;
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] ShellCommandResult execute_line(std::string_view line);

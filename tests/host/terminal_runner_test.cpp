@@ -131,7 +131,7 @@ TEST(HostTerminalRunnerTest, ExecutesHelpAndExitThroughSimulatedTerminal)
     EXPECT_GT(result.poll_count(), std::size_t{0});
     EXPECT_GT(result.render_count(), std::size_t{0});
     EXPECT_THAT(output.str(), HasSubstr("mnos> help"));
-    EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
+    EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat run exit"));
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
     EXPECT_THAT(output.str().find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
 }
@@ -208,6 +208,22 @@ TEST(HostTerminalRunnerTest, FileCommandsPersistThroughShellSession)
     EXPECT_THAT(output.str(), HasSubstr("mnos> write /note hello terminal"));
     EXPECT_THAT(output.str(), HasSubstr("hello terminal\n"));
     EXPECT_THAT(output.str(), HasSubstr("path=/note kind=file"));
+}
+
+TEST(HostTerminalRunnerTest, RunCommandExecutesSeededDemoElf)
+{
+    const host::TerminalRunner runner = make_plain_stream_runner();
+    std::istringstream input{
+        "run /bin/exit42\n"
+        "exit\n"};
+    std::ostringstream output;
+
+    const host::TerminalRunResult result = runner.run(input, output);
+
+    EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
+    EXPECT_THAT(result.command_count(), Eq(std::size_t{2}));
+    EXPECT_THAT(output.str(), HasSubstr("mnos> run /bin/exit42"));
+    EXPECT_THAT(output.str(), HasSubstr("run /bin/exit42 pid=2 status=EXITED wait=EXITED exit=42 steps=3 trace=3"));
 }
 
 TEST(HostTerminalRunnerTest, DefaultStreamDoesNotReplayScreenSnapshots)
@@ -308,7 +324,7 @@ TEST(HostTerminalRunnerTest, PlainScreenModeKeepsSnapshotRenderingExplicit)
     EXPECT_THAT(result.status(), Eq(host::TerminalRunStatus::EXITED));
     EXPECT_THAT(result.command_count(), Eq(std::size_t{3}));
     EXPECT_THAT(output.str().find(TEST_ANSI_ESCAPE_CHARACTER), Eq(std::string::npos));
-    EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat exit"));
+    EXPECT_THAT(output.str(), HasSubstr("builtins: help clear echo ps mem cpu ticks ls cat touch write stat run exit"));
     EXPECT_THAT(output.str(), HasSubstr("mnos> exit"));
 }
 

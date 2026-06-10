@@ -11,18 +11,16 @@
 
 #include <mnos/core/enum_map.hpp>
 #include <mnos/cpu/common/data_size.hpp>
-#include <mnos/cpu/decode/executable_image.hpp>
 #include <mnos/cpu/execution/cpu_state.hpp>
 #include <mnos/cpu/instruction/opcode.hpp>
 #include <mnos/cpu/register/id.hpp>
 #include <mnos/cpu/system/privilege.hpp>
+#include <mnos/host/demo_user_program.hpp>
 #include <mnos/os/kernel/kernel.hpp>
-#include <mnos/os/kernel/syscall.hpp>
 #include <mnos/os/dev/terminal.hpp>
 #include <mnos/os/mm/address.hpp>
 #include <mnos/os/mm/address_layout.hpp>
 #include <mnos/os/mm/address_space.hpp>
-#include <mnos/os/proc/user_loader.hpp>
 #include <mnos/os/proc/process.hpp>
 #include <mnos/os/sched/thread_context.hpp>
 #include <mnos/os/sched/thread_state.hpp>
@@ -67,16 +65,6 @@ constexpr std::size_t HOST_DEBUGGER_REGISTERS_PER_LINE = std::size_t{4};
 constexpr char HOST_DEBUGGER_LINE_FEED_CHARACTER = '\n';
 constexpr char HOST_DEBUGGER_CARRIAGE_RETURN_CHARACTER = '\r';
 constexpr char HOST_DEBUGGER_TRACE_CONTROL_PLACEHOLDER = ' ';
-constexpr mm::VirtualAddress HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE = mm::ADDRESS_LAYOUT_USER_TEXT_BASE;
-constexpr mm::AddressValue HOST_DEBUGGER_SAMPLE_USER_STACK_SIZE_BYTES =
-    mm::MM_PAGE_SIZE_BYTES * mm::AddressValue{2};
-constexpr std::int64_t HOST_DEBUGGER_SAMPLE_USER_EXIT_CODE = std::int64_t{42};
-constexpr cpu::Byte HOST_DEBUGGER_X86_REX_W = cpu::Byte{0x48};
-constexpr cpu::Byte HOST_DEBUGGER_X86_MOV_RAX_IMM64 = cpu::Byte{0xB8};
-constexpr cpu::Byte HOST_DEBUGGER_X86_MOV_RDI_IMM64 = cpu::Byte{0xBF};
-constexpr cpu::Byte HOST_DEBUGGER_X86_SYSCALL_ESCAPE = cpu::Byte{0x0F};
-constexpr cpu::Byte HOST_DEBUGGER_X86_SYSCALL = cpu::Byte{0x05};
-constexpr cpu::Byte HOST_DEBUGGER_X86_HLT = cpu::Byte{0xF4};
 
 inline constexpr std::array<memory::PageTableLevel, memory::PAGE_TABLE_LEVEL_COUNT> HOST_DEBUGGER_PAGE_WALK_ORDER{
     memory::PageTableLevel::PML4,
@@ -134,52 +122,13 @@ inline constexpr std::array<cpu::RegisterId, cpu::REGISTER_ID_COUNT> HOST_DEBUGG
     return std::string{value ? HOST_DEBUGGER_TRUE_TEXT : HOST_DEBUGGER_FALSE_TEXT};
 }
 
-void append_u64_le(std::vector<cpu::Byte>& bytes, const std::uint64_t value)
-{
-    for (std::size_t byte_index = std::size_t{0}; byte_index < sizeof(std::uint64_t); ++byte_index)
-    {
-        bytes.push_back(static_cast<cpu::Byte>(
-            (value >> static_cast<unsigned>(byte_index * cpu::DATA_SIZE_BYTE_BITS)) & std::uint64_t{0xFF}));
-    }
-}
-
-[[nodiscard]] std::vector<cpu::Byte> make_sample_user_program_bytes()
-{
-    std::vector<cpu::Byte> bytes;
-    bytes.reserve(std::size_t{24});
-    bytes.push_back(HOST_DEBUGGER_X86_REX_W);
-    bytes.push_back(HOST_DEBUGGER_X86_MOV_RAX_IMM64);
-    append_u64_le(bytes, static_cast<std::uint64_t>(mnos::os::kernel::SyscallNumber::EXIT));
-    bytes.push_back(HOST_DEBUGGER_X86_REX_W);
-    bytes.push_back(HOST_DEBUGGER_X86_MOV_RDI_IMM64);
-    append_u64_le(bytes, static_cast<std::uint64_t>(HOST_DEBUGGER_SAMPLE_USER_EXIT_CODE));
-    bytes.push_back(HOST_DEBUGGER_X86_SYSCALL_ESCAPE);
-    bytes.push_back(HOST_DEBUGGER_X86_SYSCALL);
-    bytes.push_back(HOST_DEBUGGER_X86_HLT);
-    return bytes;
-}
-
-[[nodiscard]] proc::UserProgram make_sample_user_program(std::vector<cpu::Byte> text)
-{
-    proc::UserProgram program{HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE};
-    program.set_initial_stack_size_bytes(HOST_DEBUGGER_SAMPLE_USER_STACK_SIZE_BYTES);
-    program.add_segment(proc::UserSegment::text(HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE, std::move(text)));
-    return program;
-}
-
-[[nodiscard]] cpu::ExecutableImage make_sample_user_executable_image(const std::vector<cpu::Byte>& bytes)
-{
-    return cpu::ExecutableImage{
-        cpu::ExecutableImage::container_type{bytes.begin(), bytes.end()},
-        static_cast<cpu::InstructionPointer>(HOST_DEBUGGER_SAMPLE_USER_TEXT_BASE.value())};
-}
-
 [[nodiscard]] std::string make_sample_user_exec_detail(
     const mnos::os::kernel::UserProcessRunResult& run_result,
     const mnos::os::kernel::ProcessWaitResult& wait_result)
 {
     std::ostringstream output;
-    output << "pid=" << run_result.process_id().value()
+    output << "path=" << mnos::host::HOST_DEMO_EXIT42_PATH
+           << " pid=" << run_result.process_id().value()
            << " user_status=" << mnos::os::kernel::user_process_run_status_to_name(run_result.status())
            << " wait_status=" << mnos::os::kernel::process_wait_status_to_name(wait_result.status())
            << " steps=" << run_result.executed_step_count()
@@ -811,15 +760,10 @@ HostMachineSessionStatus HostDebuggerSession::run_sample_user_program()
     this->run_state_ = HostDebuggerRunState::RUNNING;
     try
     {
-        std::vector<cpu::Byte> bytes = make_sample_user_program_bytes();
-        proc::UserProgram program = make_sample_user_program(bytes);
-        const cpu::ExecutableImage image = make_sample_user_executable_image(bytes);
-
         mnos::os::kernel::Kernel& os_kernel = this->machine_session_.kernel();
-        const mnos::os::kernel::UserProcessRunResult run_result = os_kernel.exec_user_program(
+        const mnos::os::kernel::UserProcessRunResult run_result = os_kernel.exec_user_file(
             this->machine_session_.shell_process().id(),
-            program,
-            image,
+            mnos::host::HOST_DEMO_EXIT42_PATH,
             HOST_DEBUGGER_SAMPLE_USER_EXEC_MAX_STEPS);
         this->record_instruction_trace(run_result.trace());
 

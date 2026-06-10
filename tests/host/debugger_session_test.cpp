@@ -414,6 +414,7 @@ TEST(HostDebuggerSessionTest, RunsSampleUserProgramIntoInstructionTrace)
     EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=MOV"));
     EXPECT_THAT(frame.instruction_trace_text, HasSubstr("opcode=SYSCALL"));
     EXPECT_THAT(frame.trace_text, HasSubstr("action=exec_user_sample"));
+    EXPECT_THAT(frame.trace_text, HasSubstr("path=/bin/exit42"));
     EXPECT_THAT(frame.trace_text, HasSubstr("user_status=EXITED"));
     EXPECT_THAT(frame.trace_text, HasSubstr("wait_status=EXITED"));
     EXPECT_THAT(frame.trace_text, HasSubstr("exit=42"));

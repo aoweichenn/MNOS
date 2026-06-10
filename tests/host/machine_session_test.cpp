@@ -1,14 +1,19 @@
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <mnos/host/demo_user_program.hpp>
 #include <mnos/host/machine_session.hpp>
 #include <mnos/os/dev/terminal.hpp>
+#include <mnos/os/fs/vfs.hpp>
 #include <mnos/os/kernel/kernel.hpp>
 #include <mnos/os/platform/machine.hpp>
 #include <mnos/os/proc/process.hpp>
@@ -18,6 +23,7 @@ namespace
 {
 namespace host = mnos::host;
 namespace io = mnos::os::io;
+namespace kernel = mnos::os::kernel;
 namespace mm = mnos::os::mm;
 
 using ::testing::Eq;
@@ -27,6 +33,7 @@ constexpr std::string_view TEST_INVALID_ENUM_NAME = "<invalid>";
 constexpr std::string_view TEST_PROMPT = "mnos> ";
 constexpr std::uint32_t TEST_PROCESSOR_COUNT = std::uint32_t{2};
 constexpr std::uint32_t TEST_SINGLE_PROCESSOR_COUNT = std::uint32_t{1};
+constexpr std::size_t TEST_EXEC_MAX_STEPS = std::size_t{16};
 constexpr std::size_t TEST_UNBOOTABLE_MEMORY_SIZE_BYTES =
     static_cast<std::size_t>(mm::MM_PAGE_SIZE_BYTES / mm::AddressValue{2});
 }
@@ -110,6 +117,47 @@ TEST(HostMachineSessionTest, BootCreatesShellAndPromptForGuiLoop)
     EXPECT_THAT(snapshot.physical_page_count, Eq(host::HOST_MACHINE_SESSION_DEFAULT_MEMORY_PAGE_COUNT));
     EXPECT_GT(snapshot.free_page_count, std::size_t{0});
     EXPECT_GT(snapshot.allocated_page_count, std::size_t{0});
+}
+
+TEST(HostMachineSessionTest, BootInstallsDemoUserProgramsInVfs)
+{
+    host::HostMachineSession session;
+
+    session.boot();
+
+    const std::optional<mnos::os::fs::VfsNode> bin_node =
+        session.kernel().vfs().lookup(host::HOST_DEMO_BIN_DIRECTORY);
+    const std::optional<mnos::os::fs::VfsNode> exit42_node =
+        session.kernel().vfs().lookup(host::HOST_DEMO_EXIT42_PATH);
+    ASSERT_TRUE(bin_node.has_value());
+    EXPECT_TRUE(bin_node->is_directory());
+    ASSERT_TRUE(exit42_node.has_value());
+    EXPECT_TRUE(exit42_node->is_file());
+    EXPECT_GT(exit42_node->size_bytes(), std::uint64_t{0});
+}
+
+TEST(HostMachineSessionTest, DemoProgramInstallOverwritesExistingExecutableBytes)
+{
+    host::HostMachineSession session;
+    session.boot();
+    const std::vector<mnos::cpu::Byte> bad_bytes{
+        mnos::cpu::Byte{'n'},
+        mnos::cpu::Byte{'o'},
+        mnos::cpu::Byte{'p'},
+        mnos::cpu::Byte{'e'}};
+    mnos::os::fs::VfsFile file =
+        session.kernel().vfs().open_file(host::HOST_DEMO_EXIT42_PATH, mnos::os::fs::VfsOpenMode::READ_WRITE);
+    EXPECT_THAT(file.write(bad_bytes), Eq(bad_bytes.size()));
+
+    host::install_host_demo_user_programs(session.kernel());
+    const kernel::UserProcessRunResult run_result = session.kernel().exec_user_file(
+        session.shell_process().id(),
+        host::HOST_DEMO_EXIT42_PATH,
+        TEST_EXEC_MAX_STEPS);
+
+    EXPECT_THAT(run_result.status(), Eq(kernel::UserProcessRunStatus::EXITED));
+    EXPECT_TRUE(run_result.has_exit_code());
+    EXPECT_THAT(run_result.exit_code(), Eq(host::HOST_DEMO_EXIT42_CODE));
 }
 
 TEST(HostMachineSessionTest, PublicAccessorsExposeBootedRuntime)

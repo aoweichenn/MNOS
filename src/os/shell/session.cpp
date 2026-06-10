@@ -161,7 +161,7 @@ ShellSession::ShellSession(
     os_kernel_(&os_kernel),
     process_(&process),
     thread_(&thread),
-    shell_(os_kernel)
+    shell_(os_kernel, process, thread)
 {
 }
 
